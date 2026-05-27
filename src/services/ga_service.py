@@ -89,9 +89,26 @@ def run_sku_crawl(product_id: str, url: str) -> list[dict]:
         )
 
         output = result.stdout.strip()
-        for line in output.splitlines():
-            if line.startswith("[") or line.startswith("{"):
-                return json.loads(line)
+        lines = output.splitlines()
+        json_start = -1
+        json_end = -1
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if json_start == -1 and (stripped.startswith("[") or stripped.startswith("{")):
+                json_start = i
+                if stripped in ("[]", "{}"):
+                    json_end = i
+                    break
+            elif json_start != -1 and stripped == "]":
+                json_end = i
+                break
+
+        if json_start != -1 and json_end != -1:
+            json_text = "\n".join(lines[json_start:json_end + 1])
+            try:
+                return json.loads(json_text)
+            except json.JSONDecodeError:
+                logger.exception("SKU JSON 解析失败")
 
         logger.error("SKU 抓取无有效输出: %s", result.stderr[:200] if result.stderr else "")
         return []

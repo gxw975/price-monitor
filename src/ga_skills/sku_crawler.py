@@ -28,6 +28,7 @@ logger = logging.getLogger("sku_crawler")
 
 SESSION_PREFIX = "sku_crawl"
 OPENCLI_TIMEOUT = 30
+OPENCLI_PROFILE = os.environ.get("OPENCLI_PROFILE", "zu4794g4")
 SLEEP_MIN = 1.0
 SLEEP_MAX = 3.0
 FLOW_TIMEOUT_MINUTES = 10
@@ -60,7 +61,7 @@ class TimeoutError(Exception):
 
 
 def _run_opencli(args: Sequence[str], timeout: int = OPENCLI_TIMEOUT) -> subprocess.CompletedProcess[str]:
-    cmd = ["opencli"] + list(args)
+    cmd = ["opencli", "--profile", OPENCLI_PROFILE] + list(args)
     logger.debug("执行命令: %s", " ".join(cmd))
 
     try:
@@ -378,9 +379,9 @@ def crawl_skus(product_id: str, url: str) -> list[dict[str, object]]:
         _run_opencli(["browser", session, "wait", "time", "3"])
         _sleep_random(2.0, 4.0)
 
-        _run_opencli(["browser", session, "scroll", "down", "--window", "foreground"])
+        _run_opencli(["browser", session, "scroll", "down"])
         _sleep_random()
-        _run_opencli(["browser", session, "scroll", "down", "--window", "foreground"])
+        _run_opencli(["browser", session, "scroll", "down"])
         _sleep_random(2.0, 3.0)
         logger.info("[3/6] 已滚动页面到 SKU 区域")
 

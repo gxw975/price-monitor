@@ -91,9 +91,9 @@ def _search_taobao(keyword: str) -> None:
 
 
 def _scroll_page() -> None:
-    _run_opencli(["browser", SESSION_NAME, "scroll", "down", "--window", "foreground"])
+    _run_opencli(["browser", SESSION_NAME, "scroll", "down"])
     _sleep_random(1.0, 2.0)
-    _run_opencli(["browser", SESSION_NAME, "scroll", "down", "--window", "foreground"])
+    _run_opencli(["browser", SESSION_NAME, "scroll", "down"])
 
 
 def _trigger_extension_via_eval() -> bool:
@@ -110,7 +110,7 @@ def _trigger_extension_via_eval() -> bool:
 
 def _click_extension_via_browser_action() -> bool:
     try:
-        _run_opencli(["browser", SESSION_NAME, "click", "--window", "foreground"], timeout=15)
+        _run_opencli(["browser", SESSION_NAME, "click"], timeout=15)
         return True
     except Exception:
         return False
