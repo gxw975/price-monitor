@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id            Int      @id @default(autoincrement())
+  username      String   @unique
+  password_hash String
+  role          String   @default("user")
+  created_at    DateTime @default(now())
+}
+
+model Product {
+  product_id           String    @id
+  title                String
+  main_image_url       String?
+  shop_name            String
+  shop_type            String?
+  shipping_area        String?
+  is_approved          Boolean   @default(false)
+  is_whitelist         Boolean   @default(false)
+  created_at           DateTime  @default(now())
+  last_updated_at      DateTime  @default(now())
+  last_sku_crawled_at  DateTime?
+
+  histories ProductHistory[]
+  skus      ProductSku[]
+}
+
+model ProductHistory {
+  id           Int      @id @default(autoincrement())
+  product_id   String
+  price        Decimal  @db.Decimal(10, 2)
+  sales_volume Int
+  recorded_at  DateTime @default(now())
+
+  product Product @relation(fields: [product_id], references: [product_id])
+
+  @@index([product_id, recorded_at])
+}
+
+model ProductSku {
+  id            Int      @id @default(autoincrement())
+  product_id    String
+  sku_name      String
+  sku_price     Decimal  @db.Decimal(10, 2)
+  unit_price    Decimal  @db.Decimal(10, 2)
+  sku_image_url String?
+  recorded_at   DateTime @default(now())
+
+  product Product @relation(fields: [product_id], references: [product_id])
+
+  @@index([product_id])
+}
+
+model SystemConfig {
+  id                     Int      @id @default(autoincrement())
+  alert_price            Decimal  @db.Decimal(10, 2)
+  work_start_hour        Int      @default(9)
+  work_end_hour          Int      @default(18)
+  sales_growth_threshold Int      @default(100)
+  created_at             DateTime @default(now())
+  updated_at             DateTime @default(now())
+  keywords               String   @default("[]")
+  sku_crawl_limit        Int      @default(10)
+  sku_crawl_interval     Int      @default(120)
+}
