@@ -1,0 +1,32 @@
+# 在项目根目录创建 .aiignore
+cat > /home/lab-admin/price-monitor/.aiignore << 'EOF'
+# === 敏感配置文件（绝对不要让AI读取） ===
+.env
+.env.*
+*.pem
+*.key
+*.crt
+secrets/
+credentials/
+config/secrets/
+
+# === OpenClaw相关（保护Agent配置不被AI误改） ===
+../.openclaw/
+../openclaw/
+
+# === 系统文件 ===
+../../etc/
+../../var/
+
+# === 用户敏感目录 ===
+../.ssh/
+../.gnupg/
+
+# === 浏览器用户数据（含淘宝登录态） ===
+../.config/google-chrome/
+../chrome-user-data/
+
+# === 数据库文件 ===
+*.db
+*.sqlite
+EOF
