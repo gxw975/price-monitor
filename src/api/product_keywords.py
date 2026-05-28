@@ -92,6 +92,53 @@ def get_keywords_by_product(
         conn.close()
 
 
+class ProductKeywordBatchBind(BaseModel):
+    product_ids: list[str]
+    keyword_ids: list[int]
+
+
+@router.post("/batch-bind")
+def batch_bind_keywords(
+    body: ProductKeywordBatchBind,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    _check_write_permission(current_user["role"])
+
+    if not body.product_ids:
+        raise HTTPException(status_code=400, detail="product_ids 不能为空")
+    if not body.keyword_ids:
+        raise HTTPException(status_code=400, detail="keyword_ids 不能为空")
+
+    conn = _get_conn()
+    bound = 0
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                for kw_id in body.keyword_ids:
+                    for pid in body.product_ids:
+                        cur.execute(
+                            'INSERT INTO "ProductKeyword" (keyword_id, product_id) '
+                            "VALUES (%s, %s) ON CONFLICT DO NOTHING",
+                            (kw_id, pid),
+                        )
+                        if cur.rowcount > 0:
+                            bound += 1
+
+            conn.commit()
+
+        logger.info(
+            "批量绑定关键词: products=%d keywords=%d bound=%d (by %s)",
+            len(body.product_ids), len(body.keyword_ids), bound, current_user["username"],
+        )
+        return {"success": True, "bound": bound}
+    except Exception:
+        logger.exception("批量绑定关键词失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="批量绑定关键词失败")
+    finally:
+        conn.close()
+
+
 @router.put("/by-product/{product_id}")
 def set_keywords_for_product(
     product_id: str,

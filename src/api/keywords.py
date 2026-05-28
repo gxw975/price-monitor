@@ -218,6 +218,38 @@ def update_keyword(
         conn.close()
 
 
+@router.post("/batch-toggle")
+def batch_toggle(
+    ids: list[int],
+    is_active: bool,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    _check_write_permission(current_user["role"])
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(ids))
+            cur.execute(
+                f'UPDATE "Keyword" SET is_active = %s WHERE id IN ({placeholders})',
+                [is_active] + ids,
+            )
+            affected = cur.rowcount
+            conn.commit()
+
+        logger.info("批量切换关键词: ids=%s, is_active=%s, affected=%d (by %s)",
+                     ids, is_active, affected, current_user["username"])
+        return {"success": True, "affected": affected}
+    except Exception:
+        logger.exception("批量切换关键词失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="批量切换关键词失败")
+    finally:
+        conn.close()
+
+
 @router.delete("/{keyword_id}")
 def delete_keyword(
     keyword_id: int,

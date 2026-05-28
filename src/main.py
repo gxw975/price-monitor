@@ -21,6 +21,7 @@ from api.auth import router as auth_router
 from api.cron import router as cron_router
 from api.dashboard import router as dashboard_router
 from api.diagnostics import router as diagnostics_router
+from api.import_export import router as import_export_router
 from api.keywords import router as keywords_router
 from api.product_keywords import router as product_keywords_router
 from api.products import router as products_router
@@ -88,6 +89,7 @@ app.include_router(alerts_router)
 app.include_router(cron_router)
 app.include_router(dashboard_router)
 app.include_router(diagnostics_router)
+app.include_router(import_export_router)
 app.include_router(keywords_router)
 app.include_router(product_keywords_router)
 app.include_router(products_router)

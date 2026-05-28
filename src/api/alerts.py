@@ -176,6 +176,32 @@ def mark_processed(ids: list[int]) -> dict[str, Any]:
         conn.close()
 
 
+@router.post("/batch-delete")
+def batch_delete(ids: list[int]) -> dict[str, Any]:
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(ids))
+            cur.execute(
+                f'DELETE FROM "Alert" WHERE id IN ({placeholders})',
+                ids,
+            )
+            affected = cur.rowcount
+            conn.commit()
+
+        logger.info("批量删除预警: ids=%s, affected=%d", ids, affected)
+        return {"success": True, "affected": affected}
+    except Exception:
+        logger.exception("批量删除预警失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="批量删除预警失败")
+    finally:
+        conn.close()
+
+
 @router.get("/stats")
 def get_stats() -> dict[str, Any]:
     conn = _get_conn()
