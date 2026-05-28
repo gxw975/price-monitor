@@ -39,6 +39,7 @@ export type UserMinAggregateOutputType = {
   username: string | null
   password: string | null
   role: string | null
+  openclaw_agent_id: string | null
   created_at: Date | null
 }
 
@@ -47,6 +48,7 @@ export type UserMaxAggregateOutputType = {
   username: string | null
   password: string | null
   role: string | null
+  openclaw_agent_id: string | null
   created_at: Date | null
 }
 
@@ -55,6 +57,7 @@ export type UserCountAggregateOutputType = {
   username: number
   password: number
   role: number
+  openclaw_agent_id: number
   created_at: number
   _all: number
 }
@@ -73,6 +76,7 @@ export type UserMinAggregateInputType = {
   username?: true
   password?: true
   role?: true
+  openclaw_agent_id?: true
   created_at?: true
 }
 
@@ -81,6 +85,7 @@ export type UserMaxAggregateInputType = {
   username?: true
   password?: true
   role?: true
+  openclaw_agent_id?: true
   created_at?: true
 }
 
@@ -89,6 +94,7 @@ export type UserCountAggregateInputType = {
   username?: true
   password?: true
   role?: true
+  openclaw_agent_id?: true
   created_at?: true
   _all?: true
 }
@@ -184,6 +190,7 @@ export type UserGroupByOutputType = {
   username: string
   password: string
   role: string
+  openclaw_agent_id: string | null
   created_at: Date
   _count: UserCountAggregateOutputType | null
   _avg: UserAvgAggregateOutputType | null
@@ -215,6 +222,7 @@ export type UserWhereInput = {
   username?: Prisma.StringFilter<"User"> | string
   password?: Prisma.StringFilter<"User"> | string
   role?: Prisma.StringFilter<"User"> | string
+  openclaw_agent_id?: Prisma.StringNullableFilter<"User"> | string | null
   created_at?: Prisma.DateTimeFilter<"User"> | Date | string
   keywords?: Prisma.KeywordListRelationFilter
 }
@@ -224,6 +232,7 @@ export type UserOrderByWithRelationInput = {
   username?: Prisma.SortOrder
   password?: Prisma.SortOrder
   role?: Prisma.SortOrder
+  openclaw_agent_id?: Prisma.SortOrderInput | Prisma.SortOrder
   created_at?: Prisma.SortOrder
   keywords?: Prisma.KeywordOrderByRelationAggregateInput
 }
@@ -236,6 +245,7 @@ export type UserWhereUniqueInput = Prisma.AtLeast<{
   NOT?: Prisma.UserWhereInput | Prisma.UserWhereInput[]
   password?: Prisma.StringFilter<"User"> | string
   role?: Prisma.StringFilter<"User"> | string
+  openclaw_agent_id?: Prisma.StringNullableFilter<"User"> | string | null
   created_at?: Prisma.DateTimeFilter<"User"> | Date | string
   keywords?: Prisma.KeywordListRelationFilter
 }, "id" | "username">
@@ -245,6 +255,7 @@ export type UserOrderByWithAggregationInput = {
   username?: Prisma.SortOrder
   password?: Prisma.SortOrder
   role?: Prisma.SortOrder
+  openclaw_agent_id?: Prisma.SortOrderInput | Prisma.SortOrder
   created_at?: Prisma.SortOrder
   _count?: Prisma.UserCountOrderByAggregateInput
   _avg?: Prisma.UserAvgOrderByAggregateInput
@@ -261,6 +272,7 @@ export type UserScalarWhereWithAggregatesInput = {
   username?: Prisma.StringWithAggregatesFilter<"User"> | string
   password?: Prisma.StringWithAggregatesFilter<"User"> | string
   role?: Prisma.StringWithAggregatesFilter<"User"> | string
+  openclaw_agent_id?: Prisma.StringNullableWithAggregatesFilter<"User"> | string | null
   created_at?: Prisma.DateTimeWithAggregatesFilter<"User"> | Date | string
 }
 
@@ -268,6 +280,7 @@ export type UserCreateInput = {
   username: string
   password: string
   role?: string
+  openclaw_agent_id?: string | null
   created_at?: Date | string
   keywords?: Prisma.KeywordCreateNestedManyWithoutCreatorInput
 }
@@ -277,6 +290,7 @@ export type UserUncheckedCreateInput = {
   username: string
   password: string
   role?: string
+  openclaw_agent_id?: string | null
   created_at?: Date | string
   keywords?: Prisma.KeywordUncheckedCreateNestedManyWithoutCreatorInput
 }
@@ -285,6 +299,7 @@ export type UserUpdateInput = {
   username?: Prisma.StringFieldUpdateOperationsInput | string
   password?: Prisma.StringFieldUpdateOperationsInput | string
   role?: Prisma.StringFieldUpdateOperationsInput | string
+  openclaw_agent_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   keywords?: Prisma.KeywordUpdateManyWithoutCreatorNestedInput
 }
@@ -294,6 +309,7 @@ export type UserUncheckedUpdateInput = {
   username?: Prisma.StringFieldUpdateOperationsInput | string
   password?: Prisma.StringFieldUpdateOperationsInput | string
   role?: Prisma.StringFieldUpdateOperationsInput | string
+  openclaw_agent_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   keywords?: Prisma.KeywordUncheckedUpdateManyWithoutCreatorNestedInput
 }
@@ -303,6 +319,7 @@ export type UserCreateManyInput = {
   username: string
   password: string
   role?: string
+  openclaw_agent_id?: string | null
   created_at?: Date | string
 }
 
@@ -310,6 +327,7 @@ export type UserUpdateManyMutationInput = {
   username?: Prisma.StringFieldUpdateOperationsInput | string
   password?: Prisma.StringFieldUpdateOperationsInput | string
   role?: Prisma.StringFieldUpdateOperationsInput | string
+  openclaw_agent_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -318,6 +336,7 @@ export type UserUncheckedUpdateManyInput = {
   username?: Prisma.StringFieldUpdateOperationsInput | string
   password?: Prisma.StringFieldUpdateOperationsInput | string
   role?: Prisma.StringFieldUpdateOperationsInput | string
+  openclaw_agent_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -326,6 +345,7 @@ export type UserCountOrderByAggregateInput = {
   username?: Prisma.SortOrder
   password?: Prisma.SortOrder
   role?: Prisma.SortOrder
+  openclaw_agent_id?: Prisma.SortOrder
   created_at?: Prisma.SortOrder
 }
 
@@ -338,6 +358,7 @@ export type UserMaxOrderByAggregateInput = {
   username?: Prisma.SortOrder
   password?: Prisma.SortOrder
   role?: Prisma.SortOrder
+  openclaw_agent_id?: Prisma.SortOrder
   created_at?: Prisma.SortOrder
 }
 
@@ -346,6 +367,7 @@ export type UserMinOrderByAggregateInput = {
   username?: Prisma.SortOrder
   password?: Prisma.SortOrder
   role?: Prisma.SortOrder
+  openclaw_agent_id?: Prisma.SortOrder
   created_at?: Prisma.SortOrder
 }
 
@@ -360,6 +382,10 @@ export type UserScalarRelationFilter = {
 
 export type StringFieldUpdateOperationsInput = {
   set?: string
+}
+
+export type NullableStringFieldUpdateOperationsInput = {
+  set?: string | null
 }
 
 export type DateTimeFieldUpdateOperationsInput = {
@@ -392,6 +418,7 @@ export type UserCreateWithoutKeywordsInput = {
   username: string
   password: string
   role?: string
+  openclaw_agent_id?: string | null
   created_at?: Date | string
 }
 
@@ -400,6 +427,7 @@ export type UserUncheckedCreateWithoutKeywordsInput = {
   username: string
   password: string
   role?: string
+  openclaw_agent_id?: string | null
   created_at?: Date | string
 }
 
@@ -423,6 +451,7 @@ export type UserUpdateWithoutKeywordsInput = {
   username?: Prisma.StringFieldUpdateOperationsInput | string
   password?: Prisma.StringFieldUpdateOperationsInput | string
   role?: Prisma.StringFieldUpdateOperationsInput | string
+  openclaw_agent_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -431,6 +460,7 @@ export type UserUncheckedUpdateWithoutKeywordsInput = {
   username?: Prisma.StringFieldUpdateOperationsInput | string
   password?: Prisma.StringFieldUpdateOperationsInput | string
   role?: Prisma.StringFieldUpdateOperationsInput | string
+  openclaw_agent_id?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
 }
 
@@ -470,6 +500,7 @@ export type UserSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = r
   username?: boolean
   password?: boolean
   role?: boolean
+  openclaw_agent_id?: boolean
   created_at?: boolean
   keywords?: boolean | Prisma.User$keywordsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
@@ -480,6 +511,7 @@ export type UserSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   username?: boolean
   password?: boolean
   role?: boolean
+  openclaw_agent_id?: boolean
   created_at?: boolean
 }, ExtArgs["result"]["user"]>
 
@@ -488,6 +520,7 @@ export type UserSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensio
   username?: boolean
   password?: boolean
   role?: boolean
+  openclaw_agent_id?: boolean
   created_at?: boolean
 }, ExtArgs["result"]["user"]>
 
@@ -496,10 +529,11 @@ export type UserSelectScalar = {
   username?: boolean
   password?: boolean
   role?: boolean
+  openclaw_agent_id?: boolean
   created_at?: boolean
 }
 
-export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "username" | "password" | "role" | "created_at", ExtArgs["result"]["user"]>
+export type UserOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "username" | "password" | "role" | "openclaw_agent_id" | "created_at", ExtArgs["result"]["user"]>
 export type UserInclude<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   keywords?: boolean | Prisma.User$keywordsArgs<ExtArgs>
   _count?: boolean | Prisma.UserCountOutputTypeDefaultArgs<ExtArgs>
@@ -517,6 +551,7 @@ export type $UserPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs =
     username: string
     password: string
     role: string
+    openclaw_agent_id: string | null
     created_at: Date
   }, ExtArgs["result"]["user"]>
   composites: {}
@@ -946,6 +981,7 @@ export interface UserFieldRefs {
   readonly username: Prisma.FieldRef<"User", 'String'>
   readonly password: Prisma.FieldRef<"User", 'String'>
   readonly role: Prisma.FieldRef<"User", 'String'>
+  readonly openclaw_agent_id: Prisma.FieldRef<"User", 'String'>
   readonly created_at: Prisma.FieldRef<"User", 'DateTime'>
 }
     

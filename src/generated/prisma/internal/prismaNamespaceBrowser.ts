@@ -83,6 +83,7 @@ export const UserScalarFieldEnum = {
   username: 'username',
   password: 'password',
   role: 'role',
+  openclaw_agent_id: 'openclaw_agent_id',
   created_at: 'created_at'
 } as const
 

@@ -130,6 +130,8 @@ async def operation_log_middleware(request: Request, call_next):
         ("POST", "/api/service/start"): "启动服务",
         ("POST", "/api/push/test"): "测试推送",
         ("POST", "/api/taobao/start-login"): "刷新淘宝登录",
+        ("POST", "/api/users/me/bind-agent"): "绑定Agent",
+        ("POST", "/api/push/test-personal"): "测试个人微信推送",
         ("POST", "/api/diagnostics/maintenance"): "维护操作",
     }
 

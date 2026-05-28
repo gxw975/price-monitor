@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from services.auth_service import get_current_user
 from services.push_service import _get_push_config as read_push_config
 from services.push_service import send_test_message
+from services.push_service import send_test_personal_wechat
 
 load_dotenv()
 logger = logging.getLogger("api.push")
@@ -67,3 +68,49 @@ def test_push(
     else:
         logger.warning("推送测试失败: channel=%s by %s", body.channel, current_user["username"])
         return {"success": False, "message": f"{body.channel} 测试消息发送失败，请检查Webhook地址"}
+
+
+@router.post("/test-personal")
+def test_personal_wechat(
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    agent_id = current_user.get("openclaw_agent_id", "")
+    if not agent_id:
+        conn = _get_conn()
+        try:
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    'SELECT openclaw_agent_id FROM "User" WHERE id = %s',
+                    (current_user["user_id"],),
+                )
+                row = cur.fetchone()
+                if row and row.get("openclaw_agent_id"):
+                    agent_id = row["openclaw_agent_id"]
+        except Exception:
+            pass
+        finally:
+            conn.close()
+
+    result = send_test_personal_wechat(agent_id)
+    if result["success"]:
+        logger.info("个人微信推送测试成功 by %s (agent=%s)", current_user["username"], agent_id)
+    else:
+        logger.warning("个人微信推送测试失败 by %s: %s", current_user["username"], result["message"])
+    return result
+
+
+def _parse_db_url(url: str) -> tuple[str, str]:
+    from urllib.parse import parse_qs, urlparse, urlunparse
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    schema = qs.get("schema", [_SCHEMA])[0]
+    clean = urlunparse(parsed._replace(query=""))
+    return clean, schema
+
+
+def _get_conn() -> Any:
+    clean, schema = _parse_db_url(DATABASE_URL)
+    conn = psycopg2.connect(clean)
+    with conn.cursor() as cur:
+        cur.execute("SET search_path TO %s", (schema,))
+    return conn

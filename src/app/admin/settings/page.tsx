@@ -46,6 +46,9 @@ export default function SettingsPage() {
   const [actionLoading, setActionLoading] = useState('')
   const [testResults, setTestResults] = useState<Record<string, string | null>>({})
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [personalWechatAgentId, setPersonalWechatAgentId] = useState('')
+  const [personalWechatBound, setPersonalWechatBound] = useState(false)
+  const [pwTestResult, setPwTestResult] = useState<string | null>(null)
 
   const fetchServices = useCallback(async () => {
     try {
@@ -68,10 +71,21 @@ export default function SettingsPage() {
     }
   }, [])
 
+  const fetchProfile = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/users/me/profile')
+      if (data.openclaw_agent_id) {
+        setPersonalWechatAgentId(data.openclaw_agent_id)
+        setPersonalWechatBound(true)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   useEffect(() => {
     fetchServices()
     fetchSettings()
-  }, [fetchServices, fetchSettings])
+    fetchProfile()
+  }, [fetchServices, fetchSettings, fetchProfile])
 
   useEffect(() => {
     if (tab === 'service') {
@@ -148,6 +162,38 @@ export default function SettingsPage() {
       })
       .catch((err: any) => setMsg({ type: 'error', text: err.message }))
       .finally(() => setSaving(false))
+  }
+
+  const bindAgent = async () => {
+    setMsg(null)
+    try {
+      const data = await apiFetch('/api/users/me/bind-agent', {
+        method: 'POST',
+        body: JSON.stringify({ openclaw_agent_id: personalWechatAgentId }),
+      })
+      setMsg({ type: 'success', text: data.message || '绑定成功' })
+      setPersonalWechatBound(!!personalWechatAgentId)
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err.message || '绑定失败' })
+    }
+  }
+
+  const testPersonalWechat = async () => {
+    setPwTestResult(null)
+    setMsg(null)
+    try {
+      const data = await apiFetch('/api/push/test-personal', { method: 'POST' })
+      if (data.success) {
+        setPwTestResult('success')
+        setMsg({ type: 'success', text: data.message || '测试消息已发送' })
+      } else {
+        setPwTestResult('error')
+        setMsg({ type: 'error', text: data.message || '发送失败' })
+      }
+    } catch (err: any) {
+      setPwTestResult('error')
+      setMsg({ type: 'error', text: err.message || '请求失败' })
+    }
   }
 
   const updateSettings = async (changes: Partial<Settings>) => {
@@ -536,6 +582,64 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <h2 className="mb-4 text-base font-semibold text-gray-900">个人微信配置</h2>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    OpenClaw Agent ID
+                  </label>
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={personalWechatAgentId}
+                      onChange={(e) => {
+                        setPersonalWechatAgentId(e.target.value)
+                        if (personalWechatBound) setPersonalWechatBound(false)
+                      }}
+                      disabled={!canWrite}
+                      placeholder="例如：main-weixin"
+                      className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    />
+                    {canWrite && (
+                      <button
+                        onClick={bindAgent}
+                        disabled={personalWechatAgentId === ''}
+                        className="rounded-md border border-green-300 px-4 py-2 text-sm text-green-600 hover:bg-green-50 disabled:opacity-40"
+                      >
+                        保存绑定
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-gray-400">
+                    {personalWechatBound
+                      ? `已绑定 Agent：${personalWechatAgentId}`
+                      : '输入你的 OpenClaw Agent ID 并保存，Agent 需已绑定个人微信'}
+                  </p>
+                </div>
+
+                {personalWechatBound && (
+                  <div className="pt-2 border-t border-gray-100">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={testPersonalWechat}
+                        className="rounded-md border border-blue-300 px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
+                      >
+                        测试个人微信推送
+                      </button>
+                      {pwTestResult === 'success' && (
+                        <p className="text-xs text-green-600">✓ 测试消息已发送，请查看微信</p>
+                      )}
+                      {pwTestResult === 'error' && (
+                        <p className="text-xs text-red-500">发送失败，请检查 Agent ID</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
@@ -575,6 +679,19 @@ export default function SettingsPage() {
                       />
                       <span className="font-medium">企业微信</span>
                       <span className="text-xs text-gray-400">Markdown</span>
+                    </label>
+                    <label className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm ${canWrite ? 'cursor-pointer' : 'cursor-default'} ${
+                      channels.includes('personal_wechat') ? 'border-blue-400 bg-blue-50' : 'border-gray-200'
+                    }`}>
+                      <input
+                        type="checkbox"
+                        checked={channels.includes('personal_wechat')}
+                        onChange={() => togglePushChannel('personal_wechat')}
+                        disabled={!canWrite}
+                        className="rounded"
+                      />
+                      <span className="font-medium">个人微信</span>
+                      <span className="text-xs text-gray-400">OpenClaw Agent</span>
                     </label>
                   </div>
                 )

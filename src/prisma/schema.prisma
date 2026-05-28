@@ -8,12 +8,13 @@ datasource db {
 }
 
 model User {
-  id         Int       @id @default(autoincrement())
-  username   String    @unique
-  password   String
-  role       String    @default("staff")
-  created_at DateTime  @default(now()) @map("createdAt")
-  keywords   Keyword[]
+  id                 Int       @id @default(autoincrement())
+  username           String    @unique
+  password           String
+  role               String    @default("staff")
+  openclaw_agent_id  String?
+  created_at         DateTime  @default(now()) @map("createdAt")
+  keywords           Keyword[]
 }
 
 model Product {

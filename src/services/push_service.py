@@ -1,6 +1,6 @@
 """多渠道推送服务
 
-支持飞书卡片消息和企业微信/微信机器人 Webhook 消息发送。
+支持飞书卡片消息、企业微信 Webhook 消息、个人微信（OpenClaw Agent 路由）推送。
 工作时段 9:00-18:00 + 周末跳过，推送渠道从 SystemConfig 读取。
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import subprocess
 import urllib.request
 from datetime import datetime
 from decimal import Decimal
@@ -140,6 +141,59 @@ def _send_wechat_markdown(webhook_url: str, content: str) -> bool:
     except Exception:
         logger.exception("微信消息发送异常")
         return False
+
+
+def _send_openclaw_wechat(agent_id: str, content: str) -> bool:
+    if not agent_id:
+        return False
+    try:
+        openclaw_bin = "/home/lab-admin/.nvm/versions/node/v22.22.0/bin/openclaw"
+        cmd = [
+            openclaw_bin, "agent",
+            "--agent", agent_id,
+            "--message", content,
+            "--deliver",
+            "--json",
+        ]
+        subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        logger.info("OpenClaw 个人微信消息已投递: agent=%s", agent_id)
+        return True
+    except Exception:
+        logger.exception("OpenClaw 个人微信消息发送异常: agent=%s", agent_id)
+        return False
+
+
+def _get_users_with_agent() -> list[dict[str, Any]]:
+    try:
+        conn = _get_conn()
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                'SELECT id, username, openclaw_agent_id FROM "User" '
+                "WHERE openclaw_agent_id IS NOT NULL AND openclaw_agent_id != ''"
+            )
+            return [dict(r) for r in cur.fetchall()]
+    except Exception:
+        logger.exception("查询绑定了Agent的用户失败")
+        return []
+    finally:
+        conn.close()
+
+
+def _send_personal_wechat_to_all(content: str) -> dict[str, bool]:
+    users = _get_users_with_agent()
+    results: dict[str, bool] = {}
+    for u in users:
+        agent_id = u.get("openclaw_agent_id", "")
+        if agent_id:
+            results[agent_id] = _send_openclaw_wechat(agent_id, content)
+    if not users:
+        logger.info("没有绑定 OpenClaw Agent 的用户，跳过个人微信推送")
+    return results
 
 
 def _build_feishu_price_card(
@@ -315,6 +369,11 @@ def send_price_alert(
             md = _build_wechat_price_md(product_id, title, current_price, history_prices)
             results["wechat"] = _send_wechat_markdown(wh, md)
 
+    if "personal_wechat" in channels:
+        content = f"🔴 低价预警\n商品: {title}\n商品ID: {product_id}\n当前价格: ¥{current_price}\n检测时间: {datetime.now().strftime('%m-%d %H:%M')}"
+        pc_results = _send_personal_wechat_to_all(content)
+        results["personal_wechat"] = any(pc_results.values()) if pc_results else False
+
     return results
 
 
@@ -348,6 +407,11 @@ def send_sales_alert(
         if wh:
             md = _build_wechat_sales_md(product_id, title, today_sales, yesterday_sales, today_price)
             results["wechat"] = _send_wechat_markdown(wh, md)
+
+    if "personal_wechat" in channels:
+        content = f"🟠 销量预警\n商品: {title}\n商品ID: {product_id}\n今日销量: {today_sales} 单\n昨日销量: {yesterday_sales} 单\n当前售价: ¥{today_price}\n检测时间: {datetime.now().strftime('%m-%d %H:%M')}"
+        pc_results = _send_personal_wechat_to_all(content)
+        results["personal_wechat"] = any(pc_results.values()) if pc_results else False
 
     return results
 
@@ -400,6 +464,11 @@ def send_custom_alert(
             md_content = f"## {type_label}\n{body_md}\n\n> 电商低价监控系统 · 自动预警"
             results["wechat"] = _send_wechat_markdown(wh, md_content)
 
+    if "personal_wechat" in channels:
+        content = f"{type_label}\n{body_md}"
+        pc_results = _send_personal_wechat_to_all(content)
+        results["personal_wechat"] = any(pc_results.values()) if pc_results else False
+
     return results
 
 
@@ -433,3 +502,18 @@ def send_test_message(channel: str, webhook_url: str) -> bool:
         return _send_wechat_markdown(webhook_url, md)
 
     return False
+
+
+def send_test_personal_wechat(agent_id: str) -> dict[str, Any]:
+    """发送测试消息到指定用户的个人微信"""
+    if not agent_id:
+        return {"success": False, "message": "未绑定 OpenClaw Agent ID，请先在个人中心绑定"}
+
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    content = f"✅ price-monitor 个人微信推送连接测试成功！\n测试时间: {now_str}"
+    success = _send_openclaw_wechat(agent_id, content)
+
+    if success:
+        return {"success": True, "message": "测试消息已发送，请查看你的个人微信"}
+    else:
+        return {"success": False, "message": "发送失败，请检查 Agent ID 是否正确"}

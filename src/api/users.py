@@ -41,6 +41,7 @@ class UpdateUserRequest(BaseModel):
     username: str | None = None
     password: str | None = None
     role: str | None = None
+    openclaw_agent_id: str | None = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -76,6 +77,7 @@ def _user_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "id": row["id"],
         "username": row["username"],
         "role": row["role"],
+        "openclaw_agent_id": row.get("openclaw_agent_id", ""),
         "created_at": row["createdAt"].isoformat() if row.get("createdAt") else None,
     }
 
@@ -90,7 +92,7 @@ def list_users(
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                'SELECT id, username, role, "createdAt" FROM "User" ORDER BY "createdAt"',
+                'SELECT id, username, role, openclaw_agent_id, "createdAt" FROM "User" ORDER BY "createdAt"',
             )
             items = [_user_to_dict(r) for r in cur.fetchall()]
 
@@ -184,6 +186,10 @@ def update_user(
                 updates.append("role = %s")
                 params.append(body.role)
 
+            if body.openclaw_agent_id is not None:
+                updates.append("openclaw_agent_id = %s")
+                params.append(body.openclaw_agent_id if body.openclaw_agent_id else None)
+
             if updates:
                 params.append(user_id)
                 cur.execute(
@@ -231,6 +237,66 @@ def delete_user(
         logger.exception("删除用户失败")
         conn.rollback()
         raise HTTPException(status_code=500, detail="删除用户失败")
+    finally:
+        conn.close()
+
+
+class BindAgentRequest(BaseModel):
+    openclaw_agent_id: str
+
+
+@router.get("/me/profile")
+def get_my_profile(
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                'SELECT id, username, role, openclaw_agent_id, "createdAt" FROM "User" WHERE id = %s',
+                (current_user["user_id"],),
+            )
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            return _user_to_dict(row)
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("获取个人信息失败")
+        raise HTTPException(status_code=500, detail="获取个人信息失败")
+    finally:
+        conn.close()
+
+
+@router.post("/me/bind-agent")
+def bind_agent(
+    body: BindAgentRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'UPDATE "User" SET openclaw_agent_id = %s WHERE id = %s',
+                (body.openclaw_agent_id if body.openclaw_agent_id else None, current_user["user_id"]),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="用户不存在")
+            conn.commit()
+
+        logger.info("用户 %s 绑定了 OpenClaw Agent: %s", current_user["username"], body.openclaw_agent_id)
+        return {
+            "success": True,
+            "message": f"Agent ID 已{'更新' if body.openclaw_agent_id else '清空'}",
+            "openclaw_agent_id": body.openclaw_agent_id or "",
+        }
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("绑定Agent失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="绑定Agent失败")
     finally:
         conn.close()
 
