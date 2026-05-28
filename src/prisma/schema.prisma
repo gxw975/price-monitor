@@ -70,3 +70,18 @@ model SystemConfig {
   sku_crawl_limit        Int      @default(10)
   sku_crawl_interval     Int      @default(120)
 }
+
+model Alert {
+  id         Int       @id @default(autoincrement())
+  product_id String
+  alert_type String
+  message    String
+  is_sent    Boolean   @default(false)
+  sent_at    DateTime?
+  is_read    Boolean   @default(false)
+  created_at DateTime  @default(now())
+
+  @@index([product_id, created_at])
+  @@index([alert_type, created_at])
+  @@index([is_read, created_at])
+}

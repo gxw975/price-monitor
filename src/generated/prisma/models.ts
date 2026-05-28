@@ -8,9 +8,10 @@
  *
  * 🟢 You can import this file directly.
  */
-export type * from './models/User.ts'
-export type * from './models/Product.ts'
-export type * from './models/ProductHistory.ts'
-export type * from './models/ProductSku.ts'
-export type * from './models/SystemConfig.ts'
-export type * from './commonInputTypes.ts'
+export type * from './models/User'
+export type * from './models/Product'
+export type * from './models/ProductHistory'
+export type * from './models/ProductSku'
+export type * from './models/SystemConfig'
+export type * from './models/Alert'
+export type * from './commonInputTypes'
