@@ -5,13 +5,10 @@ echo "========================================"
 echo "开始自动部署电商低价监控系统"
 echo "========================================"
 
-# 激活虚拟环境
-source .venv/bin/activate
-
 # 安装Python依赖
 echo "安装Python依赖..."
 if [ -f requirements.txt ]; then
-    pip install -r requirements.txt
+    ./venv/bin/pip install -r requirements.txt
 fi
 
 # 安装Node.js依赖

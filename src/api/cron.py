@@ -127,10 +127,8 @@ def update_cron_tasks(
     alert_interval = config.get("check_alert_interval", 180)
     schedule_type = config.get("crawl_schedule_type", "interval")
     fixed_times = config.get("crawl_fixed_times", "")
-    backup_path = "/home/lab-admin/price-monitor/backups"
-    log_path = "/home/lab-admin/price-monitor/logs"
-    python_bin = "/home/lab-admin/price-monitor/.venv/bin/python"
     project_root = "/home/lab-admin/price-monitor"
+    python_bin = "./venv/bin/python"
 
     cfg = {
         "sku_crawl_interval": crawl_interval,
@@ -150,16 +148,16 @@ def update_cron_tasks(
 # Auto-managed by 系统设置页面 - 请勿手动修改
 
 # 1. SKU 抓取 ({schedule_type} mode)
-{crawl_expr} {python_bin} {project_root}/src/scripts/run_sku_crawl.py >> {log_path}/crawl.log 2>&1
+{crawl_expr} cd {project_root} && {python_bin} src/scripts/run_sku_crawl.py >> logs/crawl.log 2>&1
 
 # 2. 预警检测
-{alert_expr} {python_bin} {project_root}/src/scripts/check_alerts.py >> {log_path}/alert.log 2>&1
+{alert_expr} cd {project_root} && {python_bin} src/scripts/check_alerts.py >> logs/alert.log 2>&1
 
 # 3. 每天 01:00：数据库备份
-0 1 * * * /usr/bin/pg_dump -U postgres -d openclaw -n price_monitor -F c -f {backup_path}/$(date +\\%Y\\%m\\%d).dump >> {log_path}/backup.log 2>&1
+0 1 * * * cd {project_root} && /usr/bin/pg_dump -U postgres -d openclaw -n price_monitor -F c -f backups/$(date +\\%Y\\%m\\%d).dump >> logs/backup.log 2>&1
 
 # 4. 每天 02:00：清理 7 天前日志
-0 2 * * * find {log_path} -type f -mtime +7 -delete
+0 2 * * * cd {project_root} && find logs -type f -mtime +7 -delete
 """
 
     result = subprocess.run(

@@ -32,6 +32,14 @@
       "static/chunks/137-4182035b38e72492.js",
       "static/chunks/app/admin/diagnostics/page-45901906d4425bea.js"
     ],
+    "/admin/keywords/page": [
+      "static/chunks/webpack-616e068a201ad621.js",
+      "static/chunks/fd9d1056-f8a2d551cbb94c85.js",
+      "static/chunks/117-d0aa9486d6cf1a7a.js",
+      "static/chunks/main-app-7d01c0eae70a6f3c.js",
+      "static/chunks/137-4182035b38e72492.js",
+      "static/chunks/app/admin/keywords/page-e1d14172f52922cf.js"
+    ],
     "/admin/logs/page": [
       "static/chunks/webpack-616e068a201ad621.js",
       "static/chunks/fd9d1056-f8a2d551cbb94c85.js",
@@ -47,14 +55,6 @@
       "static/chunks/main-app-7d01c0eae70a6f3c.js",
       "static/chunks/137-4182035b38e72492.js",
       "static/chunks/app/admin/product-keywords/page-7351f6eb2b42ec7d.js"
-    ],
-    "/admin/keywords/page": [
-      "static/chunks/webpack-616e068a201ad621.js",
-      "static/chunks/fd9d1056-f8a2d551cbb94c85.js",
-      "static/chunks/117-d0aa9486d6cf1a7a.js",
-      "static/chunks/main-app-7d01c0eae70a6f3c.js",
-      "static/chunks/137-4182035b38e72492.js",
-      "static/chunks/app/admin/keywords/page-e1d14172f52922cf.js"
     ],
     "/admin/products/[id]/page": [
       "static/chunks/webpack-616e068a201ad621.js",
