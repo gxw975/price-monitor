@@ -3,6 +3,7 @@
   "/admin/alerts/page": "app/admin/alerts/page.js",
   "/admin/keywords/page": "app/admin/keywords/page.js",
   "/admin/product-keywords/page": "app/admin/product-keywords/page.js",
+  "/admin/settings/page": "app/admin/settings/page.js",
   "/login/page": "app/login/page.js",
   "/page": "app/page.js"
 }

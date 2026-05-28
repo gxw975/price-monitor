@@ -61,16 +61,21 @@ model ProductSku {
 }
 
 model SystemConfig {
-  id                     Int      @id @default(autoincrement())
-  alert_price            Decimal  @db.Decimal(10, 2)
-  work_start_hour        Int      @default(9)
-  work_end_hour          Int      @default(18)
-  sales_growth_threshold Int      @default(100)
-  created_at             DateTime @default(now())
-  updated_at             DateTime @default(now())
-  keywords               String   @default("[]")
-  sku_crawl_limit        Int      @default(10)
-  sku_crawl_interval     Int      @default(120)
+  id                     Int       @id @default(autoincrement())
+  alert_price            Decimal   @db.Decimal(10, 2)
+  work_start_hour        Int       @default(9)
+  work_end_hour          Int       @default(18)
+  sales_growth_threshold Int       @default(100)
+  alert_dedup_hours      Int       @default(24)
+  crawl_schedule_type    String    @default("interval")
+  crawl_fixed_times      String?
+  crawl_daily_limit      Int       @default(100)
+  check_alert_interval   Int       @default(180)
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @default(now())
+  keywords               String    @default("[]")
+  sku_crawl_limit        Int       @default(10)
+  sku_crawl_interval     Int       @default(120)
 }
 
 model Alert {
