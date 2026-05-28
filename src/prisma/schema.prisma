@@ -8,11 +8,12 @@ datasource db {
 }
 
 model User {
-  id         Int      @id @default(autoincrement())
-  username   String   @unique
+  id         Int       @id @default(autoincrement())
+  username   String    @unique
   password   String
-  role       String   @default("staff")
-  created_at DateTime @default(now()) @map("createdAt")
+  role       String    @default("staff")
+  created_at DateTime  @default(now()) @map("createdAt")
+  keywords   Keyword[]
 }
 
 model Product {
@@ -28,8 +29,9 @@ model Product {
   last_updated_at      DateTime  @default(now())
   last_sku_crawled_at  DateTime?
 
-  histories ProductHistory[]
-  skus      ProductSku[]
+  histories        ProductHistory[]
+  skus             ProductSku[]
+  productKeywords  ProductKeyword[]
 }
 
 model ProductHistory {
@@ -84,4 +86,29 @@ model Alert {
   @@index([product_id, created_at])
   @@index([alert_type, created_at])
   @@index([is_read, created_at])
+}
+
+model Keyword {
+  id         Int      @id @default(autoincrement())
+  name       String
+  platform   String   @default("taobao")
+  is_active  Boolean  @default(true)
+  created_by Int
+  created_at DateTime @default(now()) @map("createdAt")
+
+  creator         User            @relation(fields: [created_by], references: [id])
+  productKeywords ProductKeyword[]
+
+  @@index([is_active, created_at])
+}
+
+model ProductKeyword {
+  keyword_id Int
+  product_id String
+  keyword    Keyword @relation(fields: [keyword_id], references: [id])
+  product    Product @relation(fields: [product_id], references: [product_id])
+
+  @@id([keyword_id, product_id])
+  @@index([product_id])
+  @@index([keyword_id])
 }

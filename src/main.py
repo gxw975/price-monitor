@@ -18,6 +18,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from api.alerts import router as alerts_router
 from api.auth import router as auth_router
+from api.keywords import router as keywords_router
+from api.product_keywords import router as product_keywords_router
 from services.auth_service import decode_token
 
 logger = logging.getLogger("main")
@@ -75,6 +77,8 @@ async def auth_middleware(request: Request, call_next):
 
 app.include_router(auth_router)
 app.include_router(alerts_router)
+app.include_router(keywords_router)
+app.include_router(product_keywords_router)
 
 
 @app.get("/api/health")

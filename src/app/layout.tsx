@@ -8,6 +8,7 @@ import { useEffect } from 'react'
 function TopBar() {
   const { user, isAuthenticated, logout } = useAuth()
   const router = useRouter()
+  const pathname = usePathname()
 
   if (!isAuthenticated || !user) {
     return null
@@ -19,18 +20,30 @@ function TopBar() {
     staff: '员工',
   }
 
+  const navItems = [
+    { label: '预警管理', href: '/admin/alerts' },
+    { label: '关键词监控', href: '/admin/keywords' },
+    { label: '商品关联', href: '/admin/product-keywords' },
+  ]
+
   return (
     <div className="border-b border-gray-200 bg-white">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-2.5">
         <div className="flex items-center gap-4">
           <span className="text-sm font-semibold text-gray-900">电商低价监控系统</span>
-          <span className="text-xs text-gray-400">|</span>
-          <button
-            onClick={() => router.push('/admin/alerts')}
-            className="text-sm text-gray-600 hover:text-blue-600 transition-colors"
-          >
-            预警管理
-          </button>
+          {navItems.map((item) => (
+            <button
+              key={item.href}
+              onClick={() => router.push(item.href)}
+              className={`text-sm transition-colors ${
+                pathname.startsWith(item.href)
+                  ? 'text-blue-600 font-medium'
+                  : 'text-gray-600 hover:text-blue-600'
+              }`}
+            >
+              {item.label}
+            </button>
+          ))}
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm">
