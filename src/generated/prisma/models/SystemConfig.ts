@@ -32,6 +32,9 @@ export type SystemConfigAvgAggregateOutputType = {
   work_start_hour: number | null
   work_end_hour: number | null
   sales_growth_threshold: number | null
+  alert_dedup_hours: number | null
+  crawl_daily_limit: number | null
+  check_alert_interval: number | null
   sku_crawl_limit: number | null
   sku_crawl_interval: number | null
 }
@@ -42,6 +45,9 @@ export type SystemConfigSumAggregateOutputType = {
   work_start_hour: number | null
   work_end_hour: number | null
   sales_growth_threshold: number | null
+  alert_dedup_hours: number | null
+  crawl_daily_limit: number | null
+  check_alert_interval: number | null
   sku_crawl_limit: number | null
   sku_crawl_interval: number | null
 }
@@ -52,6 +58,14 @@ export type SystemConfigMinAggregateOutputType = {
   work_start_hour: number | null
   work_end_hour: number | null
   sales_growth_threshold: number | null
+  alert_dedup_hours: number | null
+  crawl_schedule_type: string | null
+  crawl_fixed_times: string | null
+  crawl_daily_limit: number | null
+  check_alert_interval: number | null
+  feishu_webhook: string | null
+  wechat_webhook: string | null
+  push_enabled_channels: string | null
   created_at: Date | null
   updated_at: Date | null
   keywords: string | null
@@ -65,6 +79,14 @@ export type SystemConfigMaxAggregateOutputType = {
   work_start_hour: number | null
   work_end_hour: number | null
   sales_growth_threshold: number | null
+  alert_dedup_hours: number | null
+  crawl_schedule_type: string | null
+  crawl_fixed_times: string | null
+  crawl_daily_limit: number | null
+  check_alert_interval: number | null
+  feishu_webhook: string | null
+  wechat_webhook: string | null
+  push_enabled_channels: string | null
   created_at: Date | null
   updated_at: Date | null
   keywords: string | null
@@ -78,6 +100,14 @@ export type SystemConfigCountAggregateOutputType = {
   work_start_hour: number
   work_end_hour: number
   sales_growth_threshold: number
+  alert_dedup_hours: number
+  crawl_schedule_type: number
+  crawl_fixed_times: number
+  crawl_daily_limit: number
+  check_alert_interval: number
+  feishu_webhook: number
+  wechat_webhook: number
+  push_enabled_channels: number
   created_at: number
   updated_at: number
   keywords: number
@@ -93,6 +123,9 @@ export type SystemConfigAvgAggregateInputType = {
   work_start_hour?: true
   work_end_hour?: true
   sales_growth_threshold?: true
+  alert_dedup_hours?: true
+  crawl_daily_limit?: true
+  check_alert_interval?: true
   sku_crawl_limit?: true
   sku_crawl_interval?: true
 }
@@ -103,6 +136,9 @@ export type SystemConfigSumAggregateInputType = {
   work_start_hour?: true
   work_end_hour?: true
   sales_growth_threshold?: true
+  alert_dedup_hours?: true
+  crawl_daily_limit?: true
+  check_alert_interval?: true
   sku_crawl_limit?: true
   sku_crawl_interval?: true
 }
@@ -113,6 +149,14 @@ export type SystemConfigMinAggregateInputType = {
   work_start_hour?: true
   work_end_hour?: true
   sales_growth_threshold?: true
+  alert_dedup_hours?: true
+  crawl_schedule_type?: true
+  crawl_fixed_times?: true
+  crawl_daily_limit?: true
+  check_alert_interval?: true
+  feishu_webhook?: true
+  wechat_webhook?: true
+  push_enabled_channels?: true
   created_at?: true
   updated_at?: true
   keywords?: true
@@ -126,6 +170,14 @@ export type SystemConfigMaxAggregateInputType = {
   work_start_hour?: true
   work_end_hour?: true
   sales_growth_threshold?: true
+  alert_dedup_hours?: true
+  crawl_schedule_type?: true
+  crawl_fixed_times?: true
+  crawl_daily_limit?: true
+  check_alert_interval?: true
+  feishu_webhook?: true
+  wechat_webhook?: true
+  push_enabled_channels?: true
   created_at?: true
   updated_at?: true
   keywords?: true
@@ -139,6 +191,14 @@ export type SystemConfigCountAggregateInputType = {
   work_start_hour?: true
   work_end_hour?: true
   sales_growth_threshold?: true
+  alert_dedup_hours?: true
+  crawl_schedule_type?: true
+  crawl_fixed_times?: true
+  crawl_daily_limit?: true
+  check_alert_interval?: true
+  feishu_webhook?: true
+  wechat_webhook?: true
+  push_enabled_channels?: true
   created_at?: true
   updated_at?: true
   keywords?: true
@@ -239,6 +299,14 @@ export type SystemConfigGroupByOutputType = {
   work_start_hour: number
   work_end_hour: number
   sales_growth_threshold: number
+  alert_dedup_hours: number
+  crawl_schedule_type: string
+  crawl_fixed_times: string | null
+  crawl_daily_limit: number
+  check_alert_interval: number
+  feishu_webhook: string | null
+  wechat_webhook: string | null
+  push_enabled_channels: string
   created_at: Date
   updated_at: Date
   keywords: string
@@ -275,6 +343,14 @@ export type SystemConfigWhereInput = {
   work_start_hour?: Prisma.IntFilter<"SystemConfig"> | number
   work_end_hour?: Prisma.IntFilter<"SystemConfig"> | number
   sales_growth_threshold?: Prisma.IntFilter<"SystemConfig"> | number
+  alert_dedup_hours?: Prisma.IntFilter<"SystemConfig"> | number
+  crawl_schedule_type?: Prisma.StringFilter<"SystemConfig"> | string
+  crawl_fixed_times?: Prisma.StringNullableFilter<"SystemConfig"> | string | null
+  crawl_daily_limit?: Prisma.IntFilter<"SystemConfig"> | number
+  check_alert_interval?: Prisma.IntFilter<"SystemConfig"> | number
+  feishu_webhook?: Prisma.StringNullableFilter<"SystemConfig"> | string | null
+  wechat_webhook?: Prisma.StringNullableFilter<"SystemConfig"> | string | null
+  push_enabled_channels?: Prisma.StringFilter<"SystemConfig"> | string
   created_at?: Prisma.DateTimeFilter<"SystemConfig"> | Date | string
   updated_at?: Prisma.DateTimeFilter<"SystemConfig"> | Date | string
   keywords?: Prisma.StringFilter<"SystemConfig"> | string
@@ -288,6 +364,14 @@ export type SystemConfigOrderByWithRelationInput = {
   work_start_hour?: Prisma.SortOrder
   work_end_hour?: Prisma.SortOrder
   sales_growth_threshold?: Prisma.SortOrder
+  alert_dedup_hours?: Prisma.SortOrder
+  crawl_schedule_type?: Prisma.SortOrder
+  crawl_fixed_times?: Prisma.SortOrderInput | Prisma.SortOrder
+  crawl_daily_limit?: Prisma.SortOrder
+  check_alert_interval?: Prisma.SortOrder
+  feishu_webhook?: Prisma.SortOrderInput | Prisma.SortOrder
+  wechat_webhook?: Prisma.SortOrderInput | Prisma.SortOrder
+  push_enabled_channels?: Prisma.SortOrder
   created_at?: Prisma.SortOrder
   updated_at?: Prisma.SortOrder
   keywords?: Prisma.SortOrder
@@ -304,6 +388,14 @@ export type SystemConfigWhereUniqueInput = Prisma.AtLeast<{
   work_start_hour?: Prisma.IntFilter<"SystemConfig"> | number
   work_end_hour?: Prisma.IntFilter<"SystemConfig"> | number
   sales_growth_threshold?: Prisma.IntFilter<"SystemConfig"> | number
+  alert_dedup_hours?: Prisma.IntFilter<"SystemConfig"> | number
+  crawl_schedule_type?: Prisma.StringFilter<"SystemConfig"> | string
+  crawl_fixed_times?: Prisma.StringNullableFilter<"SystemConfig"> | string | null
+  crawl_daily_limit?: Prisma.IntFilter<"SystemConfig"> | number
+  check_alert_interval?: Prisma.IntFilter<"SystemConfig"> | number
+  feishu_webhook?: Prisma.StringNullableFilter<"SystemConfig"> | string | null
+  wechat_webhook?: Prisma.StringNullableFilter<"SystemConfig"> | string | null
+  push_enabled_channels?: Prisma.StringFilter<"SystemConfig"> | string
   created_at?: Prisma.DateTimeFilter<"SystemConfig"> | Date | string
   updated_at?: Prisma.DateTimeFilter<"SystemConfig"> | Date | string
   keywords?: Prisma.StringFilter<"SystemConfig"> | string
@@ -317,6 +409,14 @@ export type SystemConfigOrderByWithAggregationInput = {
   work_start_hour?: Prisma.SortOrder
   work_end_hour?: Prisma.SortOrder
   sales_growth_threshold?: Prisma.SortOrder
+  alert_dedup_hours?: Prisma.SortOrder
+  crawl_schedule_type?: Prisma.SortOrder
+  crawl_fixed_times?: Prisma.SortOrderInput | Prisma.SortOrder
+  crawl_daily_limit?: Prisma.SortOrder
+  check_alert_interval?: Prisma.SortOrder
+  feishu_webhook?: Prisma.SortOrderInput | Prisma.SortOrder
+  wechat_webhook?: Prisma.SortOrderInput | Prisma.SortOrder
+  push_enabled_channels?: Prisma.SortOrder
   created_at?: Prisma.SortOrder
   updated_at?: Prisma.SortOrder
   keywords?: Prisma.SortOrder
@@ -338,6 +438,14 @@ export type SystemConfigScalarWhereWithAggregatesInput = {
   work_start_hour?: Prisma.IntWithAggregatesFilter<"SystemConfig"> | number
   work_end_hour?: Prisma.IntWithAggregatesFilter<"SystemConfig"> | number
   sales_growth_threshold?: Prisma.IntWithAggregatesFilter<"SystemConfig"> | number
+  alert_dedup_hours?: Prisma.IntWithAggregatesFilter<"SystemConfig"> | number
+  crawl_schedule_type?: Prisma.StringWithAggregatesFilter<"SystemConfig"> | string
+  crawl_fixed_times?: Prisma.StringNullableWithAggregatesFilter<"SystemConfig"> | string | null
+  crawl_daily_limit?: Prisma.IntWithAggregatesFilter<"SystemConfig"> | number
+  check_alert_interval?: Prisma.IntWithAggregatesFilter<"SystemConfig"> | number
+  feishu_webhook?: Prisma.StringNullableWithAggregatesFilter<"SystemConfig"> | string | null
+  wechat_webhook?: Prisma.StringNullableWithAggregatesFilter<"SystemConfig"> | string | null
+  push_enabled_channels?: Prisma.StringWithAggregatesFilter<"SystemConfig"> | string
   created_at?: Prisma.DateTimeWithAggregatesFilter<"SystemConfig"> | Date | string
   updated_at?: Prisma.DateTimeWithAggregatesFilter<"SystemConfig"> | Date | string
   keywords?: Prisma.StringWithAggregatesFilter<"SystemConfig"> | string
@@ -350,6 +458,14 @@ export type SystemConfigCreateInput = {
   work_start_hour?: number
   work_end_hour?: number
   sales_growth_threshold?: number
+  alert_dedup_hours?: number
+  crawl_schedule_type?: string
+  crawl_fixed_times?: string | null
+  crawl_daily_limit?: number
+  check_alert_interval?: number
+  feishu_webhook?: string | null
+  wechat_webhook?: string | null
+  push_enabled_channels?: string
   created_at?: Date | string
   updated_at?: Date | string
   keywords?: string
@@ -363,6 +479,14 @@ export type SystemConfigUncheckedCreateInput = {
   work_start_hour?: number
   work_end_hour?: number
   sales_growth_threshold?: number
+  alert_dedup_hours?: number
+  crawl_schedule_type?: string
+  crawl_fixed_times?: string | null
+  crawl_daily_limit?: number
+  check_alert_interval?: number
+  feishu_webhook?: string | null
+  wechat_webhook?: string | null
+  push_enabled_channels?: string
   created_at?: Date | string
   updated_at?: Date | string
   keywords?: string
@@ -375,6 +499,14 @@ export type SystemConfigUpdateInput = {
   work_start_hour?: Prisma.IntFieldUpdateOperationsInput | number
   work_end_hour?: Prisma.IntFieldUpdateOperationsInput | number
   sales_growth_threshold?: Prisma.IntFieldUpdateOperationsInput | number
+  alert_dedup_hours?: Prisma.IntFieldUpdateOperationsInput | number
+  crawl_schedule_type?: Prisma.StringFieldUpdateOperationsInput | string
+  crawl_fixed_times?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  crawl_daily_limit?: Prisma.IntFieldUpdateOperationsInput | number
+  check_alert_interval?: Prisma.IntFieldUpdateOperationsInput | number
+  feishu_webhook?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  wechat_webhook?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  push_enabled_channels?: Prisma.StringFieldUpdateOperationsInput | string
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   keywords?: Prisma.StringFieldUpdateOperationsInput | string
@@ -388,6 +520,14 @@ export type SystemConfigUncheckedUpdateInput = {
   work_start_hour?: Prisma.IntFieldUpdateOperationsInput | number
   work_end_hour?: Prisma.IntFieldUpdateOperationsInput | number
   sales_growth_threshold?: Prisma.IntFieldUpdateOperationsInput | number
+  alert_dedup_hours?: Prisma.IntFieldUpdateOperationsInput | number
+  crawl_schedule_type?: Prisma.StringFieldUpdateOperationsInput | string
+  crawl_fixed_times?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  crawl_daily_limit?: Prisma.IntFieldUpdateOperationsInput | number
+  check_alert_interval?: Prisma.IntFieldUpdateOperationsInput | number
+  feishu_webhook?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  wechat_webhook?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  push_enabled_channels?: Prisma.StringFieldUpdateOperationsInput | string
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   keywords?: Prisma.StringFieldUpdateOperationsInput | string
@@ -401,6 +541,14 @@ export type SystemConfigCreateManyInput = {
   work_start_hour?: number
   work_end_hour?: number
   sales_growth_threshold?: number
+  alert_dedup_hours?: number
+  crawl_schedule_type?: string
+  crawl_fixed_times?: string | null
+  crawl_daily_limit?: number
+  check_alert_interval?: number
+  feishu_webhook?: string | null
+  wechat_webhook?: string | null
+  push_enabled_channels?: string
   created_at?: Date | string
   updated_at?: Date | string
   keywords?: string
@@ -413,6 +561,14 @@ export type SystemConfigUpdateManyMutationInput = {
   work_start_hour?: Prisma.IntFieldUpdateOperationsInput | number
   work_end_hour?: Prisma.IntFieldUpdateOperationsInput | number
   sales_growth_threshold?: Prisma.IntFieldUpdateOperationsInput | number
+  alert_dedup_hours?: Prisma.IntFieldUpdateOperationsInput | number
+  crawl_schedule_type?: Prisma.StringFieldUpdateOperationsInput | string
+  crawl_fixed_times?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  crawl_daily_limit?: Prisma.IntFieldUpdateOperationsInput | number
+  check_alert_interval?: Prisma.IntFieldUpdateOperationsInput | number
+  feishu_webhook?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  wechat_webhook?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  push_enabled_channels?: Prisma.StringFieldUpdateOperationsInput | string
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   keywords?: Prisma.StringFieldUpdateOperationsInput | string
@@ -426,6 +582,14 @@ export type SystemConfigUncheckedUpdateManyInput = {
   work_start_hour?: Prisma.IntFieldUpdateOperationsInput | number
   work_end_hour?: Prisma.IntFieldUpdateOperationsInput | number
   sales_growth_threshold?: Prisma.IntFieldUpdateOperationsInput | number
+  alert_dedup_hours?: Prisma.IntFieldUpdateOperationsInput | number
+  crawl_schedule_type?: Prisma.StringFieldUpdateOperationsInput | string
+  crawl_fixed_times?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  crawl_daily_limit?: Prisma.IntFieldUpdateOperationsInput | number
+  check_alert_interval?: Prisma.IntFieldUpdateOperationsInput | number
+  feishu_webhook?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  wechat_webhook?: Prisma.NullableStringFieldUpdateOperationsInput | string | null
+  push_enabled_channels?: Prisma.StringFieldUpdateOperationsInput | string
   created_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   updated_at?: Prisma.DateTimeFieldUpdateOperationsInput | Date | string
   keywords?: Prisma.StringFieldUpdateOperationsInput | string
@@ -439,6 +603,14 @@ export type SystemConfigCountOrderByAggregateInput = {
   work_start_hour?: Prisma.SortOrder
   work_end_hour?: Prisma.SortOrder
   sales_growth_threshold?: Prisma.SortOrder
+  alert_dedup_hours?: Prisma.SortOrder
+  crawl_schedule_type?: Prisma.SortOrder
+  crawl_fixed_times?: Prisma.SortOrder
+  crawl_daily_limit?: Prisma.SortOrder
+  check_alert_interval?: Prisma.SortOrder
+  feishu_webhook?: Prisma.SortOrder
+  wechat_webhook?: Prisma.SortOrder
+  push_enabled_channels?: Prisma.SortOrder
   created_at?: Prisma.SortOrder
   updated_at?: Prisma.SortOrder
   keywords?: Prisma.SortOrder
@@ -452,6 +624,9 @@ export type SystemConfigAvgOrderByAggregateInput = {
   work_start_hour?: Prisma.SortOrder
   work_end_hour?: Prisma.SortOrder
   sales_growth_threshold?: Prisma.SortOrder
+  alert_dedup_hours?: Prisma.SortOrder
+  crawl_daily_limit?: Prisma.SortOrder
+  check_alert_interval?: Prisma.SortOrder
   sku_crawl_limit?: Prisma.SortOrder
   sku_crawl_interval?: Prisma.SortOrder
 }
@@ -462,6 +637,14 @@ export type SystemConfigMaxOrderByAggregateInput = {
   work_start_hour?: Prisma.SortOrder
   work_end_hour?: Prisma.SortOrder
   sales_growth_threshold?: Prisma.SortOrder
+  alert_dedup_hours?: Prisma.SortOrder
+  crawl_schedule_type?: Prisma.SortOrder
+  crawl_fixed_times?: Prisma.SortOrder
+  crawl_daily_limit?: Prisma.SortOrder
+  check_alert_interval?: Prisma.SortOrder
+  feishu_webhook?: Prisma.SortOrder
+  wechat_webhook?: Prisma.SortOrder
+  push_enabled_channels?: Prisma.SortOrder
   created_at?: Prisma.SortOrder
   updated_at?: Prisma.SortOrder
   keywords?: Prisma.SortOrder
@@ -475,6 +658,14 @@ export type SystemConfigMinOrderByAggregateInput = {
   work_start_hour?: Prisma.SortOrder
   work_end_hour?: Prisma.SortOrder
   sales_growth_threshold?: Prisma.SortOrder
+  alert_dedup_hours?: Prisma.SortOrder
+  crawl_schedule_type?: Prisma.SortOrder
+  crawl_fixed_times?: Prisma.SortOrder
+  crawl_daily_limit?: Prisma.SortOrder
+  check_alert_interval?: Prisma.SortOrder
+  feishu_webhook?: Prisma.SortOrder
+  wechat_webhook?: Prisma.SortOrder
+  push_enabled_channels?: Prisma.SortOrder
   created_at?: Prisma.SortOrder
   updated_at?: Prisma.SortOrder
   keywords?: Prisma.SortOrder
@@ -488,6 +679,9 @@ export type SystemConfigSumOrderByAggregateInput = {
   work_start_hour?: Prisma.SortOrder
   work_end_hour?: Prisma.SortOrder
   sales_growth_threshold?: Prisma.SortOrder
+  alert_dedup_hours?: Prisma.SortOrder
+  crawl_daily_limit?: Prisma.SortOrder
+  check_alert_interval?: Prisma.SortOrder
   sku_crawl_limit?: Prisma.SortOrder
   sku_crawl_interval?: Prisma.SortOrder
 }
@@ -500,6 +694,14 @@ export type SystemConfigSelect<ExtArgs extends runtime.Types.Extensions.Internal
   work_start_hour?: boolean
   work_end_hour?: boolean
   sales_growth_threshold?: boolean
+  alert_dedup_hours?: boolean
+  crawl_schedule_type?: boolean
+  crawl_fixed_times?: boolean
+  crawl_daily_limit?: boolean
+  check_alert_interval?: boolean
+  feishu_webhook?: boolean
+  wechat_webhook?: boolean
+  push_enabled_channels?: boolean
   created_at?: boolean
   updated_at?: boolean
   keywords?: boolean
@@ -513,6 +715,14 @@ export type SystemConfigSelectCreateManyAndReturn<ExtArgs extends runtime.Types.
   work_start_hour?: boolean
   work_end_hour?: boolean
   sales_growth_threshold?: boolean
+  alert_dedup_hours?: boolean
+  crawl_schedule_type?: boolean
+  crawl_fixed_times?: boolean
+  crawl_daily_limit?: boolean
+  check_alert_interval?: boolean
+  feishu_webhook?: boolean
+  wechat_webhook?: boolean
+  push_enabled_channels?: boolean
   created_at?: boolean
   updated_at?: boolean
   keywords?: boolean
@@ -526,6 +736,14 @@ export type SystemConfigSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.
   work_start_hour?: boolean
   work_end_hour?: boolean
   sales_growth_threshold?: boolean
+  alert_dedup_hours?: boolean
+  crawl_schedule_type?: boolean
+  crawl_fixed_times?: boolean
+  crawl_daily_limit?: boolean
+  check_alert_interval?: boolean
+  feishu_webhook?: boolean
+  wechat_webhook?: boolean
+  push_enabled_channels?: boolean
   created_at?: boolean
   updated_at?: boolean
   keywords?: boolean
@@ -539,6 +757,14 @@ export type SystemConfigSelectScalar = {
   work_start_hour?: boolean
   work_end_hour?: boolean
   sales_growth_threshold?: boolean
+  alert_dedup_hours?: boolean
+  crawl_schedule_type?: boolean
+  crawl_fixed_times?: boolean
+  crawl_daily_limit?: boolean
+  check_alert_interval?: boolean
+  feishu_webhook?: boolean
+  wechat_webhook?: boolean
+  push_enabled_channels?: boolean
   created_at?: boolean
   updated_at?: boolean
   keywords?: boolean
@@ -546,7 +772,7 @@ export type SystemConfigSelectScalar = {
   sku_crawl_interval?: boolean
 }
 
-export type SystemConfigOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "alert_price" | "work_start_hour" | "work_end_hour" | "sales_growth_threshold" | "created_at" | "updated_at" | "keywords" | "sku_crawl_limit" | "sku_crawl_interval", ExtArgs["result"]["systemConfig"]>
+export type SystemConfigOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "alert_price" | "work_start_hour" | "work_end_hour" | "sales_growth_threshold" | "alert_dedup_hours" | "crawl_schedule_type" | "crawl_fixed_times" | "crawl_daily_limit" | "check_alert_interval" | "feishu_webhook" | "wechat_webhook" | "push_enabled_channels" | "created_at" | "updated_at" | "keywords" | "sku_crawl_limit" | "sku_crawl_interval", ExtArgs["result"]["systemConfig"]>
 
 export type $SystemConfigPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "SystemConfig"
@@ -557,6 +783,14 @@ export type $SystemConfigPayload<ExtArgs extends runtime.Types.Extensions.Intern
     work_start_hour: number
     work_end_hour: number
     sales_growth_threshold: number
+    alert_dedup_hours: number
+    crawl_schedule_type: string
+    crawl_fixed_times: string | null
+    crawl_daily_limit: number
+    check_alert_interval: number
+    feishu_webhook: string | null
+    wechat_webhook: string | null
+    push_enabled_channels: string
     created_at: Date
     updated_at: Date
     keywords: string
@@ -990,6 +1224,14 @@ export interface SystemConfigFieldRefs {
   readonly work_start_hour: Prisma.FieldRef<"SystemConfig", 'Int'>
   readonly work_end_hour: Prisma.FieldRef<"SystemConfig", 'Int'>
   readonly sales_growth_threshold: Prisma.FieldRef<"SystemConfig", 'Int'>
+  readonly alert_dedup_hours: Prisma.FieldRef<"SystemConfig", 'Int'>
+  readonly crawl_schedule_type: Prisma.FieldRef<"SystemConfig", 'String'>
+  readonly crawl_fixed_times: Prisma.FieldRef<"SystemConfig", 'String'>
+  readonly crawl_daily_limit: Prisma.FieldRef<"SystemConfig", 'Int'>
+  readonly check_alert_interval: Prisma.FieldRef<"SystemConfig", 'Int'>
+  readonly feishu_webhook: Prisma.FieldRef<"SystemConfig", 'String'>
+  readonly wechat_webhook: Prisma.FieldRef<"SystemConfig", 'String'>
+  readonly push_enabled_channels: Prisma.FieldRef<"SystemConfig", 'String'>
   readonly created_at: Prisma.FieldRef<"SystemConfig", 'DateTime'>
   readonly updated_at: Prisma.FieldRef<"SystemConfig", 'DateTime'>
   readonly keywords: Prisma.FieldRef<"SystemConfig", 'String'>

@@ -389,7 +389,9 @@ export const ModelName = {
   ProductHistory: 'ProductHistory',
   ProductSku: 'ProductSku',
   SystemConfig: 'SystemConfig',
-  Alert: 'Alert'
+  Alert: 'Alert',
+  Keyword: 'Keyword',
+  ProductKeyword: 'ProductKeyword'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -405,7 +407,7 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
     omit: GlobalOmitOptions
   }
   meta: {
-    modelProps: "user" | "product" | "productHistory" | "productSku" | "systemConfig" | "alert"
+    modelProps: "user" | "product" | "productHistory" | "productSku" | "systemConfig" | "alert" | "keyword" | "productKeyword"
     txIsolationLevel: TransactionIsolationLevel
   }
   model: {
@@ -853,6 +855,154 @@ export type TypeMap<ExtArgs extends runtime.Types.Extensions.InternalArgs = runt
         }
       }
     }
+    Keyword: {
+      payload: Prisma.$KeywordPayload<ExtArgs>
+      fields: Prisma.KeywordFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.KeywordFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.KeywordFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>
+        }
+        findFirst: {
+          args: Prisma.KeywordFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.KeywordFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>
+        }
+        findMany: {
+          args: Prisma.KeywordFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>[]
+        }
+        create: {
+          args: Prisma.KeywordCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>
+        }
+        createMany: {
+          args: Prisma.KeywordCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.KeywordCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>[]
+        }
+        delete: {
+          args: Prisma.KeywordDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>
+        }
+        update: {
+          args: Prisma.KeywordUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>
+        }
+        deleteMany: {
+          args: Prisma.KeywordDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.KeywordUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.KeywordUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>[]
+        }
+        upsert: {
+          args: Prisma.KeywordUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$KeywordPayload>
+        }
+        aggregate: {
+          args: Prisma.KeywordAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateKeyword>
+        }
+        groupBy: {
+          args: Prisma.KeywordGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.KeywordGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.KeywordCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.KeywordCountAggregateOutputType> | number
+        }
+      }
+    }
+    ProductKeyword: {
+      payload: Prisma.$ProductKeywordPayload<ExtArgs>
+      fields: Prisma.ProductKeywordFieldRefs
+      operations: {
+        findUnique: {
+          args: Prisma.ProductKeywordFindUniqueArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload> | null
+        }
+        findUniqueOrThrow: {
+          args: Prisma.ProductKeywordFindUniqueOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>
+        }
+        findFirst: {
+          args: Prisma.ProductKeywordFindFirstArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload> | null
+        }
+        findFirstOrThrow: {
+          args: Prisma.ProductKeywordFindFirstOrThrowArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>
+        }
+        findMany: {
+          args: Prisma.ProductKeywordFindManyArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>[]
+        }
+        create: {
+          args: Prisma.ProductKeywordCreateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>
+        }
+        createMany: {
+          args: Prisma.ProductKeywordCreateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        createManyAndReturn: {
+          args: Prisma.ProductKeywordCreateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>[]
+        }
+        delete: {
+          args: Prisma.ProductKeywordDeleteArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>
+        }
+        update: {
+          args: Prisma.ProductKeywordUpdateArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>
+        }
+        deleteMany: {
+          args: Prisma.ProductKeywordDeleteManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateMany: {
+          args: Prisma.ProductKeywordUpdateManyArgs<ExtArgs>
+          result: BatchPayload
+        }
+        updateManyAndReturn: {
+          args: Prisma.ProductKeywordUpdateManyAndReturnArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>[]
+        }
+        upsert: {
+          args: Prisma.ProductKeywordUpsertArgs<ExtArgs>
+          result: runtime.Types.Utils.PayloadToResult<Prisma.$ProductKeywordPayload>
+        }
+        aggregate: {
+          args: Prisma.ProductKeywordAggregateArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.AggregateProductKeyword>
+        }
+        groupBy: {
+          args: Prisma.ProductKeywordGroupByArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProductKeywordGroupByOutputType>[]
+        }
+        count: {
+          args: Prisma.ProductKeywordCountArgs<ExtArgs>
+          result: runtime.Types.Utils.Optional<Prisma.ProductKeywordCountAggregateOutputType> | number
+        }
+      }
+    }
   }
 } & {
   other: {
@@ -895,7 +1045,7 @@ export type TransactionIsolationLevel = (typeof TransactionIsolationLevel)[keyof
 export const UserScalarFieldEnum = {
   id: 'id',
   username: 'username',
-  password_hash: 'password_hash',
+  password: 'password',
   role: 'role',
   created_at: 'created_at'
 } as const
@@ -950,6 +1100,14 @@ export const SystemConfigScalarFieldEnum = {
   work_start_hour: 'work_start_hour',
   work_end_hour: 'work_end_hour',
   sales_growth_threshold: 'sales_growth_threshold',
+  alert_dedup_hours: 'alert_dedup_hours',
+  crawl_schedule_type: 'crawl_schedule_type',
+  crawl_fixed_times: 'crawl_fixed_times',
+  crawl_daily_limit: 'crawl_daily_limit',
+  check_alert_interval: 'check_alert_interval',
+  feishu_webhook: 'feishu_webhook',
+  wechat_webhook: 'wechat_webhook',
+  push_enabled_channels: 'push_enabled_channels',
   created_at: 'created_at',
   updated_at: 'updated_at',
   keywords: 'keywords',
@@ -972,6 +1130,26 @@ export const AlertScalarFieldEnum = {
 } as const
 
 export type AlertScalarFieldEnum = (typeof AlertScalarFieldEnum)[keyof typeof AlertScalarFieldEnum]
+
+
+export const KeywordScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  platform: 'platform',
+  is_active: 'is_active',
+  created_by: 'created_by',
+  created_at: 'created_at'
+} as const
+
+export type KeywordScalarFieldEnum = (typeof KeywordScalarFieldEnum)[keyof typeof KeywordScalarFieldEnum]
+
+
+export const ProductKeywordScalarFieldEnum = {
+  keyword_id: 'keyword_id',
+  product_id: 'product_id'
+} as const
+
+export type ProductKeywordScalarFieldEnum = (typeof ProductKeywordScalarFieldEnum)[keyof typeof ProductKeywordScalarFieldEnum]
 
 
 export const SortOrder = {
@@ -1196,6 +1374,8 @@ export type GlobalOmitConfig = {
   productSku?: Prisma.ProductSkuOmit
   systemConfig?: Prisma.SystemConfigOmit
   alert?: Prisma.AlertOmit
+  keyword?: Prisma.KeywordOmit
+  productKeyword?: Prisma.ProductKeywordOmit
 }
 
 /* Types for Logging */

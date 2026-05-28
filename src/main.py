@@ -25,6 +25,7 @@ from api.product_keywords import router as product_keywords_router
 from api.push import router as push_router
 from api.service import router as service_router
 from api.settings import router as settings_router
+from api.users import router as users_router
 from services.auth_service import decode_token
 
 logger = logging.getLogger("main")
@@ -89,6 +90,7 @@ app.include_router(product_keywords_router)
 app.include_router(push_router)
 app.include_router(service_router)
 app.include_router(settings_router)
+app.include_router(users_router)
 
 
 @app.get("/api/health")

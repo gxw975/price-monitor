@@ -56,7 +56,9 @@ export const ModelName = {
   ProductHistory: 'ProductHistory',
   ProductSku: 'ProductSku',
   SystemConfig: 'SystemConfig',
-  Alert: 'Alert'
+  Alert: 'Alert',
+  Keyword: 'Keyword',
+  ProductKeyword: 'ProductKeyword'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -78,7 +80,7 @@ export type TransactionIsolationLevel = (typeof TransactionIsolationLevel)[keyof
 export const UserScalarFieldEnum = {
   id: 'id',
   username: 'username',
-  password_hash: 'password_hash',
+  password: 'password',
   role: 'role',
   created_at: 'created_at'
 } as const
@@ -133,6 +135,14 @@ export const SystemConfigScalarFieldEnum = {
   work_start_hour: 'work_start_hour',
   work_end_hour: 'work_end_hour',
   sales_growth_threshold: 'sales_growth_threshold',
+  alert_dedup_hours: 'alert_dedup_hours',
+  crawl_schedule_type: 'crawl_schedule_type',
+  crawl_fixed_times: 'crawl_fixed_times',
+  crawl_daily_limit: 'crawl_daily_limit',
+  check_alert_interval: 'check_alert_interval',
+  feishu_webhook: 'feishu_webhook',
+  wechat_webhook: 'wechat_webhook',
+  push_enabled_channels: 'push_enabled_channels',
   created_at: 'created_at',
   updated_at: 'updated_at',
   keywords: 'keywords',
@@ -155,6 +165,26 @@ export const AlertScalarFieldEnum = {
 } as const
 
 export type AlertScalarFieldEnum = (typeof AlertScalarFieldEnum)[keyof typeof AlertScalarFieldEnum]
+
+
+export const KeywordScalarFieldEnum = {
+  id: 'id',
+  name: 'name',
+  platform: 'platform',
+  is_active: 'is_active',
+  created_by: 'created_by',
+  created_at: 'created_at'
+} as const
+
+export type KeywordScalarFieldEnum = (typeof KeywordScalarFieldEnum)[keyof typeof KeywordScalarFieldEnum]
+
+
+export const ProductKeywordScalarFieldEnum = {
+  keyword_id: 'keyword_id',
+  product_id: 'product_id'
+} as const
+
+export type ProductKeywordScalarFieldEnum = (typeof ProductKeywordScalarFieldEnum)[keyof typeof ProductKeywordScalarFieldEnum]
 
 
 export const SortOrder = {

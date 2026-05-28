@@ -80,6 +80,7 @@ function TopBar() {
     { label: '预警管理', href: '/admin/alerts' },
     { label: '关键词监控', href: '/admin/keywords' },
     { label: '商品关联', href: '/admin/product-keywords' },
+    { label: '用户管理', href: '/admin/users' },
     { label: '系统设置', href: '/admin/settings' },
     { label: '故障排查', href: '/admin/diagnostics' },
   ]

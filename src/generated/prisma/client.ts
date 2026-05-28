@@ -71,3 +71,13 @@ export type SystemConfig = Prisma.SystemConfigModel
  * 
  */
 export type Alert = Prisma.AlertModel
+/**
+ * Model Keyword
+ * 
+ */
+export type Keyword = Prisma.KeywordModel
+/**
+ * Model ProductKeyword
+ * 
+ */
+export type ProductKeyword = Prisma.ProductKeywordModel
