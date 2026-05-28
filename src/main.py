@@ -30,6 +30,7 @@ from api.products import router as products_router
 from api.push import router as push_router
 from api.service import router as service_router
 from api.settings import router as settings_router
+from api.taobao import router as taobao_router
 from api.users import router as users_router
 from services.auth_service import decode_token
 
@@ -87,7 +88,7 @@ async def auth_middleware(request: Request, call_next):
 
 
 WRITE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
-OPLOG_SKIP_PATHS = {"/api/notifications/count", "/api/auth/login", "/api/health", "/api/docs"}
+OPLOG_SKIP_PATHS = {"/api/notifications/count", "/api/auth/login", "/api/health", "/api/docs", "/api/taobao/qrcode", "/api/taobao/check-login", "/api/taobao/status"}
 
 
 @app.middleware("http")
@@ -128,6 +129,7 @@ async def operation_log_middleware(request: Request, call_next):
         ("POST", "/api/service/stop"): "停止服务",
         ("POST", "/api/service/start"): "启动服务",
         ("POST", "/api/push/test"): "测试推送",
+        ("POST", "/api/taobao/start-login"): "刷新淘宝登录",
         ("POST", "/api/diagnostics/maintenance"): "维护操作",
     }
 
@@ -169,6 +171,7 @@ app.include_router(products_router)
 app.include_router(push_router)
 app.include_router(service_router)
 app.include_router(settings_router)
+app.include_router(taobao_router)
 app.include_router(users_router)
 
 

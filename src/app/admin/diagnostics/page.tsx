@@ -2,7 +2,7 @@
 
 import { apiFetch } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 interface HealthItem {
   name: string
@@ -15,6 +15,16 @@ interface HealthResult {
   checked_at: string
   issues: string[]
   items: HealthItem[]
+}
+
+interface TaobaoLoginState {
+  session: string
+  qrcode: string
+  status: string
+  message: string
+  logged_in: boolean
+  banned: boolean
+  username: string
 }
 
 type LogFile = 'crawl' | 'alert' | 'backend' | 'frontend'
@@ -32,6 +42,12 @@ export default function DiagnosticsPage() {
   const [actionLoading, setActionLoading] = useState('')
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [autoRefresh, setAutoRefresh] = useState(false)
+
+  const [tbLogin, setTbLogin] = useState<TaobaoLoginState | null>(null)
+  const [tbLoading, setTbLoading] = useState(false)
+  const [tbMsg, setTbMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [tbStatus, setTbStatus] = useState<{ logged_in: boolean; banned: boolean; username: string; status: string } | null>(null)
 
   const fetchHealth = useCallback(async () => {
     setLoading(true)
@@ -94,6 +110,57 @@ export default function DiagnosticsPage() {
       setActionLoading('')
     }
   }
+
+  const fetchTaobaoStatus = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/taobao/status')
+      setTbStatus(data)
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => {
+    if (canWrite) fetchTaobaoStatus()
+  }, [canWrite, fetchTaobaoStatus])
+
+  const startTaobaoLogin = async () => {
+    setTbLoading(true)
+    setTbLogin(null)
+    setTbMsg(null)
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    try {
+      const data = await apiFetch('/api/taobao/start-login', { method: 'POST' })
+      setTbLogin(data)
+      setTbMsg({ type: 'success', text: data.message || '二维码已生成' })
+      pollRef.current = setInterval(() => checkTaobaoLogin(), 3000)
+    } catch (err: any) {
+      setTbMsg({ type: 'error', text: err.message || '启动登录失败' })
+    } finally {
+      setTbLoading(false)
+    }
+  }
+
+  const checkTaobaoLogin = async () => {
+    if (!tbLogin) return
+    try {
+      const data = await apiFetch('/api/taobao/check-login')
+      if (data.logged_in) {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+        setTbMsg({ type: 'success', text: data.message || `登录成功！当前账号：${data.username}` })
+        fetchTaobaoStatus()
+      } else if (data.banned) {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+        setTbMsg({ type: 'error', text: data.message || '该账号已被限制登录' })
+      } else if (data.status === 'expired') {
+        if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+        setTbMsg({ type: 'warning', text: data.message })
+        setTimeout(() => setTbLogin(null), 3000)
+      }
+    } catch { /* polling error, ignore */ }
+  }
+
+  useEffect(() => {
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [])
 
   if (loading || !health) {
     return (
@@ -230,6 +297,79 @@ export default function DiagnosticsPage() {
                 </div>
               </div>
             )}
+
+            {canWrite && (
+              <div className="rounded-lg border border-gray-200 bg-white p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="text-base font-semibold text-gray-900">淘宝账号登录</h2>
+                  {tbStatus && (
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      tbStatus.logged_in ? 'bg-green-100 text-green-700' :
+                      tbStatus.banned ? 'bg-red-100 text-red-700' :
+                      'bg-gray-100 text-gray-500'
+                    }`}>
+                      {tbStatus.logged_in
+                        ? `已登录${tbStatus.username ? `：${tbStatus.username}` : ''}`
+                        : tbStatus.banned ? '账号受限' : '未登录'}
+                    </span>
+                  )}
+                </div>
+
+                {tbMsg && (
+                  <div className={`mb-3 rounded-lg px-3 py-2 text-sm ${
+                    tbMsg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' :
+                    tbMsg.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' :
+                    'bg-yellow-50 text-yellow-700 border border-yellow-200'
+                  }`}>
+                    {tbMsg.text}
+                  </div>
+                )}
+
+                {tbLogin?.qrcode && (!tbLogin.logged_in) && (
+                  <div className="mb-3 flex justify-center rounded-lg border border-gray-100 bg-gray-50 p-2">
+                    <img
+                      src={tbLogin.qrcode}
+                      alt="淘宝登录二维码"
+                      className="max-h-64 w-auto rounded"
+                    />
+                  </div>
+                )}
+
+                <div className="flex gap-2">
+                  <button
+                    onClick={startTaobaoLogin}
+                    disabled={tbLoading}
+                    className="flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-4 py-2.5 text-sm font-medium text-orange-700 hover:bg-orange-100 disabled:opacity-50"
+                  >
+                    {tbLoading ? (
+                      <>
+                        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-orange-300 border-t-orange-600" />
+                        打开浏览器中...
+                      </>
+                    ) : tbLogin?.qrcode && !tbLogin.logged_in ? (
+                      <>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                        重新获取二维码
+                      </>
+                    ) : (
+                      '🔄 刷新淘宝登录'
+                    )}
+                  </button>
+
+                  {tbLogin?.qrcode && !tbLogin.logged_in && (
+                    <span className="flex items-center gap-1 text-xs text-gray-400">
+                      <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" />
+                      等待扫码中...
+                    </span>
+                  )}
+                </div>
+
+                <p className="mt-2 text-xs text-gray-400">
+                  点击刷新登录，使用淘宝/天猫APP扫描上方二维码即可登录。登录状态会自动保存，后续抓取任务将使用该账号。
+                </p>
+              </div>
+            )}
+
           </div>
 
           <div className="rounded-lg border border-gray-200 bg-white">
