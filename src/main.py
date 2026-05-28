@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from api.alerts import router as alerts_router
 from api.auth import router as auth_router
 from api.cron import router as cron_router
+from api.diagnostics import router as diagnostics_router
 from api.keywords import router as keywords_router
 from api.product_keywords import router as product_keywords_router
 from api.push import router as push_router
@@ -82,6 +83,7 @@ async def auth_middleware(request: Request, call_next):
 app.include_router(auth_router)
 app.include_router(alerts_router)
 app.include_router(cron_router)
+app.include_router(diagnostics_router)
 app.include_router(keywords_router)
 app.include_router(product_keywords_router)
 app.include_router(push_router)

@@ -3,7 +3,63 @@
 import './globals.css'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { useRouter, usePathname } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useCallback, useState } from 'react'
+import { apiFetch } from '@/lib/utils'
+
+function HealthBanner() {
+  const { isAuthenticated } = useAuth()
+  const pathname = usePathname()
+  const [issues, setIssues] = useState<string[]>([])
+  const [show, setShow] = useState(false)
+  const router = useRouter()
+
+  const fetchHealth = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/diagnostics/health')
+      if (data.overall !== 'ok' && data.issues?.length > 0) {
+        setIssues(data.issues)
+        setShow(true)
+      }
+    } catch {
+      // ignore if health fails
+    }
+  }, [])
+
+  useEffect(() => {
+    if (isAuthenticated && pathname !== '/login' && pathname !== '/admin/diagnostics') {
+      fetchHealth()
+      const interval = setInterval(fetchHealth, 60000)
+      return () => clearInterval(interval)
+    }
+  }, [isAuthenticated, pathname, fetchHealth])
+
+  if (!show || issues.length === 0) return null
+
+  return (
+    <div className="bg-amber-50 border-b border-amber-200">
+      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-2.5">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-amber-800">⚠ 系统异常</span>
+          <span className="text-xs text-amber-600">{issues.join('；')}</span>
+        </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => router.push('/admin/diagnostics')}
+            className="rounded bg-amber-600 px-3 py-1 text-xs text-white hover:bg-amber-700"
+          >
+            一键排查
+          </button>
+          <button
+            onClick={() => setShow(false)}
+            className="text-xs text-amber-500 hover:text-amber-700"
+          >
+            忽略
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 function TopBar() {
   const { user, isAuthenticated, logout } = useAuth()
@@ -25,6 +81,7 @@ function TopBar() {
     { label: '关键词监控', href: '/admin/keywords' },
     { label: '商品关联', href: '/admin/product-keywords' },
     { label: '系统设置', href: '/admin/settings' },
+    { label: '故障排查', href: '/admin/diagnostics' },
   ]
 
   return (
@@ -36,7 +93,7 @@ function TopBar() {
             <button
               key={item.href}
               onClick={() => router.push(item.href)}
-              className={`text-sm transition-colors ${
+              className={`text-sm transition-colors whitespace-nowrap ${
                 pathname.startsWith(item.href)
                   ? 'text-blue-600 font-medium'
                   : 'text-gray-600 hover:text-blue-600'
@@ -113,6 +170,7 @@ export default function RootLayout({
       <body className="min-h-screen bg-gray-50">
         <AuthProvider>
           <TopBar />
+          <HealthBanner />
           <AuthGuard>
             {children}
           </AuthGuard>
