@@ -24,6 +24,7 @@ from api.diagnostics import router as diagnostics_router
 from api.import_export import router as import_export_router
 from api.keywords import router as keywords_router
 from api.logs import router as logs_router
+from api.messages import router as messages_router
 from api.notifications import router as notifications_router
 from api.product_keywords import router as product_keywords_router
 from api.products import router as products_router
@@ -57,7 +58,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-SKIP_AUTH_PATHS = {"/api/auth/login", "/api/health", "/api/docs", "/openapi.json"}
+SKIP_AUTH_PATHS = {"/api/auth/login", "/api/health", "/api/docs", "/openapi.json", "/api/messages/command"}
 
 
 @app.middleware("http")
@@ -88,7 +89,7 @@ async def auth_middleware(request: Request, call_next):
 
 
 WRITE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
-OPLOG_SKIP_PATHS = {"/api/notifications/count", "/api/auth/login", "/api/health", "/api/docs", "/api/taobao/qrcode", "/api/taobao/check-login", "/api/taobao/status"}
+OPLOG_SKIP_PATHS = {"/api/notifications/count", "/api/auth/login", "/api/health", "/api/docs", "/api/taobao/qrcode", "/api/taobao/check-login", "/api/taobao/status", "/api/messages/command"}
 
 
 @app.middleware("http")
@@ -167,6 +168,7 @@ app.include_router(diagnostics_router)
 app.include_router(import_export_router)
 app.include_router(keywords_router)
 app.include_router(logs_router)
+app.include_router(messages_router)
 app.include_router(notifications_router)
 app.include_router(product_keywords_router)
 app.include_router(products_router)
