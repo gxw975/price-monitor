@@ -1123,6 +1123,7 @@ export const AlertScalarFieldEnum = {
   product_id: 'product_id',
   alert_type: 'alert_type',
   message: 'message',
+  status: 'status',
   is_sent: 'is_sent',
   sent_at: 'sent_at',
   is_read: 'is_read',

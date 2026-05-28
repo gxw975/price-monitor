@@ -50,6 +50,7 @@ def _alert_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "product_id": row["product_id"],
         "alert_type": row["alert_type"],
         "message": row["message"],
+        "status": row.get("status", "unprocessed"),
         "is_sent": row["is_sent"],
         "sent_at": row["sent_at"].isoformat() if row.get("sent_at") else None,
         "is_read": row["is_read"],
@@ -63,6 +64,7 @@ def list_alerts(
     page_size: int = Query(20, ge=1, le=100),
     alert_type: str | None = Query(None),
     is_read: bool | None = Query(None),
+    status: str | None = Query(None),
     keyword: str | None = Query(None),
 ) -> dict[str, Any]:
     conn = _get_conn()
@@ -77,9 +79,12 @@ def list_alerts(
             if is_read is not None:
                 conditions.append("a.is_read = %s")
                 params.append(is_read)
+            if status:
+                conditions.append("a.status = %s")
+                params.append(status)
             if keyword:
-                conditions.append("(a.message ILIKE %s OR a.product_id ILIKE %s)")
-                params.extend([f"%{keyword}%", f"%{keyword}%"])
+                conditions.append("(a.message ILIKE %s OR a.product_id ILIKE %s OR p.title ILIKE %s)")
+                params.extend([f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"])
 
             where = ""
             if conditions:
@@ -141,6 +146,32 @@ def mark_read(ids: list[int]) -> dict[str, Any]:
         logger.exception("标记已读失败")
         conn.rollback()
         raise HTTPException(status_code=500, detail="标记已读失败")
+    finally:
+        conn.close()
+
+
+@router.post("/mark-processed")
+def mark_processed(ids: list[int]) -> dict[str, Any]:
+    if not ids:
+        raise HTTPException(status_code=400, detail="ids 不能为空")
+
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            placeholders = ",".join(["%s"] * len(ids))
+            cur.execute(
+                f'UPDATE "Alert" SET status = %s WHERE id IN ({placeholders})',
+                ["processed"] + ids,
+            )
+            affected = cur.rowcount
+            conn.commit()
+
+        logger.info("标记处理: ids=%s, affected=%d", ids, affected)
+        return {"success": True, "affected": affected}
+    except Exception:
+        logger.exception("标记处理失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="标记处理失败")
     finally:
         conn.close()
 

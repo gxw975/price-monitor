@@ -39,6 +39,7 @@ export type AlertMinAggregateOutputType = {
   product_id: string | null
   alert_type: string | null
   message: string | null
+  status: string | null
   is_sent: boolean | null
   sent_at: Date | null
   is_read: boolean | null
@@ -50,6 +51,7 @@ export type AlertMaxAggregateOutputType = {
   product_id: string | null
   alert_type: string | null
   message: string | null
+  status: string | null
   is_sent: boolean | null
   sent_at: Date | null
   is_read: boolean | null
@@ -61,6 +63,7 @@ export type AlertCountAggregateOutputType = {
   product_id: number
   alert_type: number
   message: number
+  status: number
   is_sent: number
   sent_at: number
   is_read: number
@@ -82,6 +85,7 @@ export type AlertMinAggregateInputType = {
   product_id?: true
   alert_type?: true
   message?: true
+  status?: true
   is_sent?: true
   sent_at?: true
   is_read?: true
@@ -93,6 +97,7 @@ export type AlertMaxAggregateInputType = {
   product_id?: true
   alert_type?: true
   message?: true
+  status?: true
   is_sent?: true
   sent_at?: true
   is_read?: true
@@ -104,6 +109,7 @@ export type AlertCountAggregateInputType = {
   product_id?: true
   alert_type?: true
   message?: true
+  status?: true
   is_sent?: true
   sent_at?: true
   is_read?: true
@@ -202,6 +208,7 @@ export type AlertGroupByOutputType = {
   product_id: string
   alert_type: string
   message: string
+  status: string
   is_sent: boolean
   sent_at: Date | null
   is_read: boolean
@@ -236,6 +243,7 @@ export type AlertWhereInput = {
   product_id?: Prisma.StringFilter<"Alert"> | string
   alert_type?: Prisma.StringFilter<"Alert"> | string
   message?: Prisma.StringFilter<"Alert"> | string
+  status?: Prisma.StringFilter<"Alert"> | string
   is_sent?: Prisma.BoolFilter<"Alert"> | boolean
   sent_at?: Prisma.DateTimeNullableFilter<"Alert"> | Date | string | null
   is_read?: Prisma.BoolFilter<"Alert"> | boolean
@@ -247,6 +255,7 @@ export type AlertOrderByWithRelationInput = {
   product_id?: Prisma.SortOrder
   alert_type?: Prisma.SortOrder
   message?: Prisma.SortOrder
+  status?: Prisma.SortOrder
   is_sent?: Prisma.SortOrder
   sent_at?: Prisma.SortOrderInput | Prisma.SortOrder
   is_read?: Prisma.SortOrder
@@ -261,6 +270,7 @@ export type AlertWhereUniqueInput = Prisma.AtLeast<{
   product_id?: Prisma.StringFilter<"Alert"> | string
   alert_type?: Prisma.StringFilter<"Alert"> | string
   message?: Prisma.StringFilter<"Alert"> | string
+  status?: Prisma.StringFilter<"Alert"> | string
   is_sent?: Prisma.BoolFilter<"Alert"> | boolean
   sent_at?: Prisma.DateTimeNullableFilter<"Alert"> | Date | string | null
   is_read?: Prisma.BoolFilter<"Alert"> | boolean
@@ -272,6 +282,7 @@ export type AlertOrderByWithAggregationInput = {
   product_id?: Prisma.SortOrder
   alert_type?: Prisma.SortOrder
   message?: Prisma.SortOrder
+  status?: Prisma.SortOrder
   is_sent?: Prisma.SortOrder
   sent_at?: Prisma.SortOrderInput | Prisma.SortOrder
   is_read?: Prisma.SortOrder
@@ -291,6 +302,7 @@ export type AlertScalarWhereWithAggregatesInput = {
   product_id?: Prisma.StringWithAggregatesFilter<"Alert"> | string
   alert_type?: Prisma.StringWithAggregatesFilter<"Alert"> | string
   message?: Prisma.StringWithAggregatesFilter<"Alert"> | string
+  status?: Prisma.StringWithAggregatesFilter<"Alert"> | string
   is_sent?: Prisma.BoolWithAggregatesFilter<"Alert"> | boolean
   sent_at?: Prisma.DateTimeNullableWithAggregatesFilter<"Alert"> | Date | string | null
   is_read?: Prisma.BoolWithAggregatesFilter<"Alert"> | boolean
@@ -301,6 +313,7 @@ export type AlertCreateInput = {
   product_id: string
   alert_type: string
   message: string
+  status?: string
   is_sent?: boolean
   sent_at?: Date | string | null
   is_read?: boolean
@@ -312,6 +325,7 @@ export type AlertUncheckedCreateInput = {
   product_id: string
   alert_type: string
   message: string
+  status?: string
   is_sent?: boolean
   sent_at?: Date | string | null
   is_read?: boolean
@@ -322,6 +336,7 @@ export type AlertUpdateInput = {
   product_id?: Prisma.StringFieldUpdateOperationsInput | string
   alert_type?: Prisma.StringFieldUpdateOperationsInput | string
   message?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
   is_sent?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sent_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   is_read?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -333,6 +348,7 @@ export type AlertUncheckedUpdateInput = {
   product_id?: Prisma.StringFieldUpdateOperationsInput | string
   alert_type?: Prisma.StringFieldUpdateOperationsInput | string
   message?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
   is_sent?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sent_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   is_read?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -344,6 +360,7 @@ export type AlertCreateManyInput = {
   product_id: string
   alert_type: string
   message: string
+  status?: string
   is_sent?: boolean
   sent_at?: Date | string | null
   is_read?: boolean
@@ -354,6 +371,7 @@ export type AlertUpdateManyMutationInput = {
   product_id?: Prisma.StringFieldUpdateOperationsInput | string
   alert_type?: Prisma.StringFieldUpdateOperationsInput | string
   message?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
   is_sent?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sent_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   is_read?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -365,6 +383,7 @@ export type AlertUncheckedUpdateManyInput = {
   product_id?: Prisma.StringFieldUpdateOperationsInput | string
   alert_type?: Prisma.StringFieldUpdateOperationsInput | string
   message?: Prisma.StringFieldUpdateOperationsInput | string
+  status?: Prisma.StringFieldUpdateOperationsInput | string
   is_sent?: Prisma.BoolFieldUpdateOperationsInput | boolean
   sent_at?: Prisma.NullableDateTimeFieldUpdateOperationsInput | Date | string | null
   is_read?: Prisma.BoolFieldUpdateOperationsInput | boolean
@@ -376,6 +395,7 @@ export type AlertCountOrderByAggregateInput = {
   product_id?: Prisma.SortOrder
   alert_type?: Prisma.SortOrder
   message?: Prisma.SortOrder
+  status?: Prisma.SortOrder
   is_sent?: Prisma.SortOrder
   sent_at?: Prisma.SortOrder
   is_read?: Prisma.SortOrder
@@ -391,6 +411,7 @@ export type AlertMaxOrderByAggregateInput = {
   product_id?: Prisma.SortOrder
   alert_type?: Prisma.SortOrder
   message?: Prisma.SortOrder
+  status?: Prisma.SortOrder
   is_sent?: Prisma.SortOrder
   sent_at?: Prisma.SortOrder
   is_read?: Prisma.SortOrder
@@ -402,6 +423,7 @@ export type AlertMinOrderByAggregateInput = {
   product_id?: Prisma.SortOrder
   alert_type?: Prisma.SortOrder
   message?: Prisma.SortOrder
+  status?: Prisma.SortOrder
   is_sent?: Prisma.SortOrder
   sent_at?: Prisma.SortOrder
   is_read?: Prisma.SortOrder
@@ -419,6 +441,7 @@ export type AlertSelect<ExtArgs extends runtime.Types.Extensions.InternalArgs = 
   product_id?: boolean
   alert_type?: boolean
   message?: boolean
+  status?: boolean
   is_sent?: boolean
   sent_at?: boolean
   is_read?: boolean
@@ -430,6 +453,7 @@ export type AlertSelectCreateManyAndReturn<ExtArgs extends runtime.Types.Extensi
   product_id?: boolean
   alert_type?: boolean
   message?: boolean
+  status?: boolean
   is_sent?: boolean
   sent_at?: boolean
   is_read?: boolean
@@ -441,6 +465,7 @@ export type AlertSelectUpdateManyAndReturn<ExtArgs extends runtime.Types.Extensi
   product_id?: boolean
   alert_type?: boolean
   message?: boolean
+  status?: boolean
   is_sent?: boolean
   sent_at?: boolean
   is_read?: boolean
@@ -452,13 +477,14 @@ export type AlertSelectScalar = {
   product_id?: boolean
   alert_type?: boolean
   message?: boolean
+  status?: boolean
   is_sent?: boolean
   sent_at?: boolean
   is_read?: boolean
   created_at?: boolean
 }
 
-export type AlertOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "product_id" | "alert_type" | "message" | "is_sent" | "sent_at" | "is_read" | "created_at", ExtArgs["result"]["alert"]>
+export type AlertOmit<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = runtime.Types.Extensions.GetOmit<"id" | "product_id" | "alert_type" | "message" | "status" | "is_sent" | "sent_at" | "is_read" | "created_at", ExtArgs["result"]["alert"]>
 
 export type $AlertPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs = runtime.Types.Extensions.DefaultArgs> = {
   name: "Alert"
@@ -468,6 +494,7 @@ export type $AlertPayload<ExtArgs extends runtime.Types.Extensions.InternalArgs 
     product_id: string
     alert_type: string
     message: string
+    status: string
     is_sent: boolean
     sent_at: Date | null
     is_read: boolean
@@ -899,6 +926,7 @@ export interface AlertFieldRefs {
   readonly product_id: Prisma.FieldRef<"Alert", 'String'>
   readonly alert_type: Prisma.FieldRef<"Alert", 'String'>
   readonly message: Prisma.FieldRef<"Alert", 'String'>
+  readonly status: Prisma.FieldRef<"Alert", 'String'>
   readonly is_sent: Prisma.FieldRef<"Alert", 'Boolean'>
   readonly sent_at: Prisma.FieldRef<"Alert", 'DateTime'>
   readonly is_read: Prisma.FieldRef<"Alert", 'Boolean'>

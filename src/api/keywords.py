@@ -70,6 +70,8 @@ def _keyword_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "created_by": row["created_by"],
         "created_by_name": row.get("created_by_name", ""),
         "product_count": int(row.get("product_count", 0) or 0),
+        "crawled_today": int(row.get("crawled_today", 0) or 0),
+        "last_crawl_time": row.get("last_crawl_time").isoformat() if row.get("last_crawl_time") else None,
         "created_at": row["createdAt"].isoformat() if row.get("createdAt") else None,
     }
 
@@ -99,10 +101,13 @@ def list_keywords(
 
             cur.execute(
                 'SELECT k.*, u.username AS created_by_name, '
-                "COUNT(pk.product_id) AS product_count "
+                "COUNT(pk.product_id) AS product_count, "
+                "MAX(ph.recorded_at) AS last_crawl_time, "
+                "COUNT(DISTINCT CASE WHEN ph.recorded_at::date = CURRENT_DATE THEN pk.product_id END) AS crawled_today "
                 'FROM "Keyword" k '
                 'LEFT JOIN "User" u ON k.created_by = u.id '
                 'LEFT JOIN "ProductKeyword" pk ON k.id = pk.keyword_id '
+                'LEFT JOIN "ProductHistory" ph ON ph.product_id = pk.product_id '
                 f"{where} "
                 "GROUP BY k.id, u.username "
                 "ORDER BY k.\"createdAt\" DESC",

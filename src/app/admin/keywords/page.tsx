@@ -1,7 +1,8 @@
 'use client'
 
-import { apiFetch } from '@/lib/utils'
+import { apiFetch, cn } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
+import { useRouter } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 
 interface Keyword {
@@ -11,11 +12,14 @@ interface Keyword {
   is_active: boolean
   created_by_name: string
   product_count: number
-  created_at: string
+  crawled_today: number
+  last_crawl_time: string | null
+  created_at: string | null
 }
 
 export default function KeywordsPage() {
   const { user } = useAuth()
+  const router = useRouter()
   const canWrite = user?.role === 'admin' || user?.role === 'manager'
 
   const [keywords, setKeywords] = useState<Keyword[]>([])
@@ -84,6 +88,35 @@ export default function KeywordsPage() {
     } catch (err) {
       console.error(err)
     }
+  }
+
+  const getCrawlStatus = (kw: Keyword) => {
+    if (kw.product_count === 0) return { text: '无商品', color: 'text-gray-400', bg: 'bg-gray-100' }
+    if (kw.crawled_today === 0 && !kw.last_crawl_time) {
+      return { text: '未抓取', color: 'text-gray-500', bg: 'bg-gray-100' }
+    }
+    if (kw.crawled_today > 0) {
+      return { text: `今日 ${kw.crawled_today}`, color: 'text-green-700', bg: 'bg-green-100' }
+    }
+    if (kw.last_crawl_time) {
+      const days = Math.floor((Date.now() - new Date(kw.last_crawl_time).getTime()) / 86400000)
+      if (days <= 1) return { text: '昨日抓取', color: 'text-blue-700', bg: 'bg-blue-100' }
+      return { text: `${days}天前`, color: 'text-yellow-700', bg: 'bg-yellow-100' }
+    }
+    return { text: '待抓取', color: 'text-gray-500', bg: 'bg-gray-100' }
+  }
+
+  const formatCrawlTime = (t: string | null) => {
+    if (!t) return '-'
+    const d = new Date(t)
+    const now = new Date()
+    const diffMs = now.getTime() - d.getTime()
+    const diffMin = Math.floor(diffMs / 60000)
+    if (diffMin < 1) return '刚刚'
+    if (diffMin < 60) return `${diffMin}分钟前`
+    const diffHour = Math.floor(diffMin / 60)
+    if (diffHour < 24) return `${diffHour}小时前`
+    return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' })
   }
 
   return (
@@ -159,69 +192,86 @@ export default function KeywordsPage() {
                 <tr>
                   <th className="px-4 py-3 font-medium">关键词</th>
                   <th className="px-4 py-3 font-medium">平台</th>
-                  <th className="px-4 py-3 font-medium">关联商品</th>
+                  <th className="px-4 py-3 font-medium">监控商品</th>
+                  <th className="px-4 py-3 font-medium">抓取状态</th>
+                  <th className="px-4 py-3 font-medium">最近抓取</th>
                   <th className="px-4 py-3 font-medium">状态</th>
                   <th className="px-4 py-3 font-medium">创建人</th>
-                  <th className="px-4 py-3 font-medium">创建时间</th>
                   {canWrite && <th className="px-4 py-3 font-medium w-32">操作</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={canWrite ? 7 : 6} className="px-4 py-12 text-center text-gray-400">
+                    <td colSpan={canWrite ? 8 : 7} className="px-4 py-12 text-center text-gray-400">
                       加载中...
                     </td>
                   </tr>
                 ) : keywords.length === 0 ? (
                   <tr>
-                    <td colSpan={canWrite ? 7 : 6} className="px-4 py-12 text-center text-gray-400">
+                    <td colSpan={canWrite ? 8 : 7} className="px-4 py-12 text-center text-gray-400">
                       暂无关键词
                     </td>
                   </tr>
                 ) : (
-                  keywords.map((kw) => (
-                    <tr key={kw.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 font-medium text-gray-900">{kw.name}</td>
-                      <td className="px-4 py-3">
-                        <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
-                          {kw.platform === 'taobao' ? '淘宝' : kw.platform === 'tmall' ? '天猫' : kw.platform === 'jd' ? '京东' : kw.platform}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500">{kw.product_count} 个</td>
-                      <td className="px-4 py-3">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                            kw.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                          }`}
-                        >
-                          {kw.is_active ? '启用' : '禁用'}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500">{kw.created_by_name || '-'}</td>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
-                        {kw.created_at ? new Date(kw.created_at).toLocaleDateString('zh-CN') : '-'}
-                      </td>
-                      {canWrite && (
-                        <td className="px-4 py-3">
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => handleToggleActive(kw)}
-                              className="text-xs text-blue-600 hover:text-blue-800"
-                            >
-                              {kw.is_active ? '禁用' : '启用'}
-                            </button>
-                            <button
-                              onClick={() => handleDelete(kw.id)}
-                              className="text-xs text-red-600 hover:text-red-800"
-                            >
-                              删除
-                            </button>
-                          </div>
+                  keywords.map((kw) => {
+                    const cs = getCrawlStatus(kw)
+                    return (
+                      <tr key={kw.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 font-medium text-gray-900">
+                          <button
+                            onClick={() => router.push(`/admin/products?keyword=${encodeURIComponent(kw.name)}`)}
+                            className="hover:text-blue-600 cursor-pointer"
+                          >
+                            {kw.name}
+                          </button>
                         </td>
-                      )}
+                        <td className="px-4 py-3">
+                          <span className="rounded bg-blue-100 px-2 py-0.5 text-xs text-blue-700">
+                            {kw.platform === 'taobao' ? '淘宝' : kw.platform === 'tmall' ? '天猫' : kw.platform === 'jd' ? '京东' : kw.platform}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500">{kw.product_count} 个</td>
+                        <td className="px-4 py-3">
+                          <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', cs.bg, cs.color)}>
+                            {cs.text}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
+                          {formatCrawlTime(kw.last_crawl_time)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span
+                            className={cn(
+                              'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium',
+                              kw.is_active ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                            )}
+                          >
+                            {kw.is_active ? '启用' : '禁用'}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-gray-500">{kw.created_by_name || '-'}</td>
+                        {canWrite && (
+                          <td className="px-4 py-3">
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => handleToggleActive(kw)}
+                                className="text-xs text-blue-600 hover:text-blue-800"
+                              >
+                                {kw.is_active ? '禁用' : '启用'}
+                              </button>
+                              <button
+                                onClick={() => handleDelete(kw.id)}
+                                className="text-xs text-red-600 hover:text-red-800"
+                              >
+                                删除
+                              </button>
+                            </div>
+                          </td>
+                        )}
                     </tr>
-                  ))
+                    )
+                  })
                 )}
               </tbody>
             </table>

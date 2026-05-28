@@ -86,6 +86,7 @@ model Alert {
   product_id String
   alert_type String
   message    String
+  status     String    @default("unprocessed")
   is_sent    Boolean   @default(false)
   sent_at    DateTime?
   is_read    Boolean   @default(false)
