@@ -60,14 +60,13 @@ def test_push(
     if not body.webhook_url:
         raise HTTPException(status_code=400, detail="Webhook 地址不能为空")
 
-    success = send_test_message(body.channel, body.webhook_url)
+    result = send_test_message(body.channel, body.webhook_url)
 
-    if success:
+    if result["success"]:
         logger.info("推送测试成功: channel=%s by %s", body.channel, current_user["username"])
-        return {"success": True, "message": f"{body.channel} 测试消息发送成功"}
     else:
-        logger.warning("推送测试失败: channel=%s by %s", body.channel, current_user["username"])
-        return {"success": False, "message": f"{body.channel} 测试消息发送失败，请检查Webhook地址"}
+        logger.warning("推送测试失败: channel=%s by %s: %s", body.channel, current_user["username"], result["message"])
+    return result
 
 
 @router.post("/test-personal")
@@ -75,7 +74,6 @@ def test_personal_wechat(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     agent_id = current_user.get("openclaw_agent_id", "")
-    db_fallback = "" if agent_id else None
     if not agent_id:
         conn = _get_conn()
         try:

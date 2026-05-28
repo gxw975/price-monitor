@@ -10,13 +10,13 @@ import json
 import logging
 import os
 import subprocess
-import urllib.request
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
 import psycopg2
 import psycopg2.extras
+import requests
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -82,65 +82,108 @@ def _is_work_hour(work_start: int = 9, work_end: int = 18) -> bool:
     return work_start <= current_hour < work_end
 
 
-def _send_feishu_card(webhook_url: str, card: dict[str, Any]) -> bool:
+def _send_feishu_card(webhook_url: str, card: dict[str, Any]) -> tuple[bool, str]:
     if not webhook_url:
-        logger.warning("飞书 Webhook 未配置")
-        return False
+        msg = "飞书 Webhook 未配置"
+        logger.warning(msg)
+        return False, msg
 
-    data = json.dumps(card).encode("utf-8")
-    req = urllib.request.Request(
-        webhook_url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    logger.info("飞书发送请求: url=%s", webhook_url[:80])
+    logger.info("飞书发送请求体: %s", json.dumps(card, ensure_ascii=False)[:500])
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = resp.read().decode("utf-8")
-            result = json.loads(body)
-            if result.get("code") == 0 or result.get("StatusCode") == 0:
-                logger.info("飞书消息发送成功")
-                return True
-            logger.error("飞书返回错误: %s", body[:300])
-            return False
-    except urllib.error.URLError:
-        logger.error("飞书消息发送失败: 网络错误")
-        return False
-    except Exception:
+        resp = requests.post(
+            webhook_url,
+            json=card,
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        status_code = resp.status_code
+        body = resp.text
+        logger.info("飞书响应: status=%s body=%s", status_code, body[:500])
+
+        if status_code != 200:
+            err = f"HTTP {status_code}: {body[:300]}"
+            logger.error("飞书消息发送失败: %s", err)
+            return False, err
+
+        result = resp.json()
+        api_code = result.get("code")
+        api_status = result.get("StatusCode")
+        if api_code == 0 or api_status == 0:
+            logger.info("飞书消息发送成功")
+            return True, ""
+
+        err_msg = result.get("msg", "") or result.get("message", "") or result.get("StatusMessage", "")
+        if not err_msg:
+            err_msg = json.dumps(result, ensure_ascii=False)[:300]
+        logger.error("飞书返回错误: code=%s StatusCode=%s msg=%s", api_code, api_status, err_msg)
+        return False, f"code={api_code} {err_msg}"
+
+    except requests.exceptions.Timeout:
+        err = "请求超时（15秒）"
+        logger.error("飞书消息发送超时")
+        return False, err
+    except requests.exceptions.ConnectionError as e:
+        err = f"连接失败: {str(e)[:200]}"
+        logger.error("飞书消息发送连接错误: %s", e)
+        return False, err
+    except Exception as e:
+        err = str(e)[:300]
         logger.exception("飞书消息发送异常")
-        return False
+        return False, err
 
 
-def _send_wechat_markdown(webhook_url: str, content: str) -> bool:
+def _send_wechat_markdown(webhook_url: str, content: str) -> tuple[bool, str]:
     if not webhook_url:
-        logger.warning("微信 Webhook 未配置")
-        return False
+        msg = "企业微信 Webhook 未配置"
+        logger.warning(msg)
+        return False, msg
 
     payload = {
         "msgtype": "markdown",
         "markdown": {"content": content},
     }
 
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        webhook_url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
+    logger.info("企业微信发送请求: url=%s", webhook_url[:80])
 
     try:
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            body = resp.read().decode("utf-8")
-            logger.info("微信消息发送成功, 响应: %s", body[:200])
-            return True
-    except urllib.error.URLError:
-        logger.error("微信消息发送失败: 网络错误")
-        return False
-    except Exception:
-        logger.exception("微信消息发送异常")
-        return False
+        resp = requests.post(
+            webhook_url,
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=15,
+        )
+        status_code = resp.status_code
+        body = resp.text
+        logger.info("企业微信响应: status=%s body=%s", status_code, body[:500])
+
+        if status_code != 200:
+            err = f"HTTP {status_code}: {body[:300]}"
+            logger.error("企业微信消息发送失败: %s", err)
+            return False, err
+
+        result = resp.json()
+        if result.get("errcode") == 0:
+            logger.info("企业微信消息发送成功")
+            return True, ""
+
+        err_msg = result.get("errmsg", json.dumps(result, ensure_ascii=False)[:200])
+        logger.error("企业微信返回错误: errcode=%s errmsg=%s", result.get("errcode"), err_msg)
+        return False, f"errcode={result.get('errcode')} {err_msg}"
+
+    except requests.exceptions.Timeout:
+        err = "请求超时（15秒）"
+        logger.error("企业微信消息发送超时")
+        return False, err
+    except requests.exceptions.ConnectionError as e:
+        err = f"连接失败: {str(e)[:200]}"
+        logger.error("企业微信消息发送连接错误: %s", e)
+        return False, err
+    except Exception as e:
+        err = str(e)[:300]
+        logger.exception("企业微信消息发送异常")
+        return False, err
 
 
 def _send_openclaw_wechat(agent_id: str, content: str) -> tuple[bool, str]:
@@ -216,7 +259,7 @@ def _build_feishu_price_card(
         history_lines += f"\n  • {h['recorded_at']}: ¥{h['price']} (销量: {h.get('sales_volume', '?')})"
 
     return {
-        "msgtype": "interactive",
+        "msg_type": "interactive",
         "card": {
             "header": {
                 "title": {"content": "🔴 低价预警", "tag": "plain_text"},
@@ -285,7 +328,7 @@ def _build_feishu_sales_card(
         ratio_text = f"+{growth} 单"
 
     return {
-        "msgtype": "interactive",
+        "msg_type": "interactive",
         "card": {
             "header": {
                 "title": {"content": "🟠 销量预警", "tag": "plain_text"},
@@ -368,13 +411,15 @@ def send_price_alert(
         wh = config["feishu_webhook"]
         if wh:
             card = _build_feishu_price_card(product_id, title, current_price, history_prices)
-            results["feishu"] = _send_feishu_card(wh, card)
+            ok, _ = _send_feishu_card(wh, card)
+            results["feishu"] = ok
 
     if "wechat" in channels:
         wh = config["wechat_webhook"]
         if wh:
             md = _build_wechat_price_md(product_id, title, current_price, history_prices)
-            results["wechat"] = _send_wechat_markdown(wh, md)
+            ok, _ = _send_wechat_markdown(wh, md)
+            results["wechat"] = ok
 
     if "personal_wechat" in channels:
         content = f"🔴 低价预警\n商品: {title}\n商品ID: {product_id}\n当前价格: ¥{current_price}\n检测时间: {datetime.now().strftime('%m-%d %H:%M')}"
@@ -407,13 +452,15 @@ def send_sales_alert(
         wh = config["feishu_webhook"]
         if wh:
             card = _build_feishu_sales_card(product_id, title, today_sales, yesterday_sales, today_price)
-            results["feishu"] = _send_feishu_card(wh, card)
+            ok, _ = _send_feishu_card(wh, card)
+            results["feishu"] = ok
 
     if "wechat" in channels:
         wh = config["wechat_webhook"]
         if wh:
             md = _build_wechat_sales_md(product_id, title, today_sales, yesterday_sales, today_price)
-            results["wechat"] = _send_wechat_markdown(wh, md)
+            ok, _ = _send_wechat_markdown(wh, md)
+            results["wechat"] = ok
 
     if "personal_wechat" in channels:
         content = f"🟠 销量预警\n商品: {title}\n商品ID: {product_id}\n今日销量: {today_sales} 单\n昨日销量: {yesterday_sales} 单\n当前售价: ¥{today_price}\n检测时间: {datetime.now().strftime('%m-%d %H:%M')}"
@@ -447,7 +494,7 @@ def send_custom_alert(
         wh = config["feishu_webhook"]
         if wh:
             card = {
-                "msgtype": "interactive",
+                "msg_type": "interactive",
                 "card": {
                     "header": {
                         "title": {"content": type_label, "tag": "plain_text"},
@@ -463,13 +510,15 @@ def send_custom_alert(
                     ],
                 },
             }
-            results["feishu"] = _send_feishu_card(wh, card)
+            ok, _ = _send_feishu_card(wh, card)
+            results["feishu"] = ok
 
     if "wechat" in channels:
         wh = config["wechat_webhook"]
         if wh:
             md_content = f"## {type_label}\n{body_md}\n\n> 电商低价监控系统 · 自动预警"
-            results["wechat"] = _send_wechat_markdown(wh, md_content)
+            ok, _ = _send_wechat_markdown(wh, md_content)
+            results["wechat"] = ok
 
     if "personal_wechat" in channels:
         content = f"{type_label}\n{body_md}"
@@ -479,13 +528,13 @@ def send_custom_alert(
     return results
 
 
-def send_test_message(channel: str, webhook_url: str) -> bool:
-    """发送测试消息到指定渠道"""
+def send_test_message(channel: str, webhook_url: str) -> dict[str, Any]:
+    """发送测试消息到指定渠道，返回 {success, message}"""
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     if channel == "feishu":
         card = {
-            "msgtype": "interactive",
+            "msg_type": "interactive",
             "card": {
                 "header": {
                     "title": {"content": "✅ 连接测试", "tag": "plain_text"},
@@ -502,13 +551,19 @@ def send_test_message(channel: str, webhook_url: str) -> bool:
                 ],
             },
         }
-        return _send_feishu_card(webhook_url, card)
+        ok, err = _send_feishu_card(webhook_url, card)
+        if ok:
+            return {"success": True, "message": "飞书测试消息发送成功"}
+        return {"success": False, "message": f"发送失败：{err}"}
 
     if channel == "wechat":
         md = f"## ✅ 连接测试\n微信 Webhook 连接测试成功！\n\n测试时间: {now_str}\n来源: 电商低价监控系统"
-        return _send_wechat_markdown(webhook_url, md)
+        ok, err = _send_wechat_markdown(webhook_url, md)
+        if ok:
+            return {"success": True, "message": "企业微信测试消息发送成功"}
+        return {"success": False, "message": f"发送失败：{err}"}
 
-    return False
+    return {"success": False, "message": "不支持的推送渠道"}
 
 
 def send_test_personal_wechat(agent_id: str) -> dict[str, Any]:
