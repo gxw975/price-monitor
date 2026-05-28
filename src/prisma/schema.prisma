@@ -121,3 +121,20 @@ model ProductKeyword {
   @@index([product_id])
   @@index([keyword_id])
 }
+
+model OperationLog {
+  id         Int      @id @default(autoincrement())
+  user_id    Int
+  username   String
+  action     String
+  target     String   @default("")
+  method     String   @default("")
+  path       String   @default("")
+  ip         String   @default("")
+  details    String   @default("")
+  created_at DateTime @default(now())
+
+  @@index([user_id])
+  @@index([created_at])
+  @@index([action])
+}

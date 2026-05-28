@@ -3,8 +3,94 @@
 import './globals.css'
 import { AuthProvider, useAuth } from '@/lib/auth-context'
 import { useRouter, usePathname } from 'next/navigation'
-import { useEffect, useCallback, useState } from 'react'
+import { useEffect, useCallback, useState, useRef } from 'react'
 import { apiFetch } from '@/lib/utils'
+
+function NotificationBell() {
+  const { isAuthenticated } = useAuth()
+  const pathname = usePathname()
+  const router = useRouter()
+  const [count, setCount] = useState(0)
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+
+  const fetchCount = useCallback(async () => {
+    if (!isAuthenticated) return
+    try {
+      const data = await apiFetch('/api/notifications/count')
+      setCount(data.unread_alerts || 0)
+    } catch { /* ignore */ }
+  }, [isAuthenticated])
+
+  useEffect(() => {
+    fetchCount()
+    const interval = setInterval(fetchCount, 15000)
+    return () => clearInterval(interval)
+  }, [fetchCount])
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [])
+
+  if (!isAuthenticated || pathname === '/login') return null
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen(!open)}
+        className="relative p-1 text-gray-500 hover:text-gray-700 transition-colors"
+      >
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+          <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        </svg>
+        {count > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white">
+            {count > 99 ? '99+' : count}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute right-0 mt-2 w-72 rounded-lg border border-gray-200 bg-white shadow-lg z-50">
+          <div className="border-b border-gray-100 px-4 py-3">
+            <span className="text-sm font-semibold text-gray-700">站内通知</span>
+          </div>
+          <div className="max-h-64 overflow-y-auto">
+            {count === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-gray-400">
+                暂无新通知
+              </div>
+            ) : (
+              <div className="px-4 py-4">
+                <div className="flex items-start gap-3">
+                  <span className="mt-0.5 inline-flex h-2 w-2 rounded-full bg-red-500 flex-shrink-0" />
+                  <div>
+                    <p className="text-sm text-gray-700">
+                      您有 <span className="font-semibold text-red-600">{count}</span> 条未处理预警
+                    </p>
+                    <button
+                      onClick={() => { router.push('/admin/alerts'); setOpen(false) }}
+                      className="mt-2 text-xs text-blue-600 hover:text-blue-800"
+                    >
+                      查看预警 →
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function HealthBanner() {
   const { isAuthenticated } = useAuth()
@@ -20,9 +106,7 @@ function HealthBanner() {
         setIssues(data.issues)
         setShow(true)
       }
-    } catch {
-      // ignore if health fails
-    }
+    } catch { /* ignore */ }
   }, [])
 
   useEffect(() => {
@@ -81,6 +165,7 @@ function TopBar() {
     { label: '关键词监控', href: '/admin/keywords' },
     { label: '商品关联', href: '/admin/product-keywords' },
     { label: '用户管理', href: '/admin/users' },
+    { label: '操作日志', href: '/admin/logs' },
     { label: '系统设置', href: '/admin/settings' },
     { label: '故障排查', href: '/admin/diagnostics' },
   ]
@@ -89,7 +174,12 @@ function TopBar() {
     <div className="border-b border-gray-200 bg-white">
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-2.5">
         <div className="flex items-center gap-4">
-          <span className="text-sm font-semibold text-gray-900">电商低价监控系统</span>
+          <button
+            onClick={() => router.push('/')}
+            className="text-sm font-semibold text-gray-900 hover:text-blue-600"
+          >
+            电商低价监控系统
+          </button>
           {navItems.map((item) => (
             <button
               key={item.href}
@@ -105,6 +195,7 @@ function TopBar() {
           ))}
         </div>
         <div className="flex items-center gap-4">
+          <NotificationBell />
           <div className="flex items-center gap-2 text-sm">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-700">
               {user.username.charAt(0).toUpperCase()}

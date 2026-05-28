@@ -81,3 +81,8 @@ export type Keyword = Prisma.KeywordModel
  * 
  */
 export type ProductKeyword = Prisma.ProductKeywordModel
+/**
+ * Model OperationLog
+ * 
+ */
+export type OperationLog = Prisma.OperationLogModel

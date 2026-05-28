@@ -1,9 +1,10 @@
 {
   "/_not-found/page": "app/_not-found/page.js",
+  "/admin/alerts/page": "app/admin/alerts/page.js",
   "/admin/diagnostics/page": "app/admin/diagnostics/page.js",
   "/admin/keywords/page": "app/admin/keywords/page.js",
+  "/admin/logs/page": "app/admin/logs/page.js",
   "/admin/product-keywords/page": "app/admin/product-keywords/page.js",
-  "/admin/alerts/page": "app/admin/alerts/page.js",
   "/admin/products/[id]/page": "app/admin/products/[id]/page.js",
   "/admin/settings/page": "app/admin/settings/page.js",
   "/admin/users/page": "app/admin/users/page.js",

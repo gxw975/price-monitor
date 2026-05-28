@@ -58,7 +58,8 @@ export const ModelName = {
   SystemConfig: 'SystemConfig',
   Alert: 'Alert',
   Keyword: 'Keyword',
-  ProductKeyword: 'ProductKeyword'
+  ProductKeyword: 'ProductKeyword',
+  OperationLog: 'OperationLog'
 } as const
 
 export type ModelName = (typeof ModelName)[keyof typeof ModelName]
@@ -186,6 +187,22 @@ export const ProductKeywordScalarFieldEnum = {
 } as const
 
 export type ProductKeywordScalarFieldEnum = (typeof ProductKeywordScalarFieldEnum)[keyof typeof ProductKeywordScalarFieldEnum]
+
+
+export const OperationLogScalarFieldEnum = {
+  id: 'id',
+  user_id: 'user_id',
+  username: 'username',
+  action: 'action',
+  target: 'target',
+  method: 'method',
+  path: 'path',
+  ip: 'ip',
+  details: 'details',
+  created_at: 'created_at'
+} as const
+
+export type OperationLogScalarFieldEnum = (typeof OperationLogScalarFieldEnum)[keyof typeof OperationLogScalarFieldEnum]
 
 
 export const SortOrder = {
