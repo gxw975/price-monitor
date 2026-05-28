@@ -41,11 +41,12 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
-def create_token(user_id: int, username: str, role: str) -> str:
+def create_token(user_id: int, username: str, role: str, openclaw_agent_id: str = "") -> str:
     payload = {
         "user_id": user_id,
         "username": username,
         "role": role,
+        "openclaw_agent_id": openclaw_agent_id or "",
         "exp": datetime.now(timezone.utc) + timedelta(hours=JWT_EXPIRATION_HOURS),
         "iat": datetime.now(timezone.utc),
     }

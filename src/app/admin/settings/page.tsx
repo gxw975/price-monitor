@@ -46,6 +46,15 @@ export default function SettingsPage() {
   const [actionLoading, setActionLoading] = useState('')
   const [testResults, setTestResults] = useState<Record<string, string | null>>({})
   const [msg, setMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
+  const [draftAlert, setDraftAlert] = useState<{
+    work_start_hour: number
+    work_end_hour: number
+    alert_dedup_hours: number
+    alert_price: number
+    sales_growth_threshold: number
+  } | null>(null)
+
   const [personalWechatAgentId, setPersonalWechatAgentId] = useState('')
   const [personalWechatBound, setPersonalWechatBound] = useState(false)
   const [pwTestResult, setPwTestResult] = useState<string | null>(null)
@@ -64,6 +73,13 @@ export default function SettingsPage() {
     try {
       const data = await apiFetch('/api/settings')
       setSettings(data)
+      setDraftAlert({
+        work_start_hour: data.work_start_hour,
+        work_end_hour: data.work_end_hour,
+        alert_dedup_hours: data.alert_dedup_hours,
+        alert_price: data.alert_price,
+        sales_growth_threshold: data.sales_growth_threshold,
+      })
     } catch (err) {
       console.error(err)
     } finally {
@@ -86,6 +102,21 @@ export default function SettingsPage() {
     fetchSettings()
     fetchProfile()
   }, [fetchServices, fetchSettings, fetchProfile])
+
+  useEffect(() => {
+    if (tab === 'alert') {
+      if (settings) {
+        setDraftAlert({
+          work_start_hour: settings.work_start_hour,
+          work_end_hour: settings.work_end_hour,
+          alert_dedup_hours: settings.alert_dedup_hours,
+          alert_price: settings.alert_price,
+          sales_growth_threshold: settings.sales_growth_threshold,
+        })
+      }
+      setMsg(null)
+    }
+  }, [tab, settings])
 
   useEffect(() => {
     if (tab === 'service') {
@@ -112,6 +143,43 @@ export default function SettingsPage() {
     }
   }
 
+  const saveAlertSettings = async () => {
+    if (!canWrite || !draftAlert) return
+    setSaving(true)
+    setMsg(null)
+    try {
+      const updated = {
+        ...settings,
+        work_start_hour: draftAlert.work_start_hour,
+        work_end_hour: draftAlert.work_end_hour,
+        alert_dedup_hours: draftAlert.alert_dedup_hours,
+        alert_price: draftAlert.alert_price,
+        sales_growth_threshold: draftAlert.sales_growth_threshold,
+      }
+      await apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(updated) })
+      setSettings(updated as Settings)
+      setMsg({ type: 'success', text: '报警阈值设置已保存' })
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err.message || '保存失败' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const savePushSettings = async () => {
+    if (!canWrite || !settings) return
+    setSaving(true)
+    setMsg(null)
+    try {
+      await apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(settings) })
+      setMsg({ type: 'success', text: '推送设置已保存' })
+    } catch (err: any) {
+      setMsg({ type: 'error', text: err.message || '保存失败' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const testPush = async (channel: string, url: string) => {
     if (!url.trim()) {
       setTestResults({ ...testResults, [channel]: '请先输入 Webhook 地址' })
@@ -129,52 +197,13 @@ export default function SettingsPage() {
         [channel]: data.success ? 'success' : (data.message || '发送失败'),
       })
       if (data.success) {
-        setMsg({ type: 'success', text: `${channel === 'feishu' ? '飞书' : '微信'} 测试消息发送成功` })
+        setMsg({ type: 'success', text: `${channel === 'feishu' ? '飞书' : '企业微信'} 测试消息发送成功` })
       } else {
         setMsg({ type: 'error', text: data.message || '发送失败' })
       }
     } catch (err: any) {
       setTestResults({ ...testResults, [channel]: err.message || '请求失败' })
       setMsg({ type: 'error', text: err.message || '请求失败' })
-    }
-  }
-
-  const togglePushChannel = (channel: string) => {
-    if (!settings || !canWrite) return
-    let channels: string[] = []
-    try {
-      channels = JSON.parse(settings.push_enabled_channels)
-    } catch {
-      channels = ['feishu']
-    }
-    if (channels.includes(channel)) {
-      channels = channels.filter((c: string) => c !== channel)
-    } else {
-      channels = [...channels, channel]
-    }
-    const updated = { ...settings, push_enabled_channels: JSON.stringify(channels) }
-    setSaving(true)
-    setMsg(null)
-    apiFetch('/api/settings', { method: 'PUT', body: JSON.stringify(updated) })
-      .then(() => {
-        setSettings(updated)
-        setMsg({ type: 'success', text: '推送渠道已更新' })
-      })
-      .catch((err: any) => setMsg({ type: 'error', text: err.message }))
-      .finally(() => setSaving(false))
-  }
-
-  const bindAgent = async () => {
-    setMsg(null)
-    try {
-      const data = await apiFetch('/api/users/me/bind-agent', {
-        method: 'POST',
-        body: JSON.stringify({ openclaw_agent_id: personalWechatAgentId }),
-      })
-      setMsg({ type: 'success', text: data.message || '绑定成功' })
-      setPersonalWechatBound(!!personalWechatAgentId)
-    } catch (err: any) {
-      setMsg({ type: 'error', text: err.message || '绑定失败' })
     }
   }
 
@@ -187,11 +216,11 @@ export default function SettingsPage() {
         setPwTestResult('success')
         setMsg({ type: 'success', text: data.message || '测试消息已发送' })
       } else {
-        setPwTestResult('error')
+        setPwTestResult(data.message || '发送失败')
         setMsg({ type: 'error', text: data.message || '发送失败' })
       }
     } catch (err: any) {
-      setPwTestResult('error')
+      setPwTestResult(err.message || '请求失败')
       setMsg({ type: 'error', text: err.message || '请求失败' })
     }
   }
@@ -474,7 +503,7 @@ export default function SettingsPage() {
           </div>
         )}
 
-        {tab === 'alert' && (
+        {tab === 'alert' && draftAlert && (
           <div className="space-y-4">
             <div className="rounded-lg border border-gray-200 bg-white p-6">
               <h2 className="mb-4 text-base font-semibold text-gray-900">推送时段</h2>
@@ -482,8 +511,8 @@ export default function SettingsPage() {
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">开始时间</label>
                   <select
-                    value={settings.work_start_hour}
-                    onChange={(e) => updateSettings({ work_start_hour: parseInt(e.target.value) })}
+                    value={draftAlert.work_start_hour}
+                    onChange={(e) => setDraftAlert({ ...draftAlert, work_start_hour: parseInt(e.target.value) })}
                     disabled={!canWrite}
                     className="rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
                   >
@@ -496,8 +525,8 @@ export default function SettingsPage() {
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">结束时间</label>
                   <select
-                    value={settings.work_end_hour}
-                    onChange={(e) => updateSettings({ work_end_hour: parseInt(e.target.value) })}
+                    value={draftAlert.work_end_hour}
+                    onChange={(e) => setDraftAlert({ ...draftAlert, work_end_hour: parseInt(e.target.value) })}
                     disabled={!canWrite}
                     className="rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
                   >
@@ -508,7 +537,7 @@ export default function SettingsPage() {
                 </div>
               </div>
               <p className="mt-2 text-xs text-gray-400">
-                飞书推送仅在工作时段 {settings.work_start_hour}:00-{settings.work_end_hour}:00 进行，周末自动跳过
+                推送仅在工作时段 {draftAlert.work_start_hour}:00-{draftAlert.work_end_hour}:00 进行，周末自动跳过
               </p>
             </div>
 
@@ -524,17 +553,17 @@ export default function SettingsPage() {
                     min="1"
                     max="72"
                     step="1"
-                    value={settings.alert_dedup_hours}
-                    onChange={(e) => updateSettings({ alert_dedup_hours: parseInt(e.target.value) })}
+                    value={draftAlert.alert_dedup_hours}
+                    onChange={(e) => setDraftAlert({ ...draftAlert, alert_dedup_hours: parseInt(e.target.value) })}
                     disabled={!canWrite}
                     className="flex-1"
                   />
                   <span className="w-20 rounded-md border border-gray-300 px-3 py-1.5 text-center text-sm tabular-nums">
-                    {settings.alert_dedup_hours} 小时
+                    {draftAlert.alert_dedup_hours} 小时
                   </span>
                 </div>
                 <p className="mt-1 text-xs text-gray-400">
-                  同一商品在 {settings.alert_dedup_hours} 小时内不重复推送同类预警
+                  同一商品在 {draftAlert.alert_dedup_hours} 小时内不重复推送同类预警
                 </p>
               </div>
             </div>
@@ -551,11 +580,8 @@ export default function SettingsPage() {
                     type="number"
                     min="0"
                     step="1"
-                    value={settings.alert_price}
-                    onChange={(e) => {
-                      setSettings({ ...settings, alert_price: parseFloat(e.target.value) || 0 })
-                    }}
-                    onBlur={() => updateSettings({ alert_price: settings.alert_price })}
+                    value={draftAlert.alert_price}
+                    onChange={(e) => setDraftAlert({ ...draftAlert, alert_price: parseFloat(e.target.value) || 0 })}
                     disabled={!canWrite}
                     className="w-32 rounded-md border border-gray-300 px-3 py-2 text-sm"
                   />
@@ -570,11 +596,8 @@ export default function SettingsPage() {
                     type="number"
                     min="1"
                     step="1"
-                    value={settings.sales_growth_threshold}
-                    onChange={(e) => {
-                      setSettings({ ...settings, sales_growth_threshold: parseInt(e.target.value) || 0 })
-                    }}
-                    onBlur={() => updateSettings({ sales_growth_threshold: settings.sales_growth_threshold })}
+                    value={draftAlert.sales_growth_threshold}
+                    onChange={(e) => setDraftAlert({ ...draftAlert, sales_growth_threshold: parseInt(e.target.value) || 0 })}
                     disabled={!canWrite}
                     className="w-32 rounded-md border border-gray-300 px-3 py-2 text-sm"
                   />
@@ -583,63 +606,20 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="rounded-lg border border-gray-200 bg-white p-6">
-              <h2 className="mb-4 text-base font-semibold text-gray-900">个人微信配置</h2>
-
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    OpenClaw Agent ID
-                  </label>
-                  <div className="flex gap-3">
-                    <input
-                      type="text"
-                      value={personalWechatAgentId}
-                      onChange={(e) => {
-                        setPersonalWechatAgentId(e.target.value)
-                        if (personalWechatBound) setPersonalWechatBound(false)
-                      }}
-                      disabled={!canWrite}
-                      placeholder="例如：main-weixin"
-                      className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
-                    />
-                    {canWrite && (
-                      <button
-                        onClick={bindAgent}
-                        disabled={personalWechatAgentId === ''}
-                        className="rounded-md border border-green-300 px-4 py-2 text-sm text-green-600 hover:bg-green-50 disabled:opacity-40"
-                      >
-                        保存绑定
-                      </button>
-                    )}
-                  </div>
-                  <p className="mt-1 text-xs text-gray-400">
-                    {personalWechatBound
-                      ? `已绑定 Agent：${personalWechatAgentId}`
-                      : '输入你的 OpenClaw Agent ID 并保存，Agent 需已绑定个人微信'}
-                  </p>
+            {canWrite && (
+              <div className="rounded-lg border border-gray-200 bg-white p-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={saveAlertSettings}
+                    disabled={saving}
+                    className="rounded-md bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {saving ? '保存中...' : '保存设置'}
+                  </button>
+                  <span className="text-xs text-gray-400">修改推送时段、去重间隔、预警阈值后，点击此按钮统一保存</span>
                 </div>
-
-                {personalWechatBound && (
-                  <div className="pt-2 border-t border-gray-100">
-                    <div className="flex items-center gap-3">
-                      <button
-                        onClick={testPersonalWechat}
-                        className="rounded-md border border-blue-300 px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
-                      >
-                        测试个人微信推送
-                      </button>
-                      {pwTestResult === 'success' && (
-                        <p className="text-xs text-green-600">✓ 测试消息已发送，请查看微信</p>
-                      )}
-                      {pwTestResult === 'error' && (
-                        <p className="text-xs text-red-500">发送失败，请检查 Agent ID</p>
-                      )}
-                    </div>
-                  </div>
-                )}
               </div>
-            </div>
+            )}
           </div>
         )}
 
@@ -652,6 +632,17 @@ export default function SettingsPage() {
                 let channels: string[] = []
                 try { channels = JSON.parse(settings.push_enabled_channels) } catch {}
 
+                const toggle = (ch: string) => {
+                  if (!canWrite) return
+                  let newChannels: string[]
+                  if (channels.includes(ch)) {
+                    newChannels = channels.filter((c: string) => c !== ch)
+                  } else {
+                    newChannels = [...channels, ch]
+                  }
+                  setSettings({ ...settings, push_enabled_channels: JSON.stringify(newChannels) })
+                }
+
                 return (
                   <div className="flex items-center gap-6 mb-6">
                     <label className={`flex items-center gap-2 rounded-lg border px-4 py-2.5 text-sm ${canWrite ? 'cursor-pointer' : 'cursor-default'} ${
@@ -660,7 +651,7 @@ export default function SettingsPage() {
                       <input
                         type="checkbox"
                         checked={channels.includes('feishu')}
-                        onChange={() => togglePushChannel('feishu')}
+                        onChange={() => toggle('feishu')}
                         disabled={!canWrite}
                         className="rounded"
                       />
@@ -673,7 +664,7 @@ export default function SettingsPage() {
                       <input
                         type="checkbox"
                         checked={channels.includes('wechat')}
-                        onChange={() => togglePushChannel('wechat')}
+                        onChange={() => toggle('wechat')}
                         disabled={!canWrite}
                         className="rounded"
                       />
@@ -686,7 +677,7 @@ export default function SettingsPage() {
                       <input
                         type="checkbox"
                         checked={channels.includes('personal_wechat')}
-                        onChange={() => togglePushChannel('personal_wechat')}
+                        onChange={() => toggle('personal_wechat')}
                         disabled={!canWrite}
                         className="rounded"
                       />
@@ -708,11 +699,6 @@ export default function SettingsPage() {
                       type="text"
                       value={settings.feishu_webhook || ''}
                       onChange={(e) => setSettings({ ...settings, feishu_webhook: e.target.value })}
-                      onBlur={() => {
-                        if (settings.feishu_webhook !== undefined && canWrite) {
-                          updateSettings({ feishu_webhook: settings.feishu_webhook })
-                        }
-                      }}
                       disabled={!canWrite}
                       placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
                       className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
@@ -746,11 +732,6 @@ export default function SettingsPage() {
                       type="text"
                       value={settings.wechat_webhook || ''}
                       onChange={(e) => setSettings({ ...settings, wechat_webhook: e.target.value })}
-                      onBlur={() => {
-                        if (settings.wechat_webhook !== undefined && canWrite) {
-                          updateSettings({ wechat_webhook: settings.wechat_webhook })
-                        }
-                      }}
                       disabled={!canWrite}
                       placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
                       className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
@@ -765,7 +746,7 @@ export default function SettingsPage() {
                     )}
                   </div>
                   {testResults.wechat === 'success' && (
-                    <p className="mt-1 text-xs text-green-600">✓ 微信连接测试成功</p>
+                    <p className="mt-1 text-xs text-green-600">✓ 企业微信连接测试成功</p>
                   )}
                   {testResults.wechat && testResults.wechat !== 'success' && (
                     <p className="mt-1 text-xs text-red-500">{testResults.wechat}</p>
@@ -773,6 +754,90 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+
+            <div className="rounded-lg border border-gray-200 bg-white p-6">
+              <h2 className="mb-4 text-base font-semibold text-gray-900">个人微信配置</h2>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    OpenClaw Agent ID
+                  </label>
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={personalWechatAgentId}
+                      onChange={(e) => setPersonalWechatAgentId(e.target.value)}
+                      disabled={!canWrite}
+                      placeholder="例如：price-monitor"
+                      className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+                    />
+                  </div>
+                  <div className="mt-2 flex items-center gap-3">
+                    {canWrite && (
+                      <button
+                        onClick={async () => {
+                          setMsg(null)
+                          try {
+                            const data = await apiFetch('/api/users/me/bind-agent', {
+                              method: 'POST',
+                              body: JSON.stringify({ openclaw_agent_id: personalWechatAgentId }),
+                            })
+                            setMsg({ type: 'success', text: data.message || 'Agent ID 已保存' })
+                            setPersonalWechatBound(!!personalWechatAgentId)
+                          } catch (err: any) {
+                            setMsg({ type: 'error', text: err.message || '保存失败' })
+                          }
+                        }}
+                        disabled={personalWechatAgentId === ''}
+                        className="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 disabled:opacity-40"
+                      >
+                        保存 Agent ID
+                      </button>
+                    )}
+                    <span className="text-xs text-gray-400">
+                      {personalWechatBound
+                        ? `当前绑定：${personalWechatAgentId}`
+                        : '输入 OpenClaw Agent ID 后点击保存'}
+                    </span>
+                  </div>
+                </div>
+
+                {personalWechatBound && (
+                  <div className="pt-3 border-t border-gray-100">
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={testPersonalWechat}
+                        className="rounded-md border border-blue-300 px-4 py-2 text-sm text-blue-600 hover:bg-blue-50"
+                      >
+                        测试个人微信推送
+                      </button>
+                      {pwTestResult === 'success' && (
+                        <p className="text-xs text-green-600">✓ 测试消息已发送，请查看微信</p>
+                      )}
+                      {pwTestResult && pwTestResult !== 'success' && (
+                        <p className="text-xs text-red-500">{pwTestResult}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {canWrite && (
+              <div className="rounded-lg border border-gray-200 bg-white p-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={savePushSettings}
+                    disabled={saving}
+                    className="rounded-md bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {saving ? '保存中...' : '保存推送设置'}
+                  </button>
+                  <span className="text-xs text-gray-400">修改 Webhook 地址和渠道开关后，点击此按钮统一保存</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

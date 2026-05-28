@@ -75,6 +75,7 @@ def test_personal_wechat(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     agent_id = current_user.get("openclaw_agent_id", "")
+    db_fallback = "" if agent_id else None
     if not agent_id:
         conn = _get_conn()
         try:

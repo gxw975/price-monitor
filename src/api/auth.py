@@ -72,7 +72,7 @@ def login(body: LoginRequest) -> LoginResponse:
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                'SELECT id, username, password, role FROM "User" WHERE username = %s',
+                'SELECT id, username, password, role, openclaw_agent_id FROM "User" WHERE username = %s',
                 (body.username,),
             )
             user = cur.fetchone()
@@ -83,7 +83,8 @@ def login(body: LoginRequest) -> LoginResponse:
         if not verify_password(body.password, user["password"]):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
 
-        token = create_token(user["id"], user["username"], user["role"])
+        agent_id = user.get("openclaw_agent_id") or ""
+        token = create_token(user["id"], user["username"], user["role"], agent_id)
         logger.info("用户登录成功: %s (role=%s)", user["username"], user["role"])
 
         return LoginResponse(token=token, username=user["username"], role=user["role"])

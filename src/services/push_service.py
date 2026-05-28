@@ -143,9 +143,9 @@ def _send_wechat_markdown(webhook_url: str, content: str) -> bool:
         return False
 
 
-def _send_openclaw_wechat(agent_id: str, content: str) -> bool:
+def _send_openclaw_wechat(agent_id: str, content: str) -> tuple[bool, str]:
     if not agent_id:
-        return False
+        return False, "Agent ID 为空"
     try:
         openclaw_bin = "/home/lab-admin/.nvm/versions/node/v22.22.0/bin/openclaw"
         cmd = [
@@ -155,17 +155,23 @@ def _send_openclaw_wechat(agent_id: str, content: str) -> bool:
             "--deliver",
             "--json",
         ]
-        subprocess.Popen(
+        result = subprocess.run(
             cmd,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            start_new_session=True,
+            capture_output=True, text=True, timeout=30,
         )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()[:300]
+            logger.warning("OpenClaw 消息发送失败: agent=%s err=%s", agent_id, err)
+            return False, err or f"退出码 {result.returncode}"
         logger.info("OpenClaw 个人微信消息已投递: agent=%s", agent_id)
-        return True
-    except Exception:
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "OpenCLI 命令执行超时"
+    except FileNotFoundError:
+        return False, f"OpenCLI 二进制不可用: {openclaw_bin}"
+    except Exception as e:
         logger.exception("OpenClaw 个人微信消息发送异常: agent=%s", agent_id)
-        return False
+        return False, str(e)
 
 
 def _get_users_with_agent() -> list[dict[str, Any]]:
@@ -190,7 +196,8 @@ def _send_personal_wechat_to_all(content: str) -> dict[str, bool]:
     for u in users:
         agent_id = u.get("openclaw_agent_id", "")
         if agent_id:
-            results[agent_id] = _send_openclaw_wechat(agent_id, content)
+            ok, _ = _send_openclaw_wechat(agent_id, content)
+            results[agent_id] = ok
     if not users:
         logger.info("没有绑定 OpenClaw Agent 的用户，跳过个人微信推送")
     return results
@@ -511,9 +518,9 @@ def send_test_personal_wechat(agent_id: str) -> dict[str, Any]:
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     content = f"✅ price-monitor 个人微信推送连接测试成功！\n测试时间: {now_str}"
-    success = _send_openclaw_wechat(agent_id, content)
+    ok, err = _send_openclaw_wechat(agent_id, content)
 
-    if success:
+    if ok:
         return {"success": True, "message": "测试消息已发送，请查看你的个人微信"}
     else:
-        return {"success": False, "message": "发送失败，请检查 Agent ID 是否正确"}
+        return {"success": False, "message": f"发送失败：{err}"}
