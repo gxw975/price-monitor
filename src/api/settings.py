@@ -40,6 +40,9 @@ class SystemSettings(BaseModel):
     crawl_fixed_times: str | None = None
     crawl_daily_limit: int
     check_alert_interval: int
+    feishu_webhook: str | None = None
+    wechat_webhook: str | None = None
+    push_enabled_channels: str = '["feishu"]'
 
 
 def _parse_db_url(url: str) -> tuple[str, str]:
@@ -93,6 +96,9 @@ def _row_to_settings(row: dict[str, Any]) -> dict[str, Any]:
         "crawl_fixed_times": row.get("crawl_fixed_times", None),
         "crawl_daily_limit": row.get("crawl_daily_limit", 100),
         "check_alert_interval": row.get("check_alert_interval", 180),
+        "feishu_webhook": row.get("feishu_webhook", None),
+        "wechat_webhook": row.get("wechat_webhook", None),
+        "push_enabled_channels": row.get("push_enabled_channels", '["feishu"]'),
         "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
     }
 
@@ -132,6 +138,8 @@ def update_settings(
                 "sku_crawl_limit = %s, sku_crawl_interval = %s, "
                 "crawl_schedule_type = %s, crawl_fixed_times = %s, "
                 "crawl_daily_limit = %s, check_alert_interval = %s, "
+                "feishu_webhook = %s, wechat_webhook = %s, "
+                "push_enabled_channels = %s, "
                 "updated_at = NOW() "
                 "WHERE id = (SELECT id FROM \"SystemConfig\" ORDER BY id LIMIT 1)",
                 (
@@ -146,6 +154,9 @@ def update_settings(
                     body.crawl_fixed_times,
                     body.crawl_daily_limit,
                     body.check_alert_interval,
+                    body.feishu_webhook,
+                    body.wechat_webhook,
+                    body.push_enabled_channels,
                 ),
             )
             conn.commit()

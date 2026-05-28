@@ -71,6 +71,9 @@ model SystemConfig {
   crawl_fixed_times      String?
   crawl_daily_limit      Int       @default(100)
   check_alert_interval   Int       @default(180)
+  feishu_webhook         String?
+  wechat_webhook         String?
+  push_enabled_channels  String    @default("[\"feishu\"]")
   created_at             DateTime  @default(now())
   updated_at             DateTime  @default(now())
   keywords               String    @default("[]")

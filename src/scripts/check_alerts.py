@@ -227,13 +227,12 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
                          "recorded_at": str(h["recorded_at"])}
                         for h in recent
                     ]
-                    from services.feishu_service import send_price_alert
+                    from services.push_service import send_price_alert
 
                     sent = send_price_alert(
                         product_id, title, current_price, history_list,
-                        work_start=work_start, work_end=work_end,
                     )
-                    if sent:
+                    if sent and any(sent.values()):
                         _mark_alert_sent(conn, alert_id)
                         result["sent"] += 1
                 except Exception:
@@ -257,14 +256,13 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
                         result["sales_alerts"] += 1
 
                         try:
-                            from services.feishu_service import send_sales_alert
+                            from services.push_service import send_sales_alert
 
                             sent = send_sales_alert(
                                 product_id, title, today_sales, yesterday_sales,
                                 current_price,
-                                work_start=work_start, work_end=work_end,
                             )
-                            if sent:
+                            if sent and any(sent.values()):
                                 _mark_alert_sent(conn, alert_id)
                                 result["sent"] += 1
                         except Exception:
