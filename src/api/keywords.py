@@ -8,15 +8,18 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
+import time
 from typing import Any
 
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from services.auth_service import get_current_user
+from services.ga_service import run_diantoushi_export
 
 load_dotenv()
 logger = logging.getLogger("api.keywords")
@@ -276,3 +279,151 @@ def delete_keyword(
         raise HTTPException(status_code=500, detail="删除关键词失败")
     finally:
         conn.close()
+
+
+class SearchRequest(BaseModel):
+    keyword_id: int | None = None
+
+
+_search_tasks: dict[str, dict[str, Any]] = {}
+_search_lock = threading.Lock()
+
+
+def _run_keyword_search(keyword_id: int, keyword_name: str, task_id: str) -> None:
+    logger.info("开始搜索关键词: id=%d name=%s", keyword_id, keyword_name)
+    try:
+        result = run_diantoushi_export(keyword_name)
+        with _search_lock:
+            if result:
+                _search_tasks[task_id] = {
+                    "status": "completed",
+                    "keyword_id": keyword_id,
+                    "keyword_name": keyword_name,
+                    "result": result,
+                    "message": f"搜索完成，已导出数据到 {result}",
+                    "started_at": _search_tasks.get(task_id, {}).get("started_at", 0),
+                    "finished_at": time.time(),
+                }
+            else:
+                _search_tasks[task_id] = {
+                    "status": "failed",
+                    "keyword_id": keyword_id,
+                    "keyword_name": keyword_name,
+                    "message": "导出失败：淘宝未登录或搜索被反爬系统拦截。请在「系统设置 → 淘宝登录」中扫码登录后再试",
+                    "started_at": _search_tasks.get(task_id, {}).get("started_at", 0),
+                    "finished_at": time.time(),
+                }
+    except Exception as e:
+        error_msg = str(e)[:300]
+        logger.exception("关键词搜索异常: id=%d name=%s", keyword_id, keyword_name)
+        with _search_lock:
+            _search_tasks[task_id] = {
+                "status": "failed",
+                "keyword_id": keyword_id,
+                "keyword_name": keyword_name,
+                "message": f"搜索异常: {error_msg}",
+                "started_at": _search_tasks.get(task_id, {}).get("started_at", 0),
+                "finished_at": time.time(),
+            }
+
+
+@router.post("/search")
+def search_keywords(
+    body: SearchRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    _check_write_permission(current_user["role"])
+
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if body.keyword_id:
+                cur.execute(
+                    'SELECT id, name FROM "Keyword" WHERE id = %s',
+                    (body.keyword_id,),
+                )
+                kws = cur.fetchall()
+            else:
+                cur.execute(
+                    'SELECT id, name FROM "Keyword" WHERE is_active = true',
+                )
+                kws = cur.fetchall()
+    finally:
+        conn.close()
+
+    if not kws:
+        return {"success": False, "message": "没有找到需要搜索的关键词"}
+
+    import uuid
+    task_ids: list[str] = []
+    now = time.time()
+    for kw in kws:
+        task_id = f"kw_{kw['id']}_{uuid.uuid4().hex[:6]}"
+        with _search_lock:
+            _search_tasks[task_id] = {
+                "status": "running",
+                "keyword_id": kw["id"],
+                "keyword_name": kw["name"],
+                "started_at": now,
+            }
+        t = threading.Thread(
+            target=_run_keyword_search,
+            args=(kw["id"], kw["name"], task_id),
+            daemon=True,
+        )
+        t.start()
+        task_ids.append(task_id)
+
+    logger.info(
+        "关键词搜索已触发: count=%d ids=%s by %s",
+        len(kws), [kw["id"] for kw in kws], current_user["username"],
+    )
+    return {
+        "success": True,
+        "message": f"已开始搜索 {len(kws)} 个关键词",
+        "task_ids": task_ids,
+        "keyword_count": len(kws),
+    }
+
+
+@router.get("/search/status")
+def search_status(
+    task_ids: str = "",
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """获取搜索任务状态。运行超过20分钟的任务自动标记为失败。"""
+    ids = [t for t in task_ids.split(",") if t]
+    TASK_TIMEOUT_SECONDS = 20 * 60
+
+    with _search_lock:
+        if ids:
+            tasks = {tid: dict(_search_tasks.get(tid, {"status": "unknown"})) for tid in ids}
+        else:
+            tasks = {tid: dict(t) for tid, t in _search_tasks.items()}
+
+    now = time.time()
+    for tid, task in tasks.items():
+        if task.get("status") == "running":
+            started_at = task.get("started_at", 0)
+            if started_at > 0 and now - started_at > TASK_TIMEOUT_SECONDS:
+                task["status"] = "failed"
+                task["message"] = f"搜索超时（已运行 {int((now - started_at) / 60)} 分钟），可能淘宝未登录或被反爬拦截，请检查扩展状态并在系统设置中扫码登录"
+                with _search_lock:
+                    if tid in _search_tasks:
+                        _search_tasks[tid]["status"] = "failed"
+                        _search_tasks[tid]["message"] = task["message"]
+
+    running = sum(1 for t in tasks.values() if t.get("status") == "running")
+    completed = sum(1 for t in tasks.values() if t.get("status") == "completed")
+    failed = sum(1 for t in tasks.values() if t.get("status") == "failed")
+
+    return {
+        "tasks": tasks,
+        "summary": {
+            "total": len(tasks),
+            "running": running,
+            "completed": completed,
+            "failed": failed,
+        },
+        "all_done": running == 0,
+    }
