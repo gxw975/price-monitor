@@ -26,7 +26,9 @@ logger = logging.getLogger("diantoushi_export")
 SESSION_NAME = "diantoushi_export"
 DATA_DOWNLOADS = Path.home() / "Downloads"
 DOWNLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
+OPENCLI_BIN = "/home/lab-admin/.nvm/versions/node/v22.22.0/bin/opencli"
 OPENCLI_TIMEOUT = 30
+OPENCLI_PROFILE = os.environ.get("OPENCLI_PROFILE", "zu4794g4")
 SLEEP_MIN = 1.0
 SLEEP_MAX = 3.0
 FLOW_TIMEOUT_MINUTES = 10
@@ -47,7 +49,7 @@ class ExportError(Exception):
 
 
 def _run_opencli(args: list[str], timeout: int = OPENCLI_TIMEOUT) -> subprocess.CompletedProcess[str]:
-    cmd = ["opencli"] + args
+    cmd = [OPENCLI_BIN, "--profile", OPENCLI_PROFILE] + args
     logger.debug("执行命令: %s", " ".join(cmd))
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
