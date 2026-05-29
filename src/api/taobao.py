@@ -128,6 +128,15 @@ def _navigate(url: str, timeout: int = 30) -> None:
     _run_opencli(["browser", SESSION, "open", url], timeout=timeout)
 
 
+def _resize_viewport(width: int = 1920, height: int = 1080) -> None:
+    js = f"window.resizeTo({width},{height});document.documentElement.style.minWidth='{width}px';"
+    try:
+        _eval_js(js, timeout=5)
+        logger.info("viewport 已设置为 %dx%d", width, height)
+    except Exception as e:
+        logger.warning("设置 viewport 失败: %s", e)
+
+
 def _ensure_page(url: str) -> None:
     """确保浏览器有可操作的页面。CDP 兜底创建 → opencli tab new → open。"""
     import requests
@@ -144,6 +153,7 @@ def _ensure_page(url: str) -> None:
 
     _run_opencli(["browser", SESSION, "tab", "new"], timeout=15)
     _run_opencli(["browser", SESSION, "open", url], timeout=25)
+    _resize_viewport()
 
 
 def _wait(seconds: float) -> None:

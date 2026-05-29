@@ -27,6 +27,7 @@ from typing import Any
 logger = logging.getLogger("sku_crawler")
 
 SESSION_PREFIX = "sku_crawl"
+OPENCLI_BIN = "/home/lab-admin/.nvm/versions/node/v22.22.0/bin/opencli"
 OPENCLI_TIMEOUT = 30
 OPENCLI_PROFILE = os.environ.get("OPENCLI_PROFILE", "zu4794g4")
 SLEEP_MIN = 1.0
@@ -61,7 +62,7 @@ class TimeoutError(Exception):
 
 
 def _run_opencli(args: Sequence[str], timeout: int = OPENCLI_TIMEOUT) -> subprocess.CompletedProcess[str]:
-    cmd = ["opencli", "--profile", OPENCLI_PROFILE] + list(args)
+    cmd = [OPENCLI_BIN, "--profile", OPENCLI_PROFILE] + list(args)
     logger.debug("执行命令: %s", " ".join(cmd))
 
     try:
