@@ -50,6 +50,17 @@ launch_chrome() {
     --profile-directory=Default \
     --no-first-run \
     --no-default-browser-check \
+    --disable-blink-features=AutomationControlled \
+    --disable-features=AutomationControlled,IsolateOrigins,site-per-process \
+    --disable-component-extensions-with-background-pages \
+    --disable-default-apps \
+    --disable-extensions-file-access-check \
+    --disable-infobars \
+    --disable-popup-blocking \
+    --disable-translate \
+    --metrics-recording-only \
+    --safebrowsing-disable-auto-update \
+    --load-extension=/home/lab-admin/GenericAgent/assets/tmwd_cdp_bridge \
     about:blank &
 
   for i in $(seq 1 $MAX_WAIT); do
