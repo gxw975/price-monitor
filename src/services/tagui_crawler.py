@@ -268,35 +268,34 @@ class TaguiCrawler:
     # ═══════════════════════════════════════════════════════════════
 
     def _detect_captcha(self) -> bool:
-        """检测是否存在真的滑块验证弹窗（排除推荐面板等误判）"""
+        """检测淘宝滑块验证弹窗（punish iframe可见性 + 页面文本兜底判据）
+
+        主判据：主页面中src含'punish'的iframe存在且getBoundingClientRect()宽高>0。
+        兜底判据：页面body文本包含'请拖动下方滑块'（iframe可能未加载但弹窗文字已出现）。
+        """
         try:
             result = self._cdp_eval("""
             (function() {
                 var frames = document.querySelectorAll('iframe');
                 for (var i = 0; i < frames.length; i++) {
-                    var name = (frames[i].name || '').toLowerCase();
-                    var src = (frames[i].src || '').toLowerCase();
-                    if (name.indexOf('recommend') !== -1 || src.indexOf('recommend') !== -1 ||
-                        src.indexOf('h5api') !== -1 || name.indexOf('crossstorage') !== -1 ||
-                        name.indexOf('suggest') !== -1) {
-                        continue;
-                    }
-                    if (name.indexOf('baxia') !== -1 || src.indexOf('captcha') !== -1 ||
-                        src.indexOf('punish') !== -1 || src.indexOf('nocaptcha') !== -1) {
-                        return 'captcha';
+                    if ((frames[i].src || '').indexOf('punish') !== -1) {
+                        var rect = frames[i].getBoundingClientRect();
+                        if (rect.width > 0 && rect.height > 0) {
+                            return 'captcha_visible';
+                        }
                     }
                 }
-                var nc = document.querySelector('#nc_1_wrapper, .nc_wrapper, #nocaptcha, [id*=\"nocaptcha\"]');
-                if (nc && nc.offsetHeight > 0) return 'ncaptcha';
-                var text = document.body ? (document.body.innerText || '') : '';
-                if (text.indexOf('请拖动下方滑块') !== -1 || text.indexOf('验证一下') !== -1) return 'captcha_text';
+                var bodyText = document.body ? (document.body.innerText || '') : '';
+                if (bodyText.indexOf('请拖动下方滑块') !== -1) return 'captcha_text';
                 return 'none';
             })()
             """)
-            has_captcha = result in ('captcha', 'ncaptcha', 'captcha_text')
-            if has_captcha:
-                logger.warning("[验证] 检测到滑块验证弹窗 (type=%s)", result)
-            return has_captcha
+
+            if result in ("captcha_visible", "captcha_text"):
+                logger.warning("[验证] 检测到淘宝滑块验证弹窗 (type=%s)", result)
+                return True
+
+            return False
         except Exception:
             return False
 
@@ -621,24 +620,47 @@ class TaguiCrawler:
         return False
 
     def _click_errloading(self, captcha_data: dict) -> None:
-        """物理点击errloading恢复按钮"""
+        """物理点击errloading恢复按钮（通过CDP contextId在iframe内查询位置）"""
         try:
             OX, OY = 66, 119
-            # Get errloading position from iframe
-            resp = self._cdp_send("Runtime.evaluate", {
+
+            # 重新进入iframe获取errloading坐标（需要contextId才能读到iframe内DOM）
+            resp = self._cdp_send("Page.getFrameTree")
+            frame_tree = resp.get("result", {}).get("frameTree", {})
+            punish_fid = None
+            def find_punish(node):
+                nonlocal punish_fid
+                for c in node.get("childFrames", []):
+                    f = c.get("frame", {})
+                    if "h5api.m.taobao.com" in f.get("url", "") and "punish" in f.get("url", ""):
+                        punish_fid = f.get("id", "")
+                        return
+                    find_punish(c)
+            find_punish(frame_tree)
+            if not punish_fid:
+                return
+
+            iso = self._cdp_send("Page.createIsolatedWorld", {"frameId": punish_fid})
+            err_ctx = iso.get("result", {}).get("executionContextId")
+            if not err_ctx:
+                return
+            time.sleep(0.15)
+
+            r = self._cdp_send("Runtime.evaluate", {
                 "expression": """(function(){
                     var e = document.querySelector('.errloading');
                     if (!e) return JSON.stringify({found:false});
-                    var r = e.getBoundingClientRect();
-                    return JSON.stringify({x:Math.round(r.x+r.width/2), y:Math.round(r.y+r.height/2)});
+                    var rect = e.getBoundingClientRect();
+                    return JSON.stringify({x:Math.round(rect.x+rect.width/2), y:Math.round(rect.y+rect.height/2)});
                 })()""",
+                "contextId": err_ctx,
                 "returnByValue": True,
             })
-            err_data = json.loads(resp.get("result", {}).get("result", {}).get("value", "{}"))
+            err_data = json.loads(r.get("result", {}).get("result", {}).get("value", "{}"))
             if not err_data.get("found"):
                 return
 
-            # Get iframe position
+            # 获取iframe在主页面中的视口位置
             iframe_pos = self._cdp_eval("""(function(){
                 var fs = document.querySelectorAll('iframe');
                 for (var i=0; i<fs.length; i++) {
@@ -666,6 +688,7 @@ class TaguiCrawler:
             time.sleep(0.05)
             xtest.fake_input(disp, X.ButtonRelease, detail=1)
             disp.sync()
+            logger.info("[errloading] 物理点击完成: screen(%d,%d)", ex, ey)
         except Exception as e:
             logger.warning("[errloading] 点击失败: %s", e)
 
@@ -679,67 +702,39 @@ class TaguiCrawler:
             else:
                 logger.error("[屏障] 滑块验证处理失败")
 
-    def _detect_captcha(self) -> bool:
-        """检测淘宝滑块验证弹窗（punish iframe可见性判据）
-
-        判据：主页面中src含'punish'的iframe存在且getBoundingClientRect()宽高>0。
-        FrameTree有时因CDP缓存不同步漏报，JS querySelector是最终依据。
-        """
-        try:
-            result = self._cdp_eval("""
-            (function() {
-                var frames = document.querySelectorAll('iframe');
-                for (var i = 0; i < frames.length; i++) {
-                    if ((frames[i].src || '').indexOf('punish') !== -1) {
-                        var rect = frames[i].getBoundingClientRect();
-                        if (rect.width > 0 && rect.height > 0) {
-                            return 'captcha_visible';
-                        }
-                    }
-                }
-                return 'none';
-            })()
-            """)
-
-            if result == "captcha_visible":
-                logger.warning("[验证] 检测到淘宝滑块验证弹窗 (punish iframe可见)")
-                return True
-
-            return False
-        except Exception:
-            return False
-
     def _detect_captcha_with_position(self) -> Optional[dict]:
-        """检测滑块验证并返回屏幕坐标（CDP contextId进入iframe读取#nc_1_n1z）
+        """检测滑块验证弹窗并返回精确屏幕坐标（CDP contextId方法）
 
-        经验文档方法：Page.createIsolatedWorld → 获取executionContextId →
-        Runtime.evaluate(contextId=xxx)在iframe内执行JS获取精确滑块坐标。
-        坐标换算：屏幕坐标 = 视口坐标 + (ox=66, oy=119)。
+        经验文档标准流程：
+        1. Page.getFrameTree 找到 h5api.m.taobao.com/punish 的 frameId
+        2. Page.createIsolatedWorld 获取 executionContextId
+        3. Runtime.evaluate(contextId=xxx) 查询 iframe 内 #nc_1_n1z 滑块坐标
+        4. 屏幕坐标 = iframe视口位置 + 滑块iframe内位置 + (ox=66, oy=119)
+        
+        返回值: {"found":True, "screen_x":int, "screen_y":int, "distance":int}
+                {"found":True, "error":"errloading"}  // 验证失败需重试
+                None  // 验证弹窗不存在 ≈ 已通过
         """
-        OX, OY = 66, 119  # 窗口偏移常量
+        OX, OY = 66, 119
         try:
             resp = self._cdp_send("Page.getFrameTree")
             frame_tree = resp.get("result", {}).get("frameTree", {})
-
             punish_fid = None
             def find_punish(node):
                 nonlocal punish_fid
-                f = node.get("frame", {})
-                url = f.get("url", "")
-                if "h5api.m.taobao.com" in url and "punish" in url:
-                    punish_fid = f.get("id", "")
-                    return
-                for child in node.get("childFrames", []):
-                    find_punish(child)
+                for c in node.get("childFrames", []):
+                    f = c.get("frame", {})
+                    url = f.get("url", "")
+                    if "h5api.m.taobao.com" in url and "punish" in url:
+                        punish_fid = f.get("id", "")
+                        return
+                    find_punish(c)
             find_punish(frame_tree)
-
             if not punish_fid:
                 return None
 
-            iso_resp = self._cdp_send("Page.createIsolatedWorld", {
-                "frameId": punish_fid,
-            })
-            ctx_id = iso_resp.get("result", {}).get("executionContextId")
+            iso = self._cdp_send("Page.createIsolatedWorld", {"frameId": punish_fid})
+            ctx_id = iso.get("result", {}).get("executionContextId")
             if not ctx_id:
                 logger.warning("[验证] 未能获取iframe执行上下文")
                 return None
@@ -753,67 +748,49 @@ class TaguiCrawler:
                         var w = document.querySelector('[id*=\"nc_1_wrapper\"]');
                         if (w && (w.innerHTML||'').indexOf('errloading') !== -1)
                             return JSON.stringify({found:true, error:'errloading'});
-                        return JSON.stringify({found:false, bodyText:(document.body?.innerText||'').slice(0,80)});
+                        return JSON.stringify({found:false});
                     }
                     var sr = s.getBoundingClientRect();
                     var tr = t.getBoundingClientRect();
-                    var svx = Math.round(sr.x + sr.width/2);
-                    var svy = Math.round(sr.y + sr.height/2);
-                    var dist = Math.round(tr.x + tr.width - sr.x - sr.width + 3);
                     return JSON.stringify({
                         found: true,
-                        slider_iframe_x: svx, slider_iframe_y: svy,
-                        distance: dist
+                        slider_iframe_x: Math.round(sr.x + sr.width/2),
+                        slider_iframe_y: Math.round(sr.y + sr.height/2),
+                        distance: Math.round(tr.x + tr.width - sr.x - sr.width + 3)
                     });
                 })()""",
                 "contextId": ctx_id,
                 "returnByValue": True,
             })
-
             result = resp.get("result", {}).get("result", {}).get("value", "{}")
             data = json.loads(result) if isinstance(result, str) else {"found": False}
 
             if data.get("error") == "errloading":
                 return {"found": True, "error": "errloading"}
+            if not data.get("found"):
+                return None
 
-            if data.get("found"):
-                slider_iframe_x = data["slider_iframe_x"]
-                slider_iframe_y = data["slider_iframe_y"]
-                distance = data["distance"]
-
-                # 获取iframe在主页面中的视口位置
-                iframe_pos = self._cdp_eval("""(function(){
-                    var fs = document.querySelectorAll('iframe');
-                    for (var i=0; i<fs.length; i++) {
-                        if ((fs[i].src||'').indexOf('h5api') !== -1) {
-                            var r = fs[i].getBoundingClientRect();
-                            return JSON.stringify({x:Math.round(r.x), y:Math.round(r.y)});
-                        }
+            # 计算屏幕坐标
+            iframe_pos = self._cdp_eval("""(function(){
+                var fs = document.querySelectorAll('iframe');
+                for (var i=0; i<fs.length; i++) {
+                    if ((fs[i].src||'').indexOf('h5api') !== -1) {
+                        var r = fs[i].getBoundingClientRect();
+                        return JSON.stringify({x:Math.round(r.x), y:Math.round(r.y)});
                     }
-                    return JSON.stringify({found:false});
-                })()""")
-                ip = json.loads(iframe_pos) if isinstance(iframe_pos, str) else {"found": False}
-
-                if ip.get("found") is not False and "x" in ip:
-                    screen_x = int(ip["x"] + slider_iframe_x + OX)
-                    screen_y = int(ip["y"] + slider_iframe_y + OY)
-                else:
-                    # 回退：使用上次已知iframe位置
-                    screen_x = int(397 + slider_iframe_x + OX)
-                    screen_y = int(181 + slider_iframe_y + OY)
-
-                logger.info("[验证] 精确读取滑块: iframe内=(%d,%d) screen=(%d,%d) dist=%d",
-                           slider_iframe_x, slider_iframe_y, screen_x, screen_y, distance)
-                return {
-                    "found": True,
-                    "screen_x": screen_x,
-                    "screen_y": screen_y,
-                    "distance": distance,
                 }
+                return JSON.stringify({found:false});
+            })()""")
+            ip = json.loads(iframe_pos) if isinstance(iframe_pos, str) else {"found": False}
 
-            logger.warning("[验证] iframe内滑块未找到: %s", data.get("bodyText", ""))
-            return None
+            screen_x = int(ip.get("x", 397) + data["slider_iframe_x"] + OX)
+            screen_y = int(ip.get("y", 181) + data["slider_iframe_y"] + OY)
+            distance = data["distance"]
 
+            logger.info("[验证] 精确读取: iframe内=(%d,%d) screen=(%d,%d) dist=%d",
+                       data["slider_iframe_x"], data["slider_iframe_y"],
+                       screen_x, screen_y, distance)
+            return {"found": True, "screen_x": screen_x, "screen_y": screen_y, "distance": distance}
         except Exception as e:
             logger.warning("[验证] _detect_captcha_with_position异常: %s", e)
             return None
