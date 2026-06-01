@@ -303,6 +303,31 @@ def _crawl_skus_via_opencli(product_id: str, url: str) -> list[dict]:
         return []
 
 
+def _quick_login_check(crawler: CdpCrawler) -> bool:
+    """轻量登录检查：在当前页面检测，不触发导航避免反爬。"""
+    try:
+        result = crawler.eval("""
+        (function() {
+            var body = (document.body?.innerText || '');
+            // 已登录标志：有用户名、有"我的淘宝"入口、有"已买到的宝贝"
+            var hasMyTaobao = body.indexOf('我的淘宝') !== -1;
+            var hasPurchased = body.indexOf('已买到的宝贝') !== -1;
+            var hasNickname = !!document.querySelector('.site-nav-user .nickname, .site-nav-login-info-nick');
+            // 未登录标志
+            var hasLoginBtn = body.indexOf('请登录') !== -1 || body.indexOf('密码登录') !== -1;
+            if (hasLoginBtn) return 'not_logged_in';
+            if (hasMyTaobao || hasPurchased || hasNickname) return 'logged_in';
+            return 'unknown';
+        })();
+        """)
+        logged_in = str(result).strip().strip('"\'') == 'logged_in'
+        logger.info("快速登录检查: %s", "已登录" if logged_in else "未登录或未知")
+        return logged_in
+    except Exception as e:
+        logger.warning("快速登录检查异常: %s", e)
+        return True  # 不确定时放行
+
+
 def crawl_keyword_products(keyword: str) -> int:
     """通过 CDP 搜索关键词并提取商品列表自动入库。
 
@@ -322,10 +347,13 @@ def crawl_keyword_products(keyword: str) -> int:
     try:
         crawler.connect_page(url_hint="taobao.com")
 
-        # 检查登录
-        if not crawler.check_login():
-            logger.error("淘宝未登录，无法搜索")
-            return 0
+        # 轻量登录检查：在当前页面上检测（不触发导航，避免反爬）
+        try:
+            logged_in = _quick_login_check(crawler)
+            if not logged_in:
+                logger.warning("当前页面未检测到登录态，继续尝试搜索...")
+        except Exception:
+            logger.warning("登录检查异常，跳过检查继续搜索")
 
         # 搜索并提取
         products = crawler.search_and_extract_products(keyword, max_results=20)
