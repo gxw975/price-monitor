@@ -1,6 +1,6 @@
 #!/bin/bash
 
-CHROME_USER_DATA="/home/lab-admin/.config/google-chrome-profile-headless"
+CHROME_USER_DATA="/home/lab-admin/chrome-user-data"
 CHROME_BIN="/usr/bin/google-chrome-stable"
 CDP_PORT=9222
 MAX_WAIT=30
