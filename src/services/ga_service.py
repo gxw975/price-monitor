@@ -31,11 +31,20 @@ except ImportError:
     _cdp_available = False
     logger.warning("CDP 抓取器不可用，将降级到 OpenCLI 方式")
 
+# 导入 TagUI RPA 抓取器 (如果可用)
+try:
+    from services.tagui_crawler import crawl_keyword_rpa
+    _tagui_available = True
+except ImportError:
+    _tagui_available = False
+    logger.warning("TagUI RPA 抓取器不可用")
+
 
 def run_diantoushi_export(keyword: str) -> Optional[str]:
     """执行淘宝店透视数据导出。
 
-    优先使用 GA agentmain.py 调用，不支持则降级到直接调技能脚本。
+    优先使用 TagUI RPA (最稳定)，
+    失败时降级到 DTS 脚本。
 
     Args:
         keyword: 搜索关键词
@@ -50,20 +59,32 @@ def run_diantoushi_export(keyword: str) -> Optional[str]:
     keyword = keyword.strip()
     logger.info("触发店透视导出: keyword=%s", keyword)
 
+    # 优先使用 TagUI RPA (最稳定，支持滑块验证自动处理)
+    if _tagui_available:
+        logger.info("[优先] 使用 TagUI RPA 抓取: %s", keyword)
+        try:
+            result = crawl_keyword_rpa(keyword)
+            if result:
+                logger.info("TagUI RPA 导出成功: %s", result)
+                return result
+            logger.warning("TagUI RPA 导出失败，降级到 DTS 脚本")
+        except Exception:
+            logger.exception("TagUI RPA 异常，降级到 DTS 脚本")
+
+    # 降级到 DTS 脚本
     diantoushi_script = SKILLS_DIR / "diantoushi_export.py"
 
     if not diantoushi_script.exists():
         logger.error("店透视导出脚本不存在: %s", diantoushi_script)
         return None
 
-    ga_cmd = [GA_PYTHON, GA_MAIN, "--skill", "diantoushi_export", "--keyword", keyword]
     fallback_cmd = [
         sys.executable,
         str(diantoushi_script),
         keyword,
     ]
 
-    return _exec_and_parse(ga_cmd, fallback_cmd, keyword)
+    return _exec_and_parse([], fallback_cmd, keyword)
 
 
 def run_sku_crawl(product_id: str, url: str) -> list[dict]:

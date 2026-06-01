@@ -1,99 +1,55 @@
 #!/bin/bash
 
-CHROME_USER_DATA="/home/lab-admin/chrome-user-data"
+CHROME_USER_DATA="/home/lab-admin/.config/google-chrome-profile-headless"
 CHROME_BIN="/usr/bin/google-chrome-stable"
-OPENCLI_BIN="/home/lab-admin/.nvm/versions/node/v22.22.0/bin/opencli"
-PROFILE="zu4794g4"
-MAX_WAIT=60
-XVFB_DISPLAY=:99
+CDP_PORT=9222
+MAX_WAIT=30
+
+export DISPLAY=:0
+export XAUTHORITY="/run/user/1000/.mutter-Xwaylandauth.47UFP3"
 
 check_chrome_running() {
   pgrep -f "chrome.*${CHROME_USER_DATA}" > /dev/null 2>&1
 }
 
-check_profile_connected() {
-  "$OPENCLI_BIN" profile list 2>/dev/null | grep -q "$PROFILE.*connected"
-}
-
-ensure_xvfb() {
-  if pgrep -f "Xvfb ${XVFB_DISPLAY}" > /dev/null 2>&1; then
-    return 0
-  fi
-  pkill -f "Xvfb" 2>/dev/null || true
-  sleep 1
-  Xvfb "$XVFB_DISPLAY" -screen 0 1920x1080x24 -ac +extension RANDR &
-  sleep 1
-  if ! pgrep -f "Xvfb ${XVFB_DISPLAY}" > /dev/null 2>&1; then
-    echo "$(date): ERROR - Xvfb failed to start"
-    return 1
-  fi
-  echo "$(date): Xvfb started on ${XVFB_DISPLAY}"
-  return 0
+check_cdp_ready() {
+  curl -s "http://127.0.0.1:${CDP_PORT}/json/version" > /dev/null 2>&1
 }
 
 launch_chrome() {
   pkill -f "chrome.*${CHROME_USER_DATA}" 2>/dev/null || true
-  sleep 1
-
-  ensure_xvfb || return 1
-
-  export DISPLAY="$XVFB_DISPLAY"
+  sleep 2
+  rm -rf /tmp/com.google.Chrome.* /tmp/.org.chromium.* 2>/dev/null
 
   "$CHROME_BIN" \
     --no-sandbox \
     --disable-gpu \
+    --disable-software-rasterizer \
     --disable-dev-shm-usage \
-    --window-size=1920,1080 \
-    --remote-debugging-port=9222 \
-    --remote-allow-origins=* \
     --user-data-dir="$CHROME_USER_DATA" \
-    --profile-directory=Default \
-    --no-first-run \
-    --no-default-browser-check \
-    --disable-blink-features=AutomationControlled \
-    --disable-features=AutomationControlled,IsolateOrigins,site-per-process \
-    --disable-component-extensions-with-background-pages \
-    --disable-default-apps \
-    --disable-extensions-file-access-check \
-    --disable-infobars \
-    --disable-popup-blocking \
-    --disable-translate \
-    --metrics-recording-only \
-    --safebrowsing-disable-auto-update \
-    --load-extension=/home/lab-admin/GenericAgent/assets/tmwd_cdp_bridge \
+    --remote-debugging-port=$CDP_PORT \
+    --remote-allow-origins=* \
     about:blank &
 
   for i in $(seq 1 $MAX_WAIT); do
     sleep 1
-    if check_profile_connected; then
-      echo "$(date): zu4794g4 connected after ${i}s"
+    if check_cdp_ready; then
+      echo "$(date): Chrome CDP ready after ${i}s"
       return 0
     fi
   done
-  echo "$(date): WARNING - Chrome started but extension not connected after ${MAX_WAIT}s"
+  echo "$(date): WARNING - Chrome CDP not ready after ${MAX_WAIT}s"
   return 1
 }
 
-cleanup() {
-  echo "$(date): ensure-chrome exiting, cleaning up..."
-  pkill -f "Xvfb ${XVFB_DISPLAY}" 2>/dev/null || true
-}
-
-trap cleanup EXIT
-
-if ! check_chrome_running || ! check_profile_connected; then
+if ! check_chrome_running || ! check_cdp_ready; then
   launch_chrome
 fi
-
-ensure_xvfb
 
 while true; do
   sleep 15
   if ! check_chrome_running; then
     echo "$(date): Chrome died, restarting..."
-    launch_chrome
-  elif ! check_profile_connected; then
-    echo "$(date): Profile disconnected, restarting Chrome..."
     launch_chrome
   fi
 done
