@@ -19,7 +19,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from services.auth_service import get_current_user
-from services.ga_service import run_diantoushi_export
+from services.ga_service import crawl_keyword_products, run_diantoushi_export
 
 load_dotenv()
 logger = logging.getLogger("api.keywords")
@@ -290,17 +290,39 @@ _search_lock = threading.Lock()
 
 
 def _run_keyword_search(keyword_id: int, keyword_name: str, task_id: str) -> None:
+    """后台执行关键词搜索和数据入库。
+
+    流程:
+    1. CDP 直连搜索 + 提取商品列表 (轻量、快速)
+    2. DTS 店透视导出 XLSX (完整数据，兜底)
+    """
     logger.info("开始搜索关键词: id=%d name=%s", keyword_id, keyword_name)
     try:
+        # ── 步骤1: CDP 搜索提取商品 ──
+        cdp_count = 0
+        try:
+            cdp_count = crawl_keyword_products(keyword_name)
+            logger.info("CDP 搜索入库: %d 个商品", cdp_count)
+        except Exception as e:
+            logger.warning("CDP 搜索失败 (非致命): %s", e)
+
+        # ── 步骤2: DTS 店透视导出 (获取更完整数据) ──
         result = run_diantoushi_export(keyword_name)
+
         with _search_lock:
-            if result:
+            if result or cdp_count > 0:
+                parts = []
+                if cdp_count > 0:
+                    parts.append(f"CDP搜索入库 {cdp_count} 个商品")
+                if result:
+                    parts.append(f"DTS导出到 {result}")
                 _search_tasks[task_id] = {
                     "status": "completed",
                     "keyword_id": keyword_id,
                     "keyword_name": keyword_name,
                     "result": result,
-                    "message": f"搜索完成，已导出数据到 {result}",
+                    "message": "，".join(parts) if parts else "搜索完成",
+                    "product_count": cdp_count,
                     "started_at": _search_tasks.get(task_id, {}).get("started_at", 0),
                     "finished_at": time.time(),
                 }
