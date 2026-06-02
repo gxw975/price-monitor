@@ -1620,26 +1620,17 @@ class TaguiCrawler:
             time.sleep(2)
             self._dismiss_chrome_dialog()
 
-            form_submitted = self._cdp_eval("""
-            (function() {
-                var q = document.getElementById('q');
-                if (!q) return 'no_search_box';
-                var form = q.closest('form');
-                if (form) {
-                    form.submit();
-                    return 'form_submitted';
-                }
-                var btn = document.querySelector('#J_TSearchForm button, .search-button, [type="submit"]');
-                if (btn) {
-                    btn.click();
-                    return 'button_clicked';
-                }
-                return 'no_form';
-            })()
-            """)
-            logger.info("[3/10] 搜索提交: %s", form_submitted)
-            time.sleep(10)
+            # 使用xdotool真人按回车（代替CDP form.submit, 避免触发反爬）
+            logger.info("[3/10] 真人按回车提交搜索...")
+            subprocess.run(["xdotool", "key", "Return"],
+                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+            time.sleep(3)
             self._dismiss_chrome_dialog()
+            time.sleep(2)
+
+            # 再次按回车以防搜索框需要二次确认
+            subprocess.run(["xdotool", "key", "Return"],
+                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
             time.sleep(2)
 
             self._switch_to_new_tab("s.taobao.com")
