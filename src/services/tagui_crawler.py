@@ -155,7 +155,7 @@ class TaguiCrawler:
                             if "taobao.com" in u and "login." not in u:
                                 page = t
                                 break
-                if not page and not url_hint:
+                if not page:
                     # 退而求其次：任意taobao页面（含login页）
                     for t in targets:
                         if t.get("type") == "page" and "taobao.com" in t.get("url", ""):
@@ -165,6 +165,15 @@ class TaguiCrawler:
                     # 最后退路：第一个页面
                     page = next((t for t in targets if t.get("type") == "page"), None)
                 if not page:
+                    # Chrome刚启动没有页面时，用browser target创建
+                    browser = next((t for t in targets if t.get("type") in ("browser_ui","browser")), None)
+                    if browser:
+                        logger.info("[CDP] 无页面目标，通过browser创建空白页...")
+                        bw = websocket.create_connection(browser["webSocketDebuggerUrl"], timeout=10)
+                        bw.send(json.dumps({"id":1,"method":"Target.createTarget","params":{"url":"about:blank"}}))
+                        bw.recv(); bw.close()
+                        time.sleep(2)
+                        continue  # 重试
                     time.sleep(2)
                     continue
 
@@ -429,8 +438,8 @@ class TaguiCrawler:
         """初始化 python-xlib display（已验证通过滑块验证）"""
         if self._x11_display is not None:
             return self._x11_display
-        os.environ.setdefault("DISPLAY", DISPLAY)
-        os.environ.setdefault("XAUTHORITY", XAUTH_FILE)
+        os.environ["DISPLAY"] = DISPLAY
+        os.environ["XAUTHORITY"] = XAUTH_FILE
         from Xlib import X, display as xdisplay
         from Xlib.ext import xtest as xext
         self._x11_display = xdisplay.Display()
