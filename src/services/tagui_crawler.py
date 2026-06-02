@@ -593,42 +593,33 @@ class TaguiCrawler:
             logger.debug("[窗口] 最大化失败: %s", e)
 
     def _handle_captcha(self) -> bool:
-        """处理滑块验证（python-xlib物理拖拽 + page warmup + 焦点激活）
-
-        经验文档方法 + 已验证：python-xlib OS级事件 + CDP精确定位 + 拟人化轨迹。
-        每次拖拽参数随机变化，防止服务端模式检测。
-        """
+        """处理滑块验证（委托captcha_solver完整流程 — 已验证通过baxia）"""
         self._maximize_window()
-
-        # 页面预热：滚动 + 鼠标移动（激活事件监听）
         self._cdp_send("Page.bringToFront")
         self._cdp_eval("window.scrollBy(0, {})".format(random.randint(50, 150)))
         time.sleep(0.3)
 
+        from services.captcha_solver import detect_captcha as cs_detect, _x11_drag_slider as cs_drag
+        os.environ["DISPLAY"] = DISPLAY
+        os.environ["XAUTHORITY"] = XAUTH_FILE
+
         for attempt in range(MAX_SLIDER_RETRIES):
             logger.info("[滑块] 第 %d/%d 次尝试验证", attempt + 1, MAX_SLIDER_RETRIES)
 
-            captcha_data = self._detect_captcha_with_position()
+            captcha_data = cs_detect()
             if not captcha_data:
                 logger.info("[滑块] 验证弹窗已消失，验证通过")
                 return True
 
-            if captcha_data.get("error") == "errloading":
-                logger.info("[滑块] errloading状态，物理点击恢复...")
-                self._click_errloading(captcha_data)
-                time.sleep(2.5)
-                continue
-
             try:
-                dist = captcha_data.get("distance", 259)
                 logger.info("[滑块] 拖拽: screen(%d,%d) dist=%d",
                            captcha_data.get("screen_x", 0),
                            captcha_data.get("screen_y", 0),
-                           dist)
-                self._x11_drag_slider(captcha_data)
+                           captcha_data.get("distance", 259))
+                cs_drag(captcha_data)
                 time.sleep(SLIDER_VERIFY_WAIT)
 
-                if not self._detect_captcha():
+                if not cs_detect():
                     logger.info("[滑块] ✅ 验证通过!")
                     return True
 
@@ -1582,24 +1573,50 @@ class TaguiCrawler:
 
             logger.info("[3/10] 搜索框屏幕坐标: (%.0f, %.0f)", pos["x"], pos["y"])
 
-            # xdotool真人点击 + 输入关键词 + 按回车
+            # xdotool真人点击 + 输入关键词 + 拟人化等待 + 点击搜索按钮
             self._os_click(int(pos["x"]), int(pos["y"]))
-            time.sleep(1)
-            self._os_click(int(pos["x"]), int(pos["y"]))
-            time.sleep(1)
+            time.sleep(1.5)
             self._os_type(keyword)
             logger.info("[3/10] 已输入关键词")
-            time.sleep(2)
-            self._dismiss_chrome_dialog()
+            time.sleep(random.uniform(1.5, 3.0))
 
-            subprocess.run(["xdotool", "key", "Return"],
+            # 鼠标移开搜索框（模拟真人浏览行为）
+            subprocess.run(["xdotool", "mousemove",
+                str(int(pos["x"]) + random.randint(200, 400)),
+                str(int(pos["y"]) + random.randint(-100, 100))],
                 env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(3)
-            self._dismiss_chrome_dialog()
-            time.sleep(2)
-            subprocess.run(["xdotool", "key", "Return"],
-                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(2)
+            time.sleep(random.uniform(1.5, 2.5))
+
+            # 点击搜索按钮（而非按回车，减少反爬风险）
+            search_btn = self._cdp_eval("""
+            (function() {
+                var btn = document.querySelector('.btn-search, .search-button, [type="submit"], #J_TSearchForm button');
+                if (!btn) return JSON.stringify({found: false});
+                var rect = btn.getBoundingClientRect();
+                var fl = (window.outerWidth - window.innerWidth) / 2;
+                var to = window.outerHeight - window.innerHeight - fl;
+                var ox = (window.screenLeft || 0) + fl;
+                var oy = (window.screenTop || 0) + to;
+                return JSON.stringify({
+                    found: true,
+                    x: Math.round(rect.x + rect.width / 2 + ox),
+                    y: Math.round(rect.y + rect.height / 2 + oy)
+                });
+            })()
+            """)
+            try:
+                btn_pos = json.loads(search_btn) if isinstance(search_btn, str) else {"found": False}
+            except json.JSONDecodeError:
+                btn_pos = {"found": False}
+
+            if btn_pos.get("found"):
+                self._os_click(int(btn_pos["x"]), int(btn_pos["y"]))
+                logger.info("[3/10] 点击搜索按钮: (%.0f, %.0f)", btn_pos["x"], btn_pos["y"])
+            else:
+                subprocess.run(["xdotool", "key", "Return"],
+                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+                logger.info("[3/10] 按回车提交(无搜索按钮)")
+            time.sleep(8)
 
             self._switch_to_new_tab("s.taobao.com")
             for _ in range(3):
