@@ -22,6 +22,7 @@ launch_chrome() {
   rm -rf /tmp/com.google.Chrome.* /tmp/.org.chromium.* 2>/dev/null
 
   "$CHROME_BIN" \
+    --no-sandbox \
     --disable-gpu \
     --disable-software-rasterizer \
     --disable-dev-shm-usage \
