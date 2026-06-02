@@ -1302,17 +1302,23 @@ class TaguiCrawler:
         logger.info("[RPA] 开始抓取关键词: %s", keyword)
         logger.info("=" * 60)
 
-        original_sigterm = signal.getsignal(signal.SIGTERM)
-        original_sigint = signal.getsignal(signal.SIGINT)
+        # 信号处理仅在主线程有效（uvicorn worker线程中会报ValueError跳过）
+        _cleanup = None
+        try:
+            original_sigterm = signal.getsignal(signal.SIGTERM)
+            original_sigint = signal.getsignal(signal.SIGINT)
 
-        def _cleanup(signum=None, frame=None):
-            logger.info("[RPA] 清理资源...")
-            self._disconnect()
-            if signum:
-                sys.exit(1)
+            def _cleanup(signum=None, frame=None):
+                logger.info("[RPA] 清理资源...")
+                self._disconnect()
+                if signum:
+                    sys.exit(1)
 
-        signal.signal(signal.SIGTERM, _cleanup)
-        signal.signal(signal.SIGINT, _cleanup)
+            signal.signal(signal.SIGTERM, _cleanup)
+            signal.signal(signal.SIGINT, _cleanup)
+            logger.info("[RPA] 信号处理已注册")
+        except ValueError:
+            logger.info("[RPA] 非主线程，跳过信号注册（uvicorn worker）")
 
         try:
             # ── 连接已运行的Chrome（不杀进程，保留登录态）──
