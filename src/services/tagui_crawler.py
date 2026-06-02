@@ -1448,23 +1448,10 @@ class TaguiCrawler:
             """)
 
             if login_check == 'not_on_taobao' or login_check.startswith('not_'):
-                # 不在淘宝页面，需要用真人方式导航
-                logger.info("[1/10] 不在淘宝页面，使用地址栏真人方式导航...")
-                self._os_activate_chrome()
-                time.sleep(0.5)
-                # Ctrl+L 聚焦地址栏
-                subprocess.run(["xdotool", "key", "ctrl+l"],
-                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-                time.sleep(0.3)
-                subprocess.run(["xdotool", "key", "ctrl+a"],
-                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-                time.sleep(0.1)
-                # xdotool type requires older xdotool, use key for common chars
-                self._os_type("https://www.taobao.com")
-                time.sleep(0.3)
-                subprocess.run(["xdotool", "key", "Return"],
-                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-                time.sleep(6)
+                # 用CDP Page.navigate导航到淘宝（可靠，不依赖xdotool）
+                logger.info("[1/10] 不在淘宝页面，CDP导航到淘宝首页...")
+                self._cdp_send("Page.navigate", {"url": "https://www.taobao.com/"})
+                time.sleep(8)
                 for _ in range(3):
                     self._dismiss_chrome_dialog()
                     time.sleep(1)
