@@ -48,7 +48,7 @@ DIANTOUSHI_ACCOUNT = os.environ.get("DIANTOUSHI_ACCOUNT", "18627759568")
 DIANTOUSHI_PASSWORD = os.environ.get("DIANTOUSHI_PASSWORD", "791123")
 
 MAX_SLIDER_RETRIES = 5
-SLIDER_VERIFY_WAIT = 3
+SLIDER_VERIFY_WAIT = 6
 AUTO_LOAD_BATCH_SIZE = 8
 AUTO_LOAD_INTERVAL = 30
 AUTO_LOAD_PAUSE = 300
@@ -429,11 +429,8 @@ class TaguiCrawler:
         return self._x11_display
 
     def _x11_drag_slider(self, captcha: dict) -> None:
-        """python-xlib滑块拖拽（已验证通过baxia验证）
-
-        关键参数每次随机化以避免服务端轨迹模式检测。
-        经验文档核心：物理OS级鼠标事件 + ease-out轨迹 + Y轴微抖 + 变速。
-        """
+        """python-xlib滑块拖拽（280+点 / 3-5.5秒 / 正弦波抖动 — 对齐captcha_solver.py已验证算法）"""
+        import math as _math
         disp = self._init_x11()
         xtest = self._x11_xtest
         X = self._x11_X
@@ -443,68 +440,68 @@ class TaguiCrawler:
             disp.sync()
 
         def click(button, down):
-            xtest.fake_input(
-                disp,
-                X.ButtonPress if down else X.ButtonRelease,
-                detail=button,
-            )
+            xtest.fake_input(disp,
+                X.ButtonPress if down else X.ButtonRelease, detail=button)
             disp.sync()
 
         sx = captcha.get("screen_x", 0)
         sy = captcha.get("screen_y", 0)
-        dist = captcha.get("distance", 259)
+        dist = captcha.get("distance", 259) + random.randint(-3, 5)
 
-        # 1. 从左侧随机距离接近滑块（每次不同，模拟人类找滑块）
-        approach_dist = random.randint(60, 120)
-        ax = sx - approach_dist
+        # 接近滑块
+        ax = sx - random.randint(35, 55)
         ay = sy + random.randint(-10, 10)
-        mov(ax, ay)
-        time.sleep(0.02)
+        for i in range(14):
+            p = (i + 1) / 14
+            mov(int(ax + (sx - ax) * p),
+                int(ay + (sy - ay) * p + _math.sin(i * 0.5) * 5))
+            time.sleep(0.015 + random.random() * 0.02)
 
-        for i in range(random.randint(3, 6)):
-            p = (i + 1) / random.randint(4, 7)
-            mx = int(ax + (sx - ax) * p)
-            my = int(ay + (sy - ay) * p)
-            mov(mx, my)
-            time.sleep(0.015 + random.random() * 0.025)
-
-        # 2. 停在滑块上短暂停顿
+        # 悬停
         mov(sx, sy)
-        time.sleep(0.06 + random.random() * 0.05)
+        time.sleep(0.25 + random.random() * 0.35)
 
-        # 3. 按下
+        # 按下
         click(1, True)
-        time.sleep(0.025 + random.random() * 0.03)
+        time.sleep(0.03)
 
-        # 4. 拟人化分步拖拽（每步参数随机变化）
-        steps = random.randint(10, 20)
-        total_ms = random.randint(450, 800)
-        easing_pow = random.uniform(1.6, 2.8)
+        # 慢速拖拽：280+点，3-5.5秒，正弦波抖动
+        pts = 280 + random.randint(40, 80)
+        total_t = 3.0 + random.random() * 2.5
+        for i in range(pts):
+            p = i / pts
+            if p < 0.08:
+                e = (p / 0.08) ** 2 * 0.08
+            elif p < 0.88:
+                e = 0.08 + (p - 0.08) * 0.84
+            else:
+                r = (1 - p) / 0.12
+                e = 1 - r * r * 0.12
+            e += (random.random() - 0.5) * 0.005
 
-        weights = []
-        for i in range(steps):
-            p = (i + 1) / steps
-            w = 0.4 + (1 - p) * 1.8 + random.uniform(-0.15, 0.15)
-            weights.append(max(0.1, w))
-        total_w = sum(weights)
-
-        for i in range(steps):
-            p = (i + 1) / steps
-            eased = 1 - (1 - p) ** easing_pow
-            x = int(sx + dist * eased)
-            noise_range = random.randint(2, 5)
-            y = sy + random.randint(-noise_range, noise_range)
-            if p > 0.85:
-                y = sy + random.randint(-1, 1)
+            x = int(sx + dist * e)
+            yj = (_math.sin(p * _math.pi * 3.1) * 2.5 +
+                  _math.sin(p * _math.pi * 7.3) * 0.6 +
+                  _math.sin(p * _math.pi * 13.7) * 0.3)
+            if random.random() < 0.02:
+                yj += (random.random() - 0.5) * 8
+            y = int(sy + yj)
             mov(x, y)
-            delay = total_ms * weights[i] / total_w / 1000.0
-            time.sleep(max(0.005, delay + random.uniform(-0.003, 0.003)))
+            time.sleep(max(0.002, total_t / pts * (0.6 + random.random() * 0.8)))
 
-        # 5. 终点停顿再松手
-        time.sleep(0.05 + random.random() * 0.04)
+        # 到达 + 过冲回弹
+        mov(int(sx + dist), int(sy))
+        time.sleep(0.05)
+        mov(int(sx + dist + random.uniform(2, 5)), int(sy + random.randint(-1, 1)))
+        time.sleep(0.04)
+        mov(int(sx + dist), int(sy))
+        time.sleep(0.05)
+
+        # 松开前停留
+        time.sleep(0.18 + random.random() * 0.25)
         click(1, False)
-        time.sleep(0.5)
-        logger.info("[X11] python-xlib拖拽完成: %d步/%dms dist=%d", steps, total_ms, dist)
+
+        logger.info("[X11] 拖拽完成: %d点/%.1fs dist=%d", pts, total_t, dist)
 
     def _switch_to_new_tab(self, url_hint: str = "") -> None:
         """切换到搜索结果的标签页（优先匹配title=\"淘宝搜索\"）"""
