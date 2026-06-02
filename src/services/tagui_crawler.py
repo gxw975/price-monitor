@@ -107,6 +107,7 @@ class TaguiCrawler:
             "--disable-gpu",
             "--disable-software-rasterizer",
             "--disable-dev-shm-usage",
+            "--ozone-platform=x11",
             f"--user-data-dir={CHROME_USER_DATA}",
             f"--remote-debugging-port={CDP_PORT}",
             "--remote-allow-origins=*",
@@ -380,22 +381,32 @@ class TaguiCrawler:
         )
 
     def _os_activate_chrome(self) -> None:
-        """激活Chrome窗口"""
+        """激活Chrome窗口（非阻塞）"""
+        try:
+            # 先用 CDP bringToFront
+            self._cdp_send("Page.bringToFront")
+            time.sleep(0.5)
+        except Exception:
+            pass
+
         env = os.environ.copy()
         env["DISPLAY"] = DISPLAY
         env["XAUTHORITY"] = XAUTH_FILE
-        result = subprocess.run(
-            ["xdotool", "search", "--name", "淘宝"],
-            env=env, capture_output=True, text=True, timeout=10,
-        )
-        window_ids = result.stdout.strip().split()
-        if window_ids:
-            subprocess.run(
-                ["xdotool", "windowactivate", "--sync", window_ids[0]],
-                env=env, capture_output=True, timeout=10,
+        try:
+            result = subprocess.run(
+                ["xdotool", "search", "--name", "淘宝"],
+                env=env, capture_output=True, text=True, timeout=5,
             )
-            logger.info("[OS] 激活Chrome窗口: %s", window_ids[0])
-            time.sleep(0.5)
+            window_ids = result.stdout.strip().split()
+            if window_ids:
+                subprocess.run(
+                    ["xdotool", "windowactivate", window_ids[0]],
+                    env=env, capture_output=True, timeout=5,
+                )
+                logger.info("[OS] 激活Chrome窗口: %s", window_ids[0])
+                time.sleep(0.5)
+        except Exception:
+            logger.debug("[OS] 窗口激活失败，继续执行")
 
     _x11_display = None
     _x11_xtest = None
@@ -1315,7 +1326,7 @@ class TaguiCrawler:
                 "--disable-gpu",
                 "--disable-software-rasterizer",
                 "--disable-dev-shm-usage",
-                "--disable-blink-features=AutomationControlled",
+                "--ozone-platform=x11",
                 "--start-maximized",
                 f"--user-data-dir={CHROME_USER_DATA}",
                 f"--remote-debugging-port={CDP_PORT}",
