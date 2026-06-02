@@ -1375,23 +1375,36 @@ class TaguiCrawler:
             login_check = self._cdp_eval("""
             (function() {
                 var url = window.location.href || '';
-                if (url.indexOf('taobao.com') === -1) return 'not_on_taobao';
-                var nav = document.getElementById('J_SiteNavLogin');
+                if (url.indexOf('taobao.com') === -1 && url.indexOf('tmall.com') === -1)
+                    return 'not_on_taobao';
+
+                // 方法1: 找用户名元素（多个备选选择器）
+                var selectors = [
+                    '.site-nav-user .site-nav-login-info-nick',
+                    '.J_SiteNavLogin .site-nav-menu-hd .menu-hd-text',
+                    '.site-nav-bd .nickname',
+                    '.tb-header-username',
+                    '.mytaobao-username'
+                ];
                 var nickname = '';
-                if (nav) {
-                    var els = nav.querySelectorAll('a, span');
-                    for (var i = 0; i < els.length; i++) {
-                        var t = (els[i].textContent || '').trim();
-                        if (t && t.length > 0 && t.length < 30 && t !== '登录' && t !== '请登录' && t !== '免费注册') {
+                for (var i = 0; i < selectors.length; i++) {
+                    var el = document.querySelector(selectors[i]);
+                    if (el) {
+                        var t = (el.textContent || '').trim().replace(/^hi[\\s,]*/i, '');
+                        if (t && t !== '\u767b\u5f55' && t !== '\u8bf7\u767b\u5f55' && t.length < 30) {
                             nickname = t;
                             break;
                         }
                     }
                 }
                 if (nickname) return 'logged_in:' + nickname;
+
+                // 方法2: body文本关键词
                 var bodyText = (document.body ? document.body.innerText : '') || '';
-                if (bodyText.indexOf('请登录') !== -1) return 'not_logged_in';
-                if (bodyText.indexOf('我的淘宝') !== -1) return 'probably_logged_in';
+                if (bodyText.indexOf('\u8bf7\u767b\u5f55') !== -1) return 'not_logged_in';
+                if (bodyText.indexOf('\u6211\u7684\u6dd8\u5b9d') !== -1) return 'logged_in:by_keyword';
+                if (bodyText.indexOf('\u5df2\u4e70\u5230\u7684\u5b9d\u8d1d') !== -1) return 'logged_in:by_keyword';
+
                 return 'unknown';
             })()
             """)
@@ -1418,27 +1431,40 @@ class TaguiCrawler:
                     self._dismiss_chrome_dialog()
                     time.sleep(1)
 
-            if not login_check.startswith('logged_in') and login_check != 'probably_logged_in':
-                # 导航后重新检测
+            if not login_check.startswith('logged_in'):
+                # 导航后重新检测（使用与上面相同的多种选择器）
                 time.sleep(3)
                 login_check2 = self._cdp_eval("""
                 (function() {
-                    var nav = document.getElementById('J_SiteNavLogin');
-                    if (nav) {
-                        var els = nav.querySelectorAll('a, span');
-                        for (var i = 0; i < els.length; i++) {
-                            var t = (els[i].textContent || '').trim();
-                            if (t && t.length > 0 && t.length < 30 && t !== '登录' && t !== '请登录' && t !== '免费注册') {
-                                return 'logged_in:' + t;
+                    var selectors = [
+                        '.site-nav-user .site-nav-login-info-nick',
+                        '.J_SiteNavLogin .site-nav-menu-hd .menu-hd-text',
+                        '.site-nav-bd .nickname',
+                        '.tb-header-username',
+                        '.mytaobao-username'
+                    ];
+                    var nickname = '';
+                    for (var i = 0; i < selectors.length; i++) {
+                        var el = document.querySelector(selectors[i]);
+                        if (el) {
+                            var t = (el.textContent || '').trim().replace(/^hi[\\s,]*/i, '');
+                            if (t && t !== '\u767b\u5f55' && t !== '\u8bf7\u767b\u5f55' && t.length < 30) {
+                                nickname = t; break;
                             }
                         }
                     }
+                    if (nickname) return 'logged_in:' + nickname;
+                    var bodyText = (document.body ? document.body.innerText : '') || '';
+                    if (bodyText.indexOf('\u6211\u7684\u6dd8\u5b9d') !== -1) return 'logged_in:by_keyword';
+                    if (bodyText.indexOf('\u5df2\u4e70\u5230\u7684\u5b9d\u8d1d') !== -1) return 'logged_in:by_keyword';
                     return 'not_logged_in';
                 })()
                 """)
                 if not login_check2.startswith('logged_in'):
                     logger.error("[登录] 淘宝未登录！请在后台管理「系统设置 → 淘宝登录」中扫码登录")
                     raise CrawlError("淘宝未登录，请扫码后再试")
+
+                login_check = login_check2
 
             logger.info("[登录] 登录态确认: %s", login_check)
 
