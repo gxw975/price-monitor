@@ -1580,26 +1580,25 @@ class TaguiCrawler:
 
             logger.info("[3/10] 搜索框屏幕坐标: (%.0f, %.0f)", pos["x"], pos["y"])
 
-            # xdotool真人点击 + 输入关键词 + 拟人化等待 + 回车提交
+            # 混血搜索: xdotool真人点击输入框+打字(反爬) → CDP导航搜索URL(可靠)
             self._os_click(int(pos["x"]), int(pos["y"]))
             time.sleep(1.5)
             self._os_type(keyword)
-            logger.info("[3/10] 已输入关键词")
+            logger.info("[3/10] 已真人输入关键词: %s", keyword)
             time.sleep(random.uniform(1.5, 3.0))
 
-            # 鼠标移开搜索框（模拟真人浏览行为）
+            # 鼠标移开（模拟浏览）
             subprocess.run(["xdotool", "mousemove",
                 str(int(pos["x"]) + random.randint(200, 400)),
                 str(int(pos["y"]) + random.randint(-100, 100))],
                 env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(random.uniform(1.5, 2.5))
+            time.sleep(random.uniform(1.0, 2.0))
 
-            subprocess.run(["xdotool", "key", "Return"],
-                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            logger.info("[3/10] 回车提交搜索")
-            time.sleep(8)
-
-            self._switch_to_new_tab("s.taobao.com")
+            # CDP Page.navigate直接打开搜索结果（可靠，绕过xdotool回车不可靠问题）
+            search_url = f"https://s.taobao.com/search?q={urllib.parse.quote(keyword)}"
+            logger.info("[3/10] 导航到搜索结果: %s", search_url[:80])
+            self._cdp_send("Page.navigate", {"url": search_url})
+            time.sleep(10)
             for _ in range(3):
                 self._dismiss_chrome_dialog()
                 time.sleep(1)
