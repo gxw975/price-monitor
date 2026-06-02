@@ -593,23 +593,29 @@ class TaguiCrawler:
             logger.debug("[窗口] 最大化失败: %s", e)
 
     def _handle_captcha(self) -> bool:
-        """处理滑块验证（委托captcha_solver完整流程 — 已验证通过baxia）"""
+        """处理滑块验证（ctypes X11拖拽 — 对齐captcha_solver已验证算法）"""
         self._maximize_window()
         self._cdp_send("Page.bringToFront")
         self._cdp_eval("window.scrollBy(0, {})".format(random.randint(50, 150)))
         time.sleep(0.3)
 
-        from services.captcha_solver import detect_captcha as cs_detect, _x11_drag_slider as cs_drag
+        from services.captcha_solver import _x11_drag_slider as cs_drag
         os.environ["DISPLAY"] = DISPLAY
         os.environ["XAUTHORITY"] = XAUTH_FILE
 
         for attempt in range(MAX_SLIDER_RETRIES):
             logger.info("[滑块] 第 %d/%d 次尝试验证", attempt + 1, MAX_SLIDER_RETRIES)
 
-            captcha_data = cs_detect()
+            captcha_data = self._detect_captcha_with_position()
             if not captcha_data:
                 logger.info("[滑块] 验证弹窗已消失，验证通过")
                 return True
+
+            if captcha_data.get("error") == "errloading":
+                logger.info("[滑块] errloading状态，物理点击恢复...")
+                self._click_errloading(captcha_data)
+                time.sleep(2.5)
+                continue
 
             try:
                 logger.info("[滑块] 拖拽: screen(%d,%d) dist=%d",
@@ -619,7 +625,7 @@ class TaguiCrawler:
                 cs_drag(captcha_data)
                 time.sleep(SLIDER_VERIFY_WAIT)
 
-                if not cs_detect():
+                if not self._detect_captcha():
                     logger.info("[滑块] ✅ 验证通过!")
                     return True
 
@@ -727,7 +733,6 @@ class TaguiCrawler:
                 {"found":True, "error":"errloading"}  // 验证失败需重试
                 None  // 验证弹窗不存在 ≈ 已通过
         """
-        OX, OY = 66, 119
         try:
             resp = self._cdp_send("Page.getFrameTree")
             frame_tree = resp.get("result", {}).get("frameTree", {})
@@ -782,19 +787,25 @@ class TaguiCrawler:
             if not data.get("found"):
                 return None
 
-            # 计算屏幕坐标
+            # 计算屏幕坐标：iframe视口位置 + 滑块在iframe内位置 + viewport→screen动态偏移
             iframe_pos = self._cdp_eval("""(function(){
                 var fs = document.querySelectorAll('iframe');
                 for (var i=0; i<fs.length; i++) {
                     if ((fs[i].src||'').indexOf('h5api') !== -1) {
                         var r = fs[i].getBoundingClientRect();
-                        return JSON.stringify({x:Math.round(r.x), y:Math.round(r.y)});
+                        var fl = (window.outerWidth - window.innerWidth) / 2;
+                        var to = window.outerHeight - window.innerHeight - fl;
+                        var ox = (window.screenLeft || 0) + fl;
+                        var oy = (window.screenTop || 0) + to;
+                        return JSON.stringify({x:Math.round(r.x), y:Math.round(r.y), ox:Math.round(ox), oy:Math.round(oy)});
                     }
                 }
                 return JSON.stringify({found:false});
             })()""")
             ip = json.loads(iframe_pos) if isinstance(iframe_pos, str) else {"found": False}
 
+            OX = ip.get("ox", 66)
+            OY = ip.get("oy", 119)
             screen_x = int(ip.get("x", 397) + data["slider_iframe_x"] + OX)
             screen_y = int(ip.get("y", 181) + data["slider_iframe_y"] + OY)
             distance = data["distance"]
