@@ -49,10 +49,11 @@ DIANTOUSHI_PASSWORD = os.environ.get("DIANTOUSHI_PASSWORD", "791123")
 
 MAX_SLIDER_RETRIES = 5
 SLIDER_VERIFY_WAIT = 3
-MAX_AUTO_LOAD_ROUNDS = 8
+AUTO_LOAD_BATCH_SIZE = 8
 AUTO_LOAD_INTERVAL = 30
-POST_LOAD_WAIT = 315
-FLOW_TIMEOUT = 15 * 60
+AUTO_LOAD_PAUSE = 300
+MAX_AUTO_LOAD_BATCHES = 6
+FLOW_TIMEOUT = 45 * 60
 
 
 class CrawlError(Exception):
@@ -1097,7 +1098,11 @@ class TaguiCrawler:
             return False
 
     def _wait_auto_load(self) -> bool:
-        """等待DTS市场分析面板加载 + 全部数据加载（对齐 dts_full_export.py）"""
+        """等待DTS面板加载 + 分批自动加载全部数据
+
+        流程: 面板就绪 → 每批点击8次自动加载(每次等30s) → 暂停5分钟
+              → 检测按钮是否消失 → 如是则全部加载完成 → 否则继续下一批
+        """
         logger.info("[DTS] 等待DTS市场分析面板加载...")
         panel_loaded = False
         for i in range(30):
@@ -1119,47 +1124,98 @@ class TaguiCrawler:
                 info = {}
 
             if info.get("hasStart") or info.get("hasSort"):
-                logger.info("[DTS] 面板已加载! len=%d start=%s sort=%s (第%d轮)",
-                           info.get("len", 0), info.get("hasStart"), info.get("hasSort"), i + 1)
+                logger.info("[DTS] 面板已加载! len=%d (第%d轮)", info.get("len", 0), i + 1)
                 panel_loaded = True
                 break
-
             if i % 5 == 0:
-                logger.info("[DTS] 面板等待 %d/%d len=%d", i + 1, 30, info.get("len", 0))
+                logger.info("[DTS] 面板等待 %d/30 len=%d", i + 1, info.get("len", 0))
 
         if not panel_loaded:
-            logger.warning("[DTS] DTS面板未加载（30轮后）")
+            logger.warning("[DTS] DTS面板未加载")
             return False
 
-        logger.info("[DTS] 等待全部数据加载和自动翻页...")
-        for round_num in range(1, MAX_AUTO_LOAD_ROUNDS + 1):
-            logger.info("[DTS] 自动加载第 %d/%d 轮", round_num, MAX_AUTO_LOAD_ROUNDS)
+        time.sleep(5)
 
-            try:
+        total_clicks = 0
+        for batch in range(1, MAX_AUTO_LOAD_BATCHES + 1):
+            logger.info("[DTS] === 第 %d/%d 批 (每批%d次点击) ===",
+                       batch, MAX_AUTO_LOAD_BATCHES, AUTO_LOAD_BATCH_SIZE)
+
+            for click_idx in range(1, AUTO_LOAD_BATCH_SIZE + 1):
+                total_clicks += 1
+                logger.info("[DTS] 自动加载 第%d次点击 (总第%d次)", click_idx, total_clicks)
+
+                # 点击自动加载按钮（页面最下方左侧）
                 result = self._cdp_eval("""
                 (function() {
-                    var btns = document.querySelectorAll('button, [role="button"], div, span');
-                    for (var i = 0; i < btns.length; i++) {
-                        var txt = (btns[i].textContent || '').trim();
+                    var all = document.querySelectorAll('button, [role="button"], div, span');
+                    for (var i = 0; i < all.length; i++) {
+                        var txt = (all[i].textContent || '').trim();
+                        if ((txt.indexOf('自动加载') !== -1 || txt.indexOf('加载下一页') !== -1 || txt.indexOf('加载更多') !== -1 || txt.indexOf('上一页') !== -1) &&
+                            all[i].offsetHeight > 0 && (!all[i].disabled) &&
+                            (all[i].tagName === 'BUTTON' || all[i].getAttribute('role') === 'button')) {
+                            all[i].scrollIntoView({behavior: 'instant', block: 'center'});
+                            all[i].click();
+                            return 'clicked:' + txt;
+                        }
+                    }
+                    // 宽松匹配：任何包含这些关键词的元素
+                    for (var j = 0; j < all.length; j++) {
+                        var txt = (all[j].textContent || '').trim();
                         if ((txt.indexOf('自动加载') !== -1 || txt.indexOf('加载下一页') !== -1 || txt.indexOf('加载更多') !== -1) &&
-                            btns[i].offsetHeight > 0 && (!btns[i].disabled)) {
-                            btns[i].click();
-                            return 'clicked';
+                            all[j].offsetHeight > 0) {
+                            all[j].click();
+                            return 'clicked_loose:' + txt;
                         }
                     }
                     return 'not_found';
                 })()
                 """)
+                logger.info("[DTS] 点击结果: %s", result)
+
                 if result == 'not_found':
-                    logger.info("[DTS] 加载按钮已消失，数据加载完成")
+                    logger.info("[DTS] ✅ 自动加载按钮消失，全部数据加载完成！(总点击%d次)", total_clicks)
                     return True
-            except Exception as e:
-                logger.warning("[DTS] 点击加载按钮异常: %s", e)
 
-            time.sleep(AUTO_LOAD_INTERVAL)
+                # 等待30秒让数据加载
+                time.sleep(AUTO_LOAD_INTERVAL)
 
-        logger.info("[DTS] %d轮加载完成，等待数据处理...", MAX_AUTO_LOAD_ROUNDS)
-        time.sleep(POST_LOAD_WAIT)
+                # 每点击一次就检查面板中数据行数是否增长
+                if click_idx % 4 == 0:
+                    count_check = self._cdp_eval("""
+                    (function() {
+                        var rows = document.querySelectorAll('table tr, [class*="row"], [class*="Row"]');
+                        return rows.length;
+                    })()
+                    """)
+                    logger.info("[DTS] 当前数据行数: %s", count_check)
+
+            # 每批8次点击后检查按钮是否还在
+            check_after_batch = self._cdp_eval("""
+            (function() {
+                var all = document.querySelectorAll('button, [role="button"], div, span');
+                for (var i = 0; i < all.length; i++) {
+                    var txt = (all[i].textContent || '').trim();
+                    if ((txt.indexOf('自动加载') !== -1 || txt.indexOf('加载下一页') !== -1) &&
+                        all[i].offsetHeight > 0) {
+                        return 'still_there';
+                    }
+                }
+                return 'gone';
+            })()
+            """)
+
+            if check_after_batch == 'gone':
+                logger.info("[DTS] ✅ 第%d批后自动加载按钮消失，全部数据加载完成！(总点击%d次)", batch, total_clicks)
+                return True
+
+            if batch < MAX_AUTO_LOAD_BATCHES:
+                logger.info("[DTS] ⏸ 第%d批完成，暂停%d分钟... (总点击%d次, 按钮仍在)",
+                           batch, AUTO_LOAD_PAUSE // 60, total_clicks)
+                time.sleep(AUTO_LOAD_PAUSE)
+                logger.info("[DTS] ▶ 继续下一批...")
+
+        logger.info("[DTS] 全部%d批完成 (总点击%d次)", MAX_AUTO_LOAD_BATCHES, total_clicks)
         return True
 
     def _click_export(self) -> bool:
@@ -1669,8 +1725,12 @@ class TaguiCrawler:
             return None
         finally:
             self._disconnect()
-            signal.signal(signal.SIGTERM, original_sigterm)
-            signal.signal(signal.SIGINT, original_sigint)
+            if _cleanup is not None:
+                try:
+                    signal.signal(signal.SIGTERM, original_sigterm)
+                    signal.signal(signal.SIGINT, original_sigint)
+                except ValueError:
+                    pass
 
     def _disconnect(self) -> None:
         """断开CDP连接（不关闭Chrome，保留页面状态便于调试）"""
