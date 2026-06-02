@@ -593,15 +593,11 @@ class TaguiCrawler:
             logger.debug("[窗口] 最大化失败: %s", e)
 
     def _handle_captcha(self) -> bool:
-        """处理滑块验证（ctypes X11拖拽 — 对齐captcha_solver已验证算法）"""
+        """处理滑块验证（python-xlib X11拖拽 + 动态屏幕坐标 — 对齐已验证算法）"""
         self._maximize_window()
         self._cdp_send("Page.bringToFront")
         self._cdp_eval("window.scrollBy(0, {})".format(random.randint(50, 150)))
         time.sleep(0.3)
-
-        from services.captcha_solver import _x11_drag_slider as cs_drag
-        os.environ["DISPLAY"] = DISPLAY
-        os.environ["XAUTHORITY"] = XAUTH_FILE
 
         for attempt in range(MAX_SLIDER_RETRIES):
             logger.info("[滑块] 第 %d/%d 次尝试验证", attempt + 1, MAX_SLIDER_RETRIES)
@@ -622,7 +618,7 @@ class TaguiCrawler:
                            captcha_data.get("screen_x", 0),
                            captcha_data.get("screen_y", 0),
                            captcha_data.get("distance", 259))
-                cs_drag(captcha_data)
+                self._x11_drag_slider(captcha_data)
                 time.sleep(SLIDER_VERIFY_WAIT)
 
                 if not self._detect_captcha():
