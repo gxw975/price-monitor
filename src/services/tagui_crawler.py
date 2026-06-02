@@ -1382,9 +1382,10 @@ class TaguiCrawler:
                     chrome_ready = True
                     logger.info("[Chrome] 端口%d已有Chrome在运行，直接连接", CDP_PORT)
                     break
-                except Exception:
+                except Exception as e:
                     if detect_try == 0:
                         logger.info("[Chrome] 等待端口%d就绪...", CDP_PORT)
+                    logger.warning("[Chrome] 检测%d次失败: %s", detect_try + 1, e)
                     time.sleep(2)
 
             if not chrome_ready:
@@ -1542,7 +1543,6 @@ class TaguiCrawler:
 
             # 直接用xdotool真人方式打开新标签页并导航到搜索结果URL
             # 绕过淘宝搜索框的表单提交（form.submit触发反爬）
-            import urllib.parse
             search_url = f"https://s.taobao.com/search?q={urllib.parse.quote(keyword)}"
             logger.info("[3/10] 打开新标签页导航搜索: %s", search_url[:80])
 
