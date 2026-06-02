@@ -1567,71 +1567,35 @@ class TaguiCrawler:
             logger.info("[3/10] 搜索关键词: %s", keyword)
             self._dismiss_chrome_dialog()
 
-            self._cdp_eval("window.scrollTo(0, 0)")
-            time.sleep(1)
-
             self._os_activate_chrome()
             time.sleep(1)
 
-            search_box_pos = self._cdp_eval("""
-            (function() {
-                var q = document.getElementById('q');
-                if (!q) return JSON.stringify({found: false});
-                q.scrollIntoView({behavior: 'instant', block: 'center'});
-                var rect = q.getBoundingClientRect();
+            # 直接用xdotool真人方式打开新标签页并导航到搜索结果URL
+            # 绕过淘宝搜索框的表单提交（form.submit触发反爬）
+            import urllib.parse
+            search_url = f"https://s.taobao.com/search?q={urllib.parse.quote(keyword)}"
+            logger.info("[3/10] 打开新标签页导航搜索: %s", search_url[:80])
 
-                var fl = (window.outerWidth - window.innerWidth) / 2;
-                var to = window.outerHeight - window.innerHeight - fl;
-                var ox = (window.screenLeft || 0) + fl;
-                var oy = (window.screenTop || 0) + to;
+            # Ctrl+T 新标签页
+            subprocess.run(["xdotool", "key", "ctrl+t"],
+                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+            time.sleep(1.5)
 
-                return JSON.stringify({
-                    found: true,
-                    x: Math.round(rect.x + rect.width / 2 + ox),
-                    y: Math.round(rect.y + rect.height / 2 + oy),
-                    vx: Math.round(rect.x + rect.width / 2),
-                    vy: Math.round(rect.y + rect.height / 2),
-                    w: rect.width,
-                    h: rect.height,
-                    ox: Math.round(ox),
-                    oy: Math.round(oy)
-                });
-            })()
-            """)
-            try:
-                pos = json.loads(search_box_pos) if isinstance(search_box_pos, str) else {"found": False}
-            except json.JSONDecodeError:
-                pos = {"found": False}
-
-            if not pos.get("found"):
-                logger.error("[3/10] 未找到淘宝搜索框")
-                raise CrawlError("未找到淘宝搜索框")
-
-            logger.info("[3/10] 搜索框屏幕坐标: (%.0f, %.0f), 视口坐标: (%.0f, %.0f), 偏移: (%.0f, %.0f)",
-                       pos["x"], pos["y"], pos.get("vx", 0), pos.get("vy", 0), pos.get("ox", 0), pos.get("oy", 0))
-
-            self._os_click(int(pos["x"]), int(pos["y"]))
-            time.sleep(1)
-            self._os_click(int(pos["x"]), int(pos["y"]))
-            time.sleep(1)
-
-            self._os_type(keyword)
-            logger.info("[3/10] 已输入关键词")
-            time.sleep(2)
-            self._dismiss_chrome_dialog()
-
-            # 使用xdotool真人按回车（代替CDP form.submit, 避免触发反爬）
-            logger.info("[3/10] 真人按回车提交搜索...")
+            # Ctrl+L 聚焦地址栏 → 全选 → 输入URL → 回车
+            subprocess.run(["xdotool", "key", "ctrl+l"],
+                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+            time.sleep(0.3)
+            subprocess.run(["xdotool", "key", "ctrl+a"],
+                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+            time.sleep(0.1)
+            self._os_type(search_url)
+            time.sleep(0.3)
             subprocess.run(["xdotool", "key", "Return"],
                 env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(3)
-            self._dismiss_chrome_dialog()
-            time.sleep(2)
-
-            # 再次按回车以防搜索框需要二次确认
-            subprocess.run(["xdotool", "key", "Return"],
-                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(2)
+            time.sleep(8)
+            for _ in range(3):
+                self._dismiss_chrome_dialog()
+                time.sleep(1)
 
             self._switch_to_new_tab("s.taobao.com")
 
