@@ -1584,7 +1584,7 @@ class TaguiCrawler:
 
             logger.info("[3/10] 搜索框屏幕坐标: (%.0f, %.0f)", pos["x"], pos["y"])
 
-            # xdotool真人点击 + 输入关键词 + 拟人化等待 + 点击搜索按钮
+            # xdotool真人点击 + 输入关键词 + 拟人化等待 + 回车提交
             self._os_click(int(pos["x"]), int(pos["y"]))
             time.sleep(1.5)
             self._os_type(keyword)
@@ -1598,35 +1598,9 @@ class TaguiCrawler:
                 env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
             time.sleep(random.uniform(1.5, 2.5))
 
-            # 点击搜索按钮（而非按回车，减少反爬风险）
-            search_btn = self._cdp_eval("""
-            (function() {
-                var btn = document.querySelector('.btn-search, .search-button, [type="submit"], #J_TSearchForm button');
-                if (!btn) return JSON.stringify({found: false});
-                var rect = btn.getBoundingClientRect();
-                var fl = (window.outerWidth - window.innerWidth) / 2;
-                var to = window.outerHeight - window.innerHeight - fl;
-                var ox = (window.screenLeft || 0) + fl;
-                var oy = (window.screenTop || 0) + to;
-                return JSON.stringify({
-                    found: true,
-                    x: Math.round(rect.x + rect.width / 2 + ox),
-                    y: Math.round(rect.y + rect.height / 2 + oy)
-                });
-            })()
-            """)
-            try:
-                btn_pos = json.loads(search_btn) if isinstance(search_btn, str) else {"found": False}
-            except json.JSONDecodeError:
-                btn_pos = {"found": False}
-
-            if btn_pos.get("found"):
-                self._os_click(int(btn_pos["x"]), int(btn_pos["y"]))
-                logger.info("[3/10] 点击搜索按钮: (%.0f, %.0f)", btn_pos["x"], btn_pos["y"])
-            else:
-                subprocess.run(["xdotool", "key", "Return"],
-                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-                logger.info("[3/10] 按回车提交(无搜索按钮)")
+            subprocess.run(["xdotool", "key", "Return"],
+                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+            logger.info("[3/10] 回车提交搜索")
             time.sleep(8)
 
             self._switch_to_new_tab("s.taobao.com")
