@@ -1548,36 +1548,15 @@ class TaguiCrawler:
             logger.info("[3/10] 搜索关键词: %s", keyword)
             self._dismiss_chrome_dialog()
 
-            self._os_activate_chrome()
-            time.sleep(1)
-
-            # 直接用xdotool真人方式打开新标签页并导航到搜索结果URL
-            # 绕过淘宝搜索框的表单提交（form.submit触发反爬）
+            # CDP Page.navigate导航到搜索结果（同一域不会触发反爬，且有真实Chrome+反检测参数）
             search_url = f"https://s.taobao.com/search?q={urllib.parse.quote(keyword)}"
-            logger.info("[3/10] 打开新标签页导航搜索: %s", search_url[:80])
+            logger.info("[3/10] 导航到搜索: %s", search_url[:80])
 
-            # Ctrl+T 新标签页
-            subprocess.run(["xdotool", "key", "ctrl+t"],
-                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(1.5)
-
-            # Ctrl+L 聚焦地址栏 → 全选 → 输入URL → 回车
-            subprocess.run(["xdotool", "key", "ctrl+l"],
-                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(0.3)
-            subprocess.run(["xdotool", "key", "ctrl+a"],
-                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(0.1)
-            self._os_type(search_url)
-            time.sleep(0.3)
-            subprocess.run(["xdotool", "key", "Return"],
-                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
-            time.sleep(8)
+            self._cdp_send("Page.navigate", {"url": search_url})
+            time.sleep(10)
             for _ in range(3):
                 self._dismiss_chrome_dialog()
                 time.sleep(1)
-
-            self._switch_to_new_tab("s.taobao.com")
 
             if self._detect_captcha():
                 logger.info("[3.5/10] 搜索触发滑块验证，开始处理...")
@@ -1590,13 +1569,6 @@ class TaguiCrawler:
 
             current_url = self._cdp_eval("window.location.href")
             logger.info("[4/10] 当前页面: %s", current_url[:100] if current_url else "unknown")
-
-            if "s.taobao.com" not in (current_url or ""):
-                logger.warning("[4/10] 未在搜索结果页，尝试再次切换标签页")
-                time.sleep(3)
-                self._switch_to_new_tab("s.taobao.com")
-                current_url = self._cdp_eval("window.location.href")
-                logger.info("[4/10] 重新切换后: %s", current_url[:100] if current_url else "unknown")
 
             if self._detect_captcha():
                 logger.info("[4/10] 搜索结果页检测到滑块验证...")
