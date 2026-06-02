@@ -108,6 +108,8 @@ class TaguiCrawler:
             "--disable-software-rasterizer",
             "--disable-dev-shm-usage",
             "--ozone-platform=x11",
+            "--disable-blink-features=AutomationControlled",
+            "--start-maximized",
             f"--user-data-dir={CHROME_USER_DATA}",
             f"--remote-debugging-port={CDP_PORT}",
             "--remote-allow-origins=*",
@@ -1313,76 +1315,140 @@ class TaguiCrawler:
         signal.signal(signal.SIGINT, _cleanup)
 
         try:
-            logger.info("[Chrome] 关闭Manual Chrome残留进程 (端口%d)...", CDP_PORT)
-            subprocess.run(["pkill", "-f", f"remote-debugging-port={CDP_PORT}"], capture_output=True)
-            time.sleep(2)
+            # ── 连接已运行的Chrome（不杀进程，保留登录态）──
+            chrome_ready = False
+            try:
+                urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=3)
+                chrome_ready = True
+                logger.info("[Chrome] 端口%d已有Chrome在运行，直接连接", CDP_PORT)
+            except Exception:
+                pass
 
-            logger.info("[Chrome] 启动全新Chrome (CDP端口: %d)", CDP_PORT)
-            chrome_env = os.environ.copy()
-            chrome_env["DISPLAY"] = DISPLAY
-            chrome_env["XAUTHORITY"] = XAUTH_FILE
-            chrome_cmd = [
-                CHROME_BIN,
-                "--disable-gpu",
-                "--disable-software-rasterizer",
-                "--disable-dev-shm-usage",
-                "--ozone-platform=x11",
-                "--start-maximized",
-                f"--user-data-dir={CHROME_USER_DATA}",
-                f"--remote-debugging-port={CDP_PORT}",
-                "--remote-allow-origins=*",
-                "about:blank",
-            ]
-            proc = subprocess.Popen(
-                chrome_cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                env=chrome_env,
-                stdin=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            logger.info("[Chrome] 进程已启动 PID=%d, 等待端口就绪...", proc.pid)
-            for i in range(20):
-                time.sleep(2)
-                try:
-                    urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=3)
-                    logger.info("[Chrome] 端口%d就绪 (耗时%ds)", CDP_PORT, (i + 1) * 2)
-                    break
-                except Exception:
-                    if i % 3 == 0:
-                        logger.info("[Chrome] 等待端口%d... %ds", CDP_PORT, (i + 1) * 2)
+            if not chrome_ready:
+                logger.info("[Chrome] 端口%d无Chrome，启动新实例...", CDP_PORT)
+                chrome_env = os.environ.copy()
+                chrome_env["DISPLAY"] = DISPLAY
+                chrome_env["XAUTHORITY"] = XAUTH_FILE
+                chrome_cmd = [
+                    CHROME_BIN,
+                    "--no-sandbox",
+                    "--disable-gpu",
+                    "--disable-software-rasterizer",
+                    "--disable-dev-shm-usage",
+                    "--ozone-platform=x11",
+                    "--disable-blink-features=AutomationControlled",
+                    "--start-maximized",
+                    f"--user-data-dir={CHROME_USER_DATA}",
+                    f"--remote-debugging-port={CDP_PORT}",
+                    "--remote-allow-origins=*",
+                    "about:blank",
+                ]
+                proc = subprocess.Popen(
+                    chrome_cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    env=chrome_env,
+                    stdin=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+                self._chrome_proc = proc
+                logger.info("[Chrome] 进程已启动 PID=%d, 等待端口就绪...", proc.pid)
+                for i in range(20):
+                    time.sleep(2)
+                    try:
+                        urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=3)
+                        logger.info("[Chrome] 端口%d就绪 (耗时%ds)", CDP_PORT, (i + 1) * 2)
+                        break
+                    except Exception:
+                        if i % 3 == 0:
+                            logger.info("[Chrome] 等待端口%d... %ds", CDP_PORT, (i + 1) * 2)
 
-            ws = self._cdp_connect(url_hint="about:blank")
+            ws = self._cdp_connect(url_hint="")
             if not ws:
                 raise CrawlError("CDP连接失败，请确保Chrome已在端口%d上运行" % CDP_PORT)
 
             self._maximize_window()
+            self._os_activate_chrome()
 
-            logger.info("[1/10] 打开淘宝首页")
-            self._cdp_navigate("https://www.taobao.com")
-            time.sleep(5)
-            for _ in range(3):
-                self._dismiss_chrome_dialog()
-                time.sleep(1)
+            # ── 登录态检测：不触发CDP导航，在现有页面上检测 ──
+            logger.info("[1/10] 检测淘宝登录态...")
+            login_check = self._cdp_eval("""
+            (function() {
+                var url = window.location.href || '';
+                if (url.indexOf('taobao.com') === -1) return 'not_on_taobao';
+                var nav = document.getElementById('J_SiteNavLogin');
+                var nickname = '';
+                if (nav) {
+                    var els = nav.querySelectorAll('a, span');
+                    for (var i = 0; i < els.length; i++) {
+                        var t = (els[i].textContent || '').trim();
+                        if (t && t.length > 0 && t.length < 30 && t !== '登录' && t !== '请登录' && t !== '免费注册') {
+                            nickname = t;
+                            break;
+                        }
+                    }
+                }
+                if (nickname) return 'logged_in:' + nickname;
+                var bodyText = (document.body ? document.body.innerText : '') || '';
+                if (bodyText.indexOf('请登录') !== -1) return 'not_logged_in';
+                if (bodyText.indexOf('我的淘宝') !== -1) return 'probably_logged_in';
+                return 'unknown';
+            })()
+            """)
 
+            if login_check == 'not_on_taobao' or login_check.startswith('not_'):
+                # 不在淘宝页面，需要用真人方式导航
+                logger.info("[1/10] 不在淘宝页面，使用地址栏真人方式导航...")
+                self._os_activate_chrome()
+                time.sleep(0.5)
+                # Ctrl+L 聚焦地址栏
+                subprocess.run(["xdotool", "key", "ctrl+l"],
+                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+                time.sleep(0.3)
+                subprocess.run(["xdotool", "key", "ctrl+a"],
+                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+                time.sleep(0.1)
+                # xdotool type requires older xdotool, use key for common chars
+                self._os_type("https://www.taobao.com")
+                time.sleep(0.3)
+                subprocess.run(["xdotool", "key", "Return"],
+                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+                time.sleep(6)
+                for _ in range(3):
+                    self._dismiss_chrome_dialog()
+                    time.sleep(1)
+
+            if not login_check.startswith('logged_in') and login_check != 'probably_logged_in':
+                # 导航后重新检测
+                time.sleep(3)
+                login_check2 = self._cdp_eval("""
+                (function() {
+                    var nav = document.getElementById('J_SiteNavLogin');
+                    if (nav) {
+                        var els = nav.querySelectorAll('a, span');
+                        for (var i = 0; i < els.length; i++) {
+                            var t = (els[i].textContent || '').trim();
+                            if (t && t.length > 0 && t.length < 30 && t !== '登录' && t !== '请登录' && t !== '免费注册') {
+                                return 'logged_in:' + t;
+                            }
+                        }
+                    }
+                    return 'not_logged_in';
+                })()
+                """)
+                if not login_check2.startswith('logged_in'):
+                    logger.error("[登录] 淘宝未登录！请在后台管理「系统设置 → 淘宝登录」中扫码登录")
+                    raise CrawlError("淘宝未登录，请扫码后再试")
+
+            logger.info("[登录] 登录态确认: %s", login_check)
+
+            # ── 处理可能因导航产生的滑块验证或封禁 ──
             if self._detect_captcha():
+                logger.warning("[验证] 导航后出现滑块验证，自动处理...")
                 if not self._handle_captcha():
                     raise SliderVerifyError("首页滑块验证失败")
             if self._detect_banned():
                 raise AccountBannedError("账号被封禁")
-
-            login_check = self._cdp_eval("""
-            (function() {
-                var nav = document.querySelector('#J_SiteNavLogin');
-                if (nav) {
-                    var user = nav.querySelector('a[href*="my_itaobao"]');
-                    if (user) return 'logged_in';
-                }
-                return 'not_logged_in';
-            })()
-            """)
-            if login_check != 'logged_in':
-                logger.warning("[登录] 淘宝可能未登录，继续尝试...")
 
             logger.info("[2/10] 确保店透视扩展已登录")
             self._ensure_dts_login()
