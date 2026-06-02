@@ -553,7 +553,7 @@ def _ensure_dts_login() -> bool:
     password = os.environ.get("DIANTOUSHI_PASSWORD", "791123")
 
     try:
-        resp = urllib.request.urlopen("http://127.0.0.1:9222/json")
+        resp = urllib.request.urlopen("http://127.0.0.1:9223/json")
         targets = json.loads(resp.read())
     except Exception as e:
         logger.error("[DTS登录] 无法连接 CDP: %s", e)
@@ -570,7 +570,7 @@ def _ensure_dts_login() -> bool:
             _run_opencli(["browser", SESSION_NAME, "open", "https://www.taobao.com"], timeout=20)
             time.sleep(8)
             try:
-                resp = urllib.request.urlopen("http://127.0.0.1:9222/json")
+                resp = urllib.request.urlopen("http://127.0.0.1:9223/json")
                 targets = json.loads(resp.read())
             except Exception:
                 pass

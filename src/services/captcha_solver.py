@@ -50,7 +50,7 @@ def detect_captcha() -> dict[str, Any] | None:
     """通过 CDP 只读检测验证码（不启用 Input 域）。
     Returns: None 或 {screen_x, screen_y, distance, ...}"""
     try:
-        resp = urllib.request.urlopen("http://127.0.0.1:9222/json")
+        resp = urllib.request.urlopen("http://127.0.0.1:9223/json")
         targets = json.loads(resp.read())
 
         captcha_target = None
@@ -159,7 +159,7 @@ def ensure_no_captcha(max_retries: int = 3) -> bool:
 def _close_captcha_pages() -> None:
     try:
         import websocket
-        resp = urllib.request.urlopen("http://127.0.0.1:9222/json")
+        resp = urllib.request.urlopen("http://127.0.0.1:9223/json")
         for t in json.loads(resp.read()):
             if t.get("type") == "page" and ("验证码" in t.get("title", "") or "punish" in t.get("url", "")):
                 ws = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=5, origin="")

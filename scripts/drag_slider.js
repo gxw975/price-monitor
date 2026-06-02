@@ -1,3 +1,5 @@
+// [DEPRECATED] JS dispatchEvent(MouseEvent) — isTrusted=false，无法通过baxia验证。
+// 正确方案: python-xlib OS级事件 (src/services/tagui_crawler.py: _x11_drag_slider)
 (function(){
   var el = document.querySelector('#nc_1_n1z');
   if(!el) return 'no slider';

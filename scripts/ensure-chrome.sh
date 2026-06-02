@@ -1,8 +1,8 @@
 #!/bin/bash
 
-CHROME_USER_DATA="/home/lab-admin/chrome-user-data"
+CHROME_USER_DATA="/home/lab-admin/.config/google-chrome-profile-manual"
 CHROME_BIN="/usr/bin/google-chrome-stable"
-CDP_PORT=9222
+CDP_PORT=9223
 MAX_WAIT=30
 
 export DISPLAY=:0
@@ -22,10 +22,11 @@ launch_chrome() {
   rm -rf /tmp/com.google.Chrome.* /tmp/.org.chromium.* 2>/dev/null
 
   "$CHROME_BIN" \
-    --no-sandbox \
     --disable-gpu \
     --disable-software-rasterizer \
     --disable-dev-shm-usage \
+    --disable-blink-features=AutomationControlled \
+    --start-maximized \
     --user-data-dir="$CHROME_USER_DATA" \
     --remote-debugging-port=$CDP_PORT \
     --remote-allow-origins=* \

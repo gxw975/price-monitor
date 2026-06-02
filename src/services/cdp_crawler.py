@@ -1,7 +1,7 @@
 """CDP 抓取服务 - 基于 GA 成功经验的 Chrome DevTools Protocol 数据采集
 
 核心改进 (vs OpenCLI 方式):
-1. 直接通过 CDP WebSocket 控制 Chrome (9222端口)
+1. 直接通过 CDP WebSocket 控制 Chrome (9223端口  — 带DTS扩展+登录态)
 2. 使用 Input.dispatchMouseEvent 模拟物理鼠标点击 (DTS Vue组件必需)
 3. 使用 Runtime.evaluate 注入 JS 提取数据 (更快更可靠)
 4. 支持新旧淘宝页面结构 (hashed CSS class + data-vid)
@@ -30,7 +30,7 @@ from typing import Any
 logger = logging.getLogger("cdp_crawler")
 
 CDP_HOST = "127.0.0.1"
-CDP_PORT = 9222
+CDP_PORT = 9223
 DOWNLOAD_DIR = Path("/home/lab-admin/Downloads")
 
 # 淘宝 SKU 选择器 (新版本 hashed class)

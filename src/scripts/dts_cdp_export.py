@@ -1,7 +1,7 @@
 """DTS CDP Export - 基于 GA 成功经验的店透视数据导出
 
-使用 Chrome DevTools Protocol (9222端口) 直接控制可见浏览器，
-通过 Input.dispatchMouseEvent 模拟物理鼠标点击触发 DTS Vue 组件。
+使用 Chrome DevTools Protocol (9223端口) 直接控制可见浏览器，
+通过 python-xlib OS级事件模拟物理鼠标点击触发 DTS Vue 组件。
 
 关键经验 (来自 GA dts_export_sop.md):
 1. Vue组件需物理CDP鼠标：JS dispatchEvent不触发，必须用 Input.dispatchMouseEvent
@@ -31,7 +31,7 @@ from pathlib import Path
 logger = logging.getLogger("dts_cdp_export")
 
 CDP_HOST = "127.0.0.1"
-CDP_PORT = 9222
+CDP_PORT = 9223
 DOWNLOAD_DIR = Path("/home/lab-admin/Downloads")
 OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "downloads"
 DTS_EXTENSION_ID = "ppgdlgnehnajbbngnohepfigdmjbdpfb"

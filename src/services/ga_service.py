@@ -1,7 +1,7 @@
 """GenericAgent 技能调用服务
 
 整合多种抓取方式:
-1. CDP 直连 (Chrome 9222端口) - 最快最可靠, 用于 SKU 抓取
+1. CDP 直连 (Chrome 9223端口) - 最快最可靠, 用于 SKU 抓取
 2. OpenCLI 命令行 - 用于浏览器会话管理
 3. GA agentmain.py - 用于完整 DTS 导出流程
 """

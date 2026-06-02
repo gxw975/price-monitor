@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """DTS 店透视完整数据导出 - 整合 GA 成功经验
 
-通过 Chrome CDP (9222端口) 控制 DTS 店透视扩展，执行关键词搜索结果的
+通过 Chrome CDP (9223端口) 控制 DTS 店透视扩展，执行关键词搜索结果的
 全部数据导出。关键改进：
 
-1. **物理鼠标事件**: 使用 Input.dispatchMouseEvent 触发 DTS Vue 组件
+1. **物理鼠标事件**: 使用 python-xlib OS级鼠标事件触发 DTS Vue 组件
 2. **验证码自愈**: 检测封控后用 OpenCLI 真人浏览器恢复
 3. **分页加载**: 自动翻页等待所有数据就绪
 4. **下载监控**: 轮询检测 xlsx 文件完成
@@ -29,7 +29,7 @@ from pathlib import Path
 logger = logging.getLogger("dts_export")
 
 CDP_HOST = "127.0.0.1"
-CDP_PORT = 9222
+CDP_PORT = 9223
 DOWNLOAD_DIR = Path("/home/lab-admin/Downloads")
 OUTPUT_DIR = Path("/home/lab-admin/price-monitor/data/downloads")
 OPENCLI_BIN = "/home/lab-admin/.nvm/versions/node/v22.22.0/bin/opencli"

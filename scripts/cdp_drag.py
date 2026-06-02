@@ -2,7 +2,12 @@ import json
 import time
 import websocket
 
-CDP_URL = "http://127.0.0.1:9222"
+"""
+[DEPRECATED] CDP Input.dispatchMouseEvent拖拽 — isTrusted=false，无法通过baxia验证。
+正确方案: python-xlib (src/services/tagui_crawler.py: _x11_drag_slider)
+"""
+
+CDP_URL = "http://127.0.0.1:9223"  # 端口已更新为手动Chrome，但方法本身已废弃
 
 import urllib.request
 tabs = json.loads(urllib.request.urlopen(f"{CDP_URL}/json").read())

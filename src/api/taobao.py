@@ -36,7 +36,7 @@ load_dotenv()
 logger = logging.getLogger("api.taobao")
 
 CDP_HOST = "127.0.0.1"
-CDP_PORT = int(os.environ.get("CDP_PORT", "9222"))
+CDP_PORT = int(os.environ.get("CDP_PORT", "9223"))
 SESSION = "taobao_login"
 
 TAOBAO_HOME = "https://www.taobao.com"
@@ -192,7 +192,7 @@ def _resize_viewport(ws: websocket.WebSocket, width: int = 1920, height: int = 1
         logger.warning("设置 viewport 失败: %s", e)
 
 
-DETECT_JS = """
+DETECT_JS = r"""
 (function() {
     var url = window.location.href || '';
     var bodyText = (document.body ? document.body.innerText : '') || '';
