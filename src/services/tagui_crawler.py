@@ -1530,11 +1530,37 @@ class TaguiCrawler:
 
             logger.info("[登录] 登录态确认: %s", login_check)
 
-            # ── 处理可能因导航产生的滑块验证或封禁 ──
-            if self._detect_captcha():
-                logger.warning("[验证] 导航后出现滑块验证，自动处理...")
-                if not self._handle_captcha():
-                    raise SliderVerifyError("首页滑块验证失败")
+            # ── 检查当前页面是否有残留滑块验证（非本次操作产生的）──
+            # 如果是旧页面残留的持久弹窗，slider位置不变，无法真正通过
+            # 解决方案: 导航到淘宝首页用真人方式重置状态
+            captcha_before_search = self._detect_captcha()
+            if captcha_before_search:
+                logger.warning("[验证] 当前页面有残留滑块验证，导航到淘宝首页重置...")
+                self._os_activate_chrome()
+                time.sleep(0.5)
+                subprocess.run(["xdotool", "key", "ctrl+l"],
+                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+                time.sleep(0.3)
+                subprocess.run(["xdotool", "key", "ctrl+a"],
+                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+                time.sleep(0.1)
+                self._os_type("https://www.taobao.com")
+                time.sleep(0.3)
+                subprocess.run(["xdotool", "key", "Return"],
+                    env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+                time.sleep(6)
+                for _ in range(3):
+                    self._dismiss_chrome_dialog()
+                    time.sleep(1)
+
+                # 导航后等待页面完全加载
+                time.sleep(3)
+                if self._detect_captcha():
+                    logger.warning("[验证] 淘宝首页仍有滑块(罕见)，尝试求解一次...")
+                    if not self._handle_captcha():
+                        logger.info("[验证] 跳过残留滑块，直接继续流程")
+                logger.info("[验证] 页面已重置到淘宝首页")
+
             if self._detect_banned():
                 raise AccountBannedError("账号被封禁")
 
