@@ -150,9 +150,19 @@ class TaguiCrawler:
                             page = t
                             break
                         elif not url_hint:
+                            # 优先选非登录页的taobao页面
+                            u = t.get("url", "")
+                            if "taobao.com" in u and "login." not in u:
+                                page = t
+                                break
+                if not page and not url_hint:
+                    # 退而求其次：任意taobao页面（含login页）
+                    for t in targets:
+                        if t.get("type") == "page" and "taobao.com" in t.get("url", ""):
                             page = t
                             break
-                if not page and targets:
+                if not page and not url_hint:
+                    # 最后退路：第一个页面
                     page = next((t for t in targets if t.get("type") == "page"), None)
                 if not page:
                     time.sleep(2)
