@@ -1374,53 +1374,23 @@ class TaguiCrawler:
             logger.info("[RPA] 非主线程，跳过信号注册（uvicorn worker）")
 
         try:
-            # ── 连接已运行的Chrome（不杀进程，保留登录态）──
+            # ── 仅连接已有Chrome，不启动新实例（避免profile冲突损坏）──
             chrome_ready = False
-            try:
-                urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=3)
-                chrome_ready = True
-                logger.info("[Chrome] 端口%d已有Chrome在运行，直接连接", CDP_PORT)
-            except Exception:
-                pass
+            for detect_try in range(5):
+                try:
+                    urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=3)
+                    chrome_ready = True
+                    logger.info("[Chrome] 端口%d已有Chrome在运行，直接连接", CDP_PORT)
+                    break
+                except Exception:
+                    if detect_try == 0:
+                        logger.info("[Chrome] 等待端口%d就绪...", CDP_PORT)
+                    time.sleep(2)
 
             if not chrome_ready:
-                logger.info("[Chrome] 端口%d无Chrome，启动新实例...", CDP_PORT)
-                chrome_env = os.environ.copy()
-                chrome_env["DISPLAY"] = DISPLAY
-                chrome_env["XAUTHORITY"] = XAUTH_FILE
-                chrome_cmd = [
-                    CHROME_BIN,
-                    "--no-sandbox",
-                    "--disable-gpu",
-                    "--disable-software-rasterizer",
-                    "--disable-dev-shm-usage",
-                    "--ozone-platform=x11",
-                    "--disable-blink-features=AutomationControlled",
-                    "--start-maximized",
-                    f"--user-data-dir={CHROME_USER_DATA}",
-                    f"--remote-debugging-port={CDP_PORT}",
-                    "--remote-allow-origins=*",
-                    "about:blank",
-                ]
-                proc = subprocess.Popen(
-                    chrome_cmd,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    env=chrome_env,
-                    stdin=subprocess.DEVNULL,
-                    start_new_session=True,
+                raise CrawlError(
+                    "Chrome未运行(端口%d无响应)，请确认supervisor Chrome服务已启动" % CDP_PORT
                 )
-                self._chrome_proc = proc
-                logger.info("[Chrome] 进程已启动 PID=%d, 等待端口就绪...", proc.pid)
-                for i in range(20):
-                    time.sleep(2)
-                    try:
-                        urllib.request.urlopen(f"http://{CDP_HOST}:{CDP_PORT}/json", timeout=3)
-                        logger.info("[Chrome] 端口%d就绪 (耗时%ds)", CDP_PORT, (i + 1) * 2)
-                        break
-                    except Exception:
-                        if i % 3 == 0:
-                            logger.info("[Chrome] 等待端口%d... %ds", CDP_PORT, (i + 1) * 2)
 
             ws = self._cdp_connect(url_hint="")
             if not ws:
