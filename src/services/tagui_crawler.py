@@ -1548,12 +1548,60 @@ class TaguiCrawler:
             logger.info("[3/10] 搜索关键词: %s", keyword)
             self._dismiss_chrome_dialog()
 
-            # CDP Page.navigate导航到搜索结果（同一域不会触发反爬，且有真实Chrome+反检测参数）
-            search_url = f"https://s.taobao.com/search?q={urllib.parse.quote(keyword)}"
-            logger.info("[3/10] 导航到搜索: %s", search_url[:80])
+            self._cdp_eval("window.scrollTo(0, 0)")
+            time.sleep(1)
 
-            self._cdp_send("Page.navigate", {"url": search_url})
-            time.sleep(10)
+            self._os_activate_chrome()
+            time.sleep(1)
+
+            # 定位搜索框
+            search_box_pos = self._cdp_eval("""
+            (function() {
+                var q = document.getElementById('q');
+                if (!q) return JSON.stringify({found: false});
+                q.scrollIntoView({behavior: 'instant', block: 'center'});
+                var rect = q.getBoundingClientRect();
+                var fl = (window.outerWidth - window.innerWidth) / 2;
+                var to = window.outerHeight - window.innerHeight - fl;
+                var ox = (window.screenLeft || 0) + fl;
+                var oy = (window.screenTop || 0) + to;
+                return JSON.stringify({
+                    found: true,
+                    x: Math.round(rect.x + rect.width / 2 + ox),
+                    y: Math.round(rect.y + rect.height / 2 + oy)
+                });
+            })()
+            """)
+            try:
+                pos = json.loads(search_box_pos) if isinstance(search_box_pos, str) else {"found": False}
+            except json.JSONDecodeError:
+                pos = {"found": False}
+
+            if not pos.get("found"):
+                raise CrawlError("未找到淘宝搜索框")
+
+            logger.info("[3/10] 搜索框屏幕坐标: (%.0f, %.0f)", pos["x"], pos["y"])
+
+            # xdotool真人点击 + 输入关键词 + 按回车
+            self._os_click(int(pos["x"]), int(pos["y"]))
+            time.sleep(1)
+            self._os_click(int(pos["x"]), int(pos["y"]))
+            time.sleep(1)
+            self._os_type(keyword)
+            logger.info("[3/10] 已输入关键词")
+            time.sleep(2)
+            self._dismiss_chrome_dialog()
+
+            subprocess.run(["xdotool", "key", "Return"],
+                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+            time.sleep(3)
+            self._dismiss_chrome_dialog()
+            time.sleep(2)
+            subprocess.run(["xdotool", "key", "Return"],
+                env={"DISPLAY": DISPLAY, "XAUTHORITY": XAUTH_FILE}, timeout=5)
+            time.sleep(2)
+
+            self._switch_to_new_tab("s.taobao.com")
             for _ in range(3):
                 self._dismiss_chrome_dialog()
                 time.sleep(1)
