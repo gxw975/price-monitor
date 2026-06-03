@@ -81,13 +81,14 @@ class TaguiCrawler:
     # ═══════════════════════════════════════════════════════════════
 
     def _kill_chrome(self) -> None:
-        """清理所有Chrome进程"""
-        logger.info("[Chrome] 清理所有Chrome进程...")
-        subprocess.run(["pkill", "-f", "chrome"], capture_output=True)
-        subprocess.run(["pkill", "-f", "ensure-chrome"], capture_output=True)
-        time.sleep(2)
-        subprocess.run(["killall", "-9", "chrome"], capture_output=True)
-        time.sleep(1)
+        """优雅关闭Chrome进程"""
+        logger.info("[Chrome] 优雅关闭Chrome进程...")
+        subprocess.run(["pkill", "-TERM", "-f", "chrome"], capture_output=True)
+        time.sleep(3)
+        if subprocess.run(["pgrep", "-f", "chrome"], capture_output=True).returncode == 0:
+            logger.warning("[Chrome] 优雅关闭失败，强制杀死")
+            subprocess.run(["pkill", "-KILL", "-f", "chrome"], capture_output=True)
+            time.sleep(1)
 
         for tmp_dir in Path("/tmp").glob("com.google.Chrome.*"):
             try:
@@ -98,23 +99,29 @@ class TaguiCrawler:
 
     def _start_chrome(self) -> subprocess.Popen:
         """启动原生Chrome浏览器（带CDP远程调试端口）"""
+        subprocess.run(["rm", "-f",
+            f"{CHROME_USER_DATA}/SingletonLock",
+            f"{CHROME_USER_DATA}/SingletonCookie",
+            f"{CHROME_USER_DATA}/SingletonSocket",
+            f"{CHROME_USER_DATA}/Default/SingletonLock",
+            f"{CHROME_USER_DATA}/Default/SingletonCookie",
+            f"{CHROME_USER_DATA}/Default/SingletonSocket",
+        ], capture_output=True)
+        subprocess.run(["sudo", "chown", "-R", "lab-admin:lab-admin", CHROME_USER_DATA],
+                       capture_output=True)
+
         env = os.environ.copy()
         env["DISPLAY"] = DISPLAY
         env["XAUTHORITY"] = XAUTH_FILE
 
         cmd = [
             CHROME_BIN,
-            "--no-sandbox",
+            f"--user-data-dir={CHROME_USER_DATA}",
             "--disable-gpu",
             "--disable-software-rasterizer",
-            "--disable-dev-shm-usage",
-            "--ozone-platform=x11",
-            "--disable-blink-features=AutomationControlled",
-            "--start-maximized",
-            f"--user-data-dir={CHROME_USER_DATA}",
             f"--remote-debugging-port={CDP_PORT}",
             "--remote-allow-origins=*",
-            "about:blank",
+            "--start-maximized",
         ]
 
         logger.info("[Chrome] 启动Chrome (CDP端口: %d)", CDP_PORT)
@@ -344,7 +351,7 @@ class TaguiCrawler:
             return False
 
     def _dismiss_chrome_dialog(self) -> bool:
-        """关闭Chrome偏好设置等弹窗"""
+        """关闭Chrome偏好设置等弹窗（排除DTS面板内的按钮）"""
         try:
             result = self._cdp_eval("""
             (function() {
@@ -352,8 +359,24 @@ class TaguiCrawler:
                 for (var i = 0; i < btns.length; i++) {
                     var txt = (btns[i].textContent || '').trim();
                     if (txt === '确定' || txt === 'OK' || txt === '知道了') {
-                        btns[i].click();
-                        return 'clicked: ' + txt;
+                        var el = btns[i];
+                        var insideDTS = false;
+                        var p = el;
+                        while (p && p !== document.body) {
+                            var cls = String(p.className || '');
+                            var id = String(p.id || '');
+                            if (cls.indexOf('dts') !== -1 || cls.indexOf('diantoushi') !== -1 ||
+                                id.indexOf('dts') !== -1 || id.indexOf('diantoushi') !== -1 ||
+                                p.tagName === 'IFRAME') {
+                                insideDTS = true;
+                                break;
+                            }
+                            p = p.parentElement;
+                        }
+                        if (!insideDTS) {
+                            el.click();
+                            return 'clicked: ' + txt;
+                        }
                     }
                 }
                 return 'no_dialog';
@@ -943,6 +966,54 @@ class TaguiCrawler:
         except Exception:
             return 66, 119
 
+    def _dts_click_button(self, button_text: str) -> bool:
+        """用xdotool物理点击DTS面板内的按钮（Vue组件必须用OS级事件）"""
+        try:
+            pos_js = f"""
+            (function(){{
+                var btns = document.querySelectorAll('button, [role="button"], div, span, a');
+                for (var i = 0; i < btns.length; i++) {{
+                    var txt = (btns[i].textContent || '').trim();
+                    if (txt === '{button_text}' && btns[i].offsetHeight > 0) {{
+                        var rect = btns[i].getBoundingClientRect();
+                        var fl = (window.outerWidth - window.innerWidth) / 2;
+                        var to = window.outerHeight - window.innerHeight - fl;
+                        var ox = (window.screenLeft || 0) + fl;
+                        var oy = (window.screenTop || 0) + to;
+                        return JSON.stringify({{
+                            found: true,
+                            vx: Math.round(rect.x + rect.width/2),
+                            vy: Math.round(rect.y + rect.height/2),
+                            sx: Math.round(rect.x + rect.width/2 + ox),
+                            sy: Math.round(rect.y + rect.height/2 + oy)
+                        }});
+                    }}
+                }}
+                return JSON.stringify({{found: false}});
+            }})()
+            """
+            result = self._cdp_eval(pos_js)
+            pos = json.loads(result) if isinstance(result, str) else {"found": False}
+
+            if not pos.get("found"):
+                logger.warning("[DTS点击] 未找到按钮: %s", button_text)
+                return False
+
+            sx, sy = pos["sx"], pos["sy"]
+            env = os.environ.copy()
+            env["DISPLAY"] = DISPLAY
+            env["XAUTHORITY"] = XAUTH_FILE
+            subprocess.run(["xdotool", "mousemove", str(sx), str(sy)],
+                          env=env, capture_output=True, timeout=10)
+            time.sleep(0.3)
+            subprocess.run(["xdotool", "click", "1"],
+                          env=env, capture_output=True, timeout=10)
+            logger.info("[DTS点击] xdotool点击 '%s' @ screen(%d,%d)", button_text, sx, sy)
+            return True
+        except Exception as e:
+            logger.warning("[DTS点击] 点击失败 '%s': %s", button_text, e)
+            return False
+
     def _check_new_tabs_after_click(self) -> None:
         """检查点击后是否有新标签页打开"""
         try:
@@ -1011,14 +1082,14 @@ class TaguiCrawler:
                 return True
 
             if info.get("found"):
-                logger.warning("[DTS] 按钮不可见(y=%d)，滚动并重新定位...", info.get("y", 0))
+                logger.warning("[DTS] 按钮不可见(y=%d)，滚动到屏幕中央...", info.get("y", 0))
                 self._cdp_eval("""
                 (function() {
                     var el = document.querySelector('.itemToolsBox');
-                    if (el) el.scrollIntoView({behavior: 'instant', block: 'nearest'});
+                    if (el) el.scrollIntoView({behavior: 'instant', block: 'center'});
                 })()
                 """)
-                time.sleep(2)
+                time.sleep(3)
 
                 dts_info2 = self._cdp_eval("""
                 (function() {
@@ -1034,7 +1105,7 @@ class TaguiCrawler:
                             return JSON.stringify({
                                 found: true, x: Math.round(cr.x + cr.width/2),
                                 y: Math.round(cr.y + cr.height/2),
-                                inView: cr.y >= 0 && cr.y < window.innerHeight
+                                inView: cr.y >= 50 && cr.y < window.innerHeight - 50
                             });
                         }
                     }
@@ -1042,6 +1113,7 @@ class TaguiCrawler:
                 })()
                 """)
                 info2 = json.loads(dts_info2) if isinstance(dts_info2, str) else {"found": False}
+                logger.info("[DTS] 滚动后市场分析按钮: %s", dts_info2[:200] if dts_info2 else "null")
                 if info2.get("found") and info2.get("inView"):
                     self._cdp_mouse_click(info2["x"], info2["y"])
                     logger.info("[DTS] 滚动后CDP点击 @ (%d, %d)", info2.get("x", 0), info2.get("y", 0))
@@ -1148,6 +1220,40 @@ class TaguiCrawler:
             logger.warning("[DTS] DTS面板未加载")
             return False
 
+        time.sleep(3)
+
+        start_clicked = self._dts_click_button("开始分析")
+        logger.info("[DTS] 开始分析按钮: %s", "clicked" if start_clicked else "not_found")
+
+        if start_clicked == 'not_found':
+            logger.warning("[DTS] 未找到开始分析按钮，可能已自动开始或已分析完成")
+        else:
+            logger.info("[DTS] 等待分析完成...")
+            analysis_done = False
+            for wait_i in range(60):
+                time.sleep(5)
+                row_check = self._cdp_eval("""
+                (function() {
+                    var rows = document.querySelectorAll('table tr, [class*="row"], [class*="Row"], [class*="item"], [class*="Item"]');
+                    var hasSort = document.body.innerText.indexOf('综合排序') !== -1;
+                    var hasExport = document.body.innerText.indexOf('导出表格') !== -1;
+                    return JSON.stringify({rows: rows.length, hasSort: hasSort, hasExport: hasExport});
+                })()
+                """)
+                try:
+                    rc = json.loads(row_check) if isinstance(row_check, str) else {}
+                except json.JSONDecodeError:
+                    rc = {}
+                if rc.get("rows", 0) > 5 or rc.get("hasSort"):
+                    logger.info("[DTS] 分析完成! 数据行=%d (等待%ds)", rc.get("rows", 0), (wait_i + 1) * 5)
+                    analysis_done = True
+                    break
+                if wait_i % 5 == 0:
+                    logger.info("[DTS] 分析等待中... %ds rows=%d", (wait_i + 1) * 5, rc.get("rows", 0))
+
+            if not analysis_done:
+                logger.warning("[DTS] 分析等待超时(300s)")
+
         time.sleep(5)
 
         total_clicks = 0
@@ -1159,39 +1265,18 @@ class TaguiCrawler:
                 total_clicks += 1
                 logger.info("[DTS] 自动加载 第%d次点击 (总第%d次)", click_idx, total_clicks)
 
-                # 点击自动加载按钮（页面最下方左侧）
-                result = self._cdp_eval("""
-                (function() {
-                    var all = document.querySelectorAll('button, [role="button"], div, span');
-                    for (var i = 0; i < all.length; i++) {
-                        var txt = (all[i].textContent || '').trim();
-                        if ((txt.indexOf('自动加载') !== -1 || txt.indexOf('加载下一页') !== -1 || txt.indexOf('加载更多') !== -1 || txt.indexOf('上一页') !== -1) &&
-                            all[i].offsetHeight > 0 && (!all[i].disabled) &&
-                            (all[i].tagName === 'BUTTON' || all[i].getAttribute('role') === 'button')) {
-                            all[i].scrollIntoView({behavior: 'instant', block: 'center'});
-                            all[i].click();
-                            return 'clicked:' + txt;
-                        }
-                    }
-                    // 宽松匹配：任何包含这些关键词的元素
-                    for (var j = 0; j < all.length; j++) {
-                        var txt = (all[j].textContent || '').trim();
-                        if ((txt.indexOf('自动加载') !== -1 || txt.indexOf('加载下一页') !== -1 || txt.indexOf('加载更多') !== -1) &&
-                            all[j].offsetHeight > 0) {
-                            all[j].click();
-                            return 'clicked_loose:' + txt;
-                        }
-                    }
-                    return 'not_found';
-                })()
-                """)
-                logger.info("[DTS] 点击结果: %s", result)
+                auto_clicked = self._dts_click_button("自动加载")
+                if not auto_clicked:
+                    auto_clicked = self._dts_click_button("加载下一页")
+                if not auto_clicked:
+                    auto_clicked = self._dts_click_button("加载更多")
 
-                if result == 'not_found':
+                if not auto_clicked:
                     logger.info("[DTS] ✅ 自动加载按钮消失，全部数据加载完成！(总点击%d次)", total_clicks)
                     return True
 
-                # 等待30秒让数据加载
+                logger.info("[DTS] 自动加载点击成功")
+
                 time.sleep(AUTO_LOAD_INTERVAL)
 
                 # 每点击一次就检查面板中数据行数是否增长
@@ -1642,9 +1727,35 @@ class TaguiCrawler:
                 self._clear_dts_cache()
                 time.sleep(3)
                 self._dismiss_chrome_dialog()
-                self._click_market_analysis()
+                clicked = self._click_market_analysis()
 
-            time.sleep(10)
+            if clicked:
+                panel_verify = False
+                for pv in range(10):
+                    time.sleep(3)
+                    check = self._cdp_eval("""
+                    (function() {
+                        var body = document.body ? (document.body.innerText || '') : '';
+                        return JSON.stringify({
+                            hasStart: body.indexOf('开始分析') !== -1,
+                            hasSort: body.indexOf('综合排序') !== -1,
+                            hasExport: body.indexOf('导出表格') !== -1
+                        });
+                    })()
+                    """)
+                    try:
+                        ck = json.loads(check) if isinstance(check, str) else {}
+                    except json.JSONDecodeError:
+                        ck = {}
+                    if ck.get("hasStart") or ck.get("hasSort") or ck.get("hasExport"):
+                        logger.info("[7/10] ✅ DTS面板已打开 (第%d次验证)", pv + 1)
+                        panel_verify = True
+                        break
+                if not panel_verify:
+                    logger.warning("[7/10] DTS面板未打开，重新点击市场分析...")
+                    self._click_market_analysis()
+                    time.sleep(10)
+
             self._check_captcha_barrier("点击市场分析")
 
             logger.info("[8/10] 等待数据自动加载")

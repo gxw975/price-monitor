@@ -17,21 +17,30 @@ check_cdp_ready() {
 }
 
 launch_chrome() {
-  pkill -f "chrome.*${CHROME_USER_DATA}" 2>/dev/null || true
-  sleep 2
+  pkill -TERM -f "chrome.*${CHROME_USER_DATA}" 2>/dev/null || true
+  sleep 3
+  if pgrep -f "chrome.*${CHROME_USER_DATA}" > /dev/null 2>&1; then
+    echo "$(date): Graceful shutdown failed, force killing..."
+    pkill -KILL -f "chrome.*${CHROME_USER_DATA}" 2>/dev/null || true
+    sleep 1
+  fi
+
   rm -rf /tmp/com.google.Chrome.* /tmp/.org.chromium.* 2>/dev/null
+  rm -f "${CHROME_USER_DATA}/SingletonLock" \
+        "${CHROME_USER_DATA}/SingletonCookie" \
+        "${CHROME_USER_DATA}/SingletonSocket" \
+        "${CHROME_USER_DATA}/Default/SingletonLock" \
+        "${CHROME_USER_DATA}/Default/SingletonCookie" \
+        "${CHROME_USER_DATA}/Default/SingletonSocket" 2>/dev/null
+  sudo chown -R lab-admin:lab-admin "${CHROME_USER_DATA}"
 
   "$CHROME_BIN" \
-    --no-sandbox \
+    --user-data-dir="$CHROME_USER_DATA" \
     --disable-gpu \
     --disable-software-rasterizer \
-    --disable-dev-shm-usage \
-    --disable-blink-features=AutomationControlled \
-    --start-maximized \
-    --user-data-dir="$CHROME_USER_DATA" \
     --remote-debugging-port=$CDP_PORT \
     --remote-allow-origins=* \
-    about:blank &
+    --start-maximized &
 
   for i in $(seq 1 $MAX_WAIT); do
     sleep 1
