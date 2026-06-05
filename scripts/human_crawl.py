@@ -51,9 +51,10 @@ def cdp_eval_ctx(ws, ctx, js):
 
 
 # ═══════════════════ Chrome 生命周期 ═══════════════════
-def graceful_shutdown():
-    """优雅关闭：CDP关Tab → TERM → KILL兜底"""
+def graceful_shutdown(profile_dir=None):
+    """优雅关闭：CDP关Tab → TERM → 等待 → KILL兜底 + 清理崩溃标记"""
     rpt("  优雅关闭Chrome...")
+    # 1. CDP关Tab（如果连接正常）
     try:
         resp = urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json", timeout=3)
         targets = json.loads(resp.read())
@@ -61,17 +62,27 @@ def graceful_shutdown():
         for t in targets:
             if t.get("type") == "page":
                 try:
-                    ws_t = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=5)
+                    ws_t = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=3)
                     ws_t.send(json.dumps({"id": 1, "method": "Page.close"})); ws_t.close()
                 except: pass
     except: pass
-    time.sleep(2)
+    # 2. 发SIGTERM，等待Chrome自行退出（最重要）
     subprocess.run(["pkill", "-TERM", "chrome"], check=False)
+    for i in range(8):
+        time.sleep(1)
+        r = subprocess.run(["pgrep", "-c", "chrome"], capture_output=True, text=True)
+        if r.stdout.strip() in ("", "0"):
+            rpt("  Chrome已关闭")
+            return
+    # 3. KILL兜底（仅极端情况）
+    rpt("    TERM未退出, KILL兜底")
+    subprocess.run(["pkill", "-KILL", "chrome"], check=False)
     time.sleep(3)
-    if subprocess.run(["pgrep", "-c", "chrome"], capture_output=True, text=True).stdout.strip() not in ("", "0"):
-        rpt("    TERM未退出, KILL兜底 (极端情况)")
-        subprocess.run(["pkill", "-KILL", "chrome"], check=False)
-        time.sleep(2)
+    # 4. 清理崩溃标记 — 防止"Chrome未正常关闭"弹窗
+    if profile_dir:
+        for f in ["Last Session", "Last Tabs", "Current Session", "Current Tabs"]:
+            fp = os.path.join(profile_dir, f)
+            if os.path.exists(fp): os.remove(fp)
     rpt("  Chrome已关闭")
 
 
@@ -86,6 +97,10 @@ def clone_template():
     # 清理SQLite WAL/SHM文件（避免Cookie损坏）
     for f in ["Cookies-wal", "Cookies-shm", "Login Data-wal", "Login Data-shm"]:
         fp = os.path.join(temp_dir, "Default", f)
+        if os.path.exists(fp): os.remove(fp)
+    # 清理崩溃标记 — 防止"Chrome未正常关闭"弹窗
+    for f in ["Last Session", "Last Tabs", "Current Session", "Current Tabs"]:
+        fp = os.path.join(temp_dir, f)
         if os.path.exists(fp): os.remove(fp)
     # 验证Cookie有效性
     ck = os.path.join(temp_dir, "Default", "Cookies")
@@ -366,6 +381,54 @@ def ensure_no_captcha(ws, label="", timeout=15):
     return False
 
 
+def has_captcha(ws, timeout=3):
+    """快速滑块检测（2-3s超时）— 用于每步操作前"""
+    try:
+        ft = cdp_cmd(ws, "Page.getFrameTree", t=timeout)
+        def find(n):
+            for c in n.get("childFrames", []):
+                if "h5api.m.taobao.com" in c.get("frame", {}).get("url", ""):
+                    return True
+                if find(c): return True
+            return False
+        return find(ft.get("result", {}).get("frameTree", {}))
+    except:
+        return False
+
+
+def safe_eval(ws, js, label="", max_retries=3):
+    """带滑块自动检测的CDP eval — 每次调用前快速检查"""
+    for attempt in range(max_retries):
+        # 快速检测滑块（2s）
+        if has_captcha(ws, timeout=2):
+            rpt(f"  ⚠️ [{label}] 检测到滑块! 自动求解...")
+            ctx, sd = wait_for_slider_ready(ws, timeout=10)
+            if ctx and sd:
+                ok = drag_slider_xlib(ws, ctx, sd)
+                if ok:
+                    time.sleep(2)
+                    # 确认滑块已消失
+                    if has_captcha(ws, timeout=2):
+                        rpt(f"    ❌ [{label}] 滑块仍在, 等5s重试")
+                        time.sleep(5)
+                        continue
+                    rpt(f"    ✅ [{label}] 滑块通过!")
+                else:
+                    rpt(f"    ❌ [{label}] 滑块拖拽失败")
+            else:
+                rpt(f"    ❌ [{label}] 滑块元素未就绪")
+        # 执行实际CDP操作
+        try:
+            return cdp_eval(ws, js)
+        except Exception as e:
+            if attempt < max_retries - 1:
+                rpt(f"    ⚠️ [{label}] CDP异常: {e}, 重试{attempt+2}")
+                time.sleep(2)
+            else:
+                raise
+    return ""
+
+
 def wait_for_slider_ready(ws, timeout=30):
     """CDP穿透跨域iframe定位滑块"""
     start = time.time(); ll = 0
@@ -471,18 +534,18 @@ def human_like_crawl(keyword):
         time.sleep(2)
         ensure_no_captcha(ws, "首页加载后", timeout=12)
         # 检查登录态
-        body = cdp_eval(ws, "(document.body?.innerText||'').substring(0,500)")
+        body = safe_eval(ws, "(document.body?.innerText||'').substring(0,500)", "登录态")
         is_logged = "giftboy" in body or ("我的淘宝" in body and "请登录" not in body)
         rpt(f"    登录态: {'✅ 已登录' if is_logged else '⚠️ 未登录'}")
         # 随机滚动(人类行为)
         rpt("    随机滚动...")
         for i in range(random.randint(2, 4)):
-            cdp_eval(ws, f"window.scrollTo(0, {random.randint(200, 600)})")
+            safe_eval(ws, f"window.scrollTo(0, {random.randint(200, 600)})", "滚动")
             time.sleep(random.uniform(1, 2))
 
         # Step 5: 搜索关键词 (xdotool物理点击搜索框+打字)
         rpt(f"\n=== 5. 搜索: {keyword} ===")
-        search_coords = json.loads(cdp_eval(ws, """(function(){
+        search_coords = json.loads(safe_eval(ws, """(function(){
             var q = document.getElementById('q') || document.querySelector('input[id*="search"]');
             if(!q) return JSON.stringify({found:false});
             var r = q.getBoundingClientRect();
@@ -514,22 +577,45 @@ def human_like_crawl(keyword):
 
         # 关闭可能弹的登录窗
         for _ in range(3):
-            if "登录" in cdp_eval(ws, "(document.body?.innerText||'').substring(0,500)"):
+            if "登录" in safe_eval(ws, "(document.body?.innerText||'').substring(0,500)", "登录弹窗"):
                 close_login_popup(ws); time.sleep(2)
 
-        # Step 7: 浏览搜索结果(人类行为)
+        # Step 7: 浏览搜索结果(人类行为) + 搜索API拦截
         rpt("\n=== 7. 浏览搜索结果 ===")
+        # JS层拦截fetch/XHR — 捕获搜索API响应
+        safe_eval(ws, """(function(){
+            window.__crawl_api=[];
+            var origFetch=window.fetch;
+            window.fetch=function(){
+                var url=arguments[0];
+                if(typeof url==='string'&&(url.indexOf('h5api')!==-1||url.indexOf('mtop.taobao')!==-1||url.indexOf('search')!==-1)){
+                    return origFetch.apply(this,arguments).then(function(r){
+                        r.clone().text().then(function(t){try{window.__crawl_api.push({u:url,d:JSON.parse(t)});}catch(e){}});
+                        return r;
+                    });
+                }
+                return origFetch.apply(this,arguments);
+            };
+            var origOpen=XMLHttpRequest.prototype.open;
+            var origSend=XMLHttpRequest.prototype.send;
+            XMLHttpRequest.prototype.open=function(m,u){this._url=u;return origOpen.apply(this,arguments);};
+            XMLHttpRequest.prototype.send=function(){
+                var xhr=this;
+                xhr.addEventListener('load',function(){if(xhr._url&&(xhr._url.indexOf('h5api')!==-1||xhr._url.indexOf('mtop.taobao')!==-1||xhr._url.indexOf('search')!==-1)){try{window.__crawl_api.push({u:xhr._url,d:JSON.parse(xhr.responseText)});}catch(e){}}});
+                return origSend.apply(this,arguments);
+            };
+        })()""", "API拦截注入")
         for i in range(random.randint(2, 3)):
-            cdp_eval(ws, f"window.scrollTo(0, {random.randint(300, 800)})")
+            safe_eval(ws, f"window.scrollTo(0, {random.randint(300, 800)})", "浏览滚动")
             time.sleep(random.uniform(1, 2))
         # 随机点击商品卡片
         try:
-            cdp_eval(ws, """(function(){
+            safe_eval(ws, """(function(){
                 var cards=document.querySelectorAll('a[href*="item.taobao.com"]');
                 if(cards.length){var idx=Math.floor(Math.random()*Math.min(cards.length,4));
-                cards[idx].click();return'clicked';}return'skip';})()""")
+                cards[idx].click();return'clicked';}return'skip';})()""", "点击商品")
             time.sleep(random.uniform(2, 3))
-            cdp_eval(ws, "window.history.back()"); time.sleep(2)
+            safe_eval(ws, "window.history.back()", "返回"); time.sleep(2)
         except: pass
 
         # Step 8: DTS导出表格(两阶段: 先开"市场分析"面板 → 再点"导出表格")
@@ -544,7 +630,7 @@ def human_like_crawl(keyword):
         # 阶段1: 点击"市场分析"按钮打开DTS面板
         panel_ready = False  # 初始化
         # 先诊断: 页面上的DTS工具栏文本
-        dts_debug = cdp_eval(ws, """(function(){
+        dts_debug = safe_eval(ws, """(function(){
             var all=document.querySelectorAll("*");
             var found=[];
             for(var i=0;i<all.length;i++){
@@ -555,11 +641,11 @@ def human_like_crawl(keyword):
                 }
             }
             return JSON.stringify(found);
-        })()""")
+        })()""", "DTS诊断")
         rpt(f"    DTS工具栏: {dts_debug}")
 
         # 用包含匹配查找"市场分析"（而非精确匹配）
-        ma_coords = json.loads(cdp_eval(ws, """(function(){
+        ma_coords = json.loads(safe_eval(ws, """(function(){
             var all=document.querySelectorAll("*");
             for(var i=0;i<all.length;i++){
                 var t=(all[i].textContent||"").trim();
@@ -572,7 +658,27 @@ def human_like_crawl(keyword):
                 }
             }
             return JSON.stringify({found:false});
-        })()""))
+        })()""", "市场分析按钮"))
+        # 如果没找到，重试（DTS扩展可能延迟注入工具栏）
+        if not ma_coords.get("found"):
+            rpt("    等待DTS工具栏加载（最多10s）...")
+            for _ in range(5):
+                time.sleep(2)
+                ma_coords = json.loads(safe_eval(ws, """(function(){
+                    var all=document.querySelectorAll("*");
+                    for(var i=0;i<all.length;i++){
+                        var t=(all[i].textContent||"").trim();
+                        if(t.indexOf("市场分析")!==-1&&all[i].getBoundingClientRect().width>0&&all[i].children.length===0){
+                            var r=all[i].getBoundingClientRect();
+                            var fl=(window.outerWidth-window.innerWidth)/2;
+                            var to=window.outerHeight-window.innerHeight-fl;
+                            var ox=(window.screenLeft||0)+fl,oy=(window.screenTop||0)+to;
+                            return JSON.stringify({found:true,x:Math.round(r.x+r.width/2+ox),y:Math.round(r.y+r.height/2+oy)});
+                        }
+                    }
+                    return JSON.stringify({found:false});
+                })()""", "市场分析按钮-重试"))
+                if ma_coords.get("found"): break
         if ma_coords.get("found"):
             rpt(f"    阶段1: 点击市场分析 ({ma_coords['x']},{ma_coords['y']})")
             x11_click(ma_coords["x"], ma_coords["y"])
@@ -581,14 +687,14 @@ def human_like_crawl(keyword):
             panel_ready = False
             for _ in range(15):
                 time.sleep(2)
-                check = cdp_eval(ws, """(function(){
+                check = safe_eval(ws, """(function(){
                     var all=document.querySelectorAll("*");
                     for(var i=0;i<all.length;i++){
                         var t=(all[i].textContent||"").trim();
-                        if(t==="导出表格"&&all[i].getBoundingClientRect().width>0)return "found";
+                        if(t.indexOf("导出表格")!==-1&&all[i].getBoundingClientRect().width>0)return "found";
                     }
                     return "";
-                })()""")
+                })()""", "导出按钮检测")
                 if check == "found":
                     panel_ready = True; break
             if not panel_ready:
@@ -598,11 +704,11 @@ def human_like_crawl(keyword):
 
         # 阶段2: 点击"导出表格"(面板已打开后)
         if panel_ready:
-            exp_coords = json.loads(cdp_eval(ws, """(function(){
+            exp_coords = json.loads(safe_eval(ws, """(function(){
                 var all=document.querySelectorAll("*");
                 for(var i=0;i<all.length;i++){
                     var t=(all[i].textContent||"").trim();
-                    if(t==="导出表格"&&all[i].getBoundingClientRect().width>0){
+                    if(t.indexOf("导出表格")!==-1&&all[i].getBoundingClientRect().width>0){
                         var r=all[i].getBoundingClientRect();
                         var fl=(window.outerWidth-window.innerWidth)/2;
                         var to=window.outerHeight-window.innerHeight-fl;
@@ -611,7 +717,7 @@ def human_like_crawl(keyword):
                     }
                 }
                 return JSON.stringify({found:false});
-            })()"""))
+            })()""", "导出表格按钮"))
             if exp_coords.get("found"):
                 rpt(f"    阶段2: 点击导出表格 ({exp_coords['x']},{exp_coords['y']})")
                 x11_click(exp_coords["x"], exp_coords["y"])
@@ -703,7 +809,7 @@ def human_like_crawl(keyword):
             rpt("    DTS导出无数据, 降级DOM提取...")
             for pg in range(1, 3):  # 仅2页
                 if pg > 1:
-                    next_coords = json.loads(cdp_eval(ws, """(function(){
+                    next_coords = json.loads(safe_eval(ws, """(function(){
                         var n=document.querySelector('[class*="next"],[class*="Next-"]');
                         if(!n)return JSON.stringify({found:false});
                         var r=n.getBoundingClientRect();
@@ -711,27 +817,129 @@ def human_like_crawl(keyword):
                         var to=window.outerHeight-window.innerHeight-fl;
                         var ox=(window.screenLeft||0)+fl,oy=(window.screenTop||0)+to;
                         return JSON.stringify({found:true,x:Math.round(r.x+r.width/2+ox),y:Math.round(r.y+r.height/2+oy)});
-                    })()"""))
+                    })()""", "翻页按钮"))
                     if next_coords.get("found"):
                         x11_click(next_coords["x"], next_coords["y"])
                     time.sleep(8)
                 else:
                     for y in [500, 1200, 2000]:
-                        cdp_eval(ws, f"window.scrollTo(0, {y})"); time.sleep(1)
-                res = cdp_eval(ws, """(function(){
+                        safe_eval(ws, f"window.scrollTo(0, {y})", "DOM滚动"); time.sleep(1)
+                # 先尝试从页面内嵌数据/拦截的API响应提取
+                api_data = safe_eval(ws, """(function(){
+                    var data=[];
+                    // 1. 拦截的fetch/XHR响应
+                    try{
+                        var apis=window.__crawl_api||[];
+                        for(var a=0;a<apis.length;a++){
+                            var d=apis[a].d||{};
+                            var items=d.data?.items||d.data?.resultList||d.data?.auctions||d.items||[];
+                            if(!items.length&&d.data){var keys=Object.keys(d.data);for(var k=0;k<keys.length;k++){if(Array.isArray(d.data[keys[k]])&&d.data[keys[k]].length>0&&d.data[keys[k]][0].title){items=d.data[keys[k]];break;}}}
+                            for(var i=0;i<items.length;i++){
+                                var it=items[i];
+                                var t=(it.title||it.item_title||'').trim();
+                                if(t.length<3)continue;
+                                var id=it.nid||it.item_id||it.id||'';
+                                var p=String(it.price||it.price_info?.price||it.price_info?.extraPrice?.priceText||'');
+                                var l=it.detail_url||('https://item.taobao.com/item.htm?id='+id);
+                                if(id)data.push({t:t,p:p,l:l});
+                            }
+                        }
+                        if(data.length)return JSON.stringify(data);
+                    }catch(e){}
+                    // 2. __INITIAL_DATA__
+                    try{
+                        if(window.__INITIAL_DATA__){
+                            var items=window.__INITIAL_DATA__.items||window.__INITIAL_DATA__.data?.items||[];
+                            for(var i=0;i<items.length;i++){
+                                var it=items[i];
+                                data.push({t:(it.title||'').trim(),p:String(it.price||it.price_info?.price||''),l:'https://item.taobao.com/item.htm?id='+(it.nid||it.item_id||it.id||'')});
+                            }
+                            if(data.length)return JSON.stringify(data);
+                        }
+                    }catch(e){}
+                    // 3. g_page_config
+                    try{
+                        if(window.g_page_config?.mods?.itemlist?.data?.auctions){
+                            var auctions=window.g_page_config.mods.itemlist.data.auctions;
+                            for(var i=0;i<auctions.length;i++){
+                                var a=auctions[i];
+                                data.push({t:(a.title||'').trim(),p:String(a.price||''),l:a.detail_url||''});
+                            }
+                            if(data.length)return JSON.stringify(data);
+                        }
+                    }catch(e){}
+                    // 4. script标签内嵌
+                    try{
+                        var scripts=document.querySelectorAll('script');
+                        for(var s=0;s<scripts.length;s++){
+                            var txt=scripts[s].textContent||'';
+                            var m=txt.match(/g_page_config\\s*=\\s*(\\{.*?\\});/);
+                            if(m){var cfg=JSON.parse(m[1]);var auctions=cfg.mods?.itemlist?.data?.auctions||[];for(var i=0;i<auctions.length;i++){data.push({t:(auctions[i].title||'').trim(),p:String(auctions[i].price||''),l:auctions[i].detail_url||''});}if(data.length)return JSON.stringify(data);}
+                        }
+                    }catch(e){}
+                    return JSON.stringify(data);
+                })()""", "API/页面数据")
+                try:
+                    api_items = json.loads(api_data)
+                except: api_items = []
+
+                # 诊断: dump第一个商品卡片的HTML结构
+                diag = safe_eval(ws, """(function(){
+                    var a=document.querySelector('a[href*="item.taobao.com/item.htm"]');
+                    if(!a)return 'no_a';
+                    var result={};
+                    result.href=a.href.match(/id=\\d+/)?.[0]||'';
+                    result.title=a.getAttribute('title')||'NO_TITLE';
+                    result.className=(a.className||'').substring(0,80);
+                    result.innerText=(a.innerText||'').substring(0,300);
+                    result.children=a.children.length;
+                    result.childTags=Array.from(a.children).map(function(c){return c.tagName+'.'+(c.className||'').substring(0,40)}).slice(0,15);
+                    var titles=a.querySelectorAll('[class*="title"]');
+                    result.titleEls=Array.from(titles).map(function(t){return t.tagName+'.'+(t.className||'').substring(0,40)+'='+(t.textContent||'').substring(0,60)}).slice(0,5);
+                    return JSON.stringify(result);
+                })()""", "DOM诊断")
+                try:
+                    diagObj = json.loads(diag)
+                    rpt(f"    诊断 title_attr: {diagObj.get('title','')}")
+                    rpt(f"    诊断 class: {diagObj.get('className','')[:80]}")
+                    rpt(f"    诊断 innerText: {diagObj.get('innerText','')[:100]}")
+                    rpt(f"    诊断 children: {diagObj.get('children','')} tags: {diagObj.get('childTags',[])}")
+                    rpt(f"    诊断 titleEls: {diagObj.get('titleEls',[])}")
+                except: rpt(f"    诊断 raw: {diag[:300]}")
+
+                res = safe_eval(ws, """(function(){
                     var items=[];
-                    var allA=document.querySelectorAll('a[href*="item.taobao.com"],a[href*="detail.tmall.com"]');
+                    var allA=document.querySelectorAll('a.item-link[href*="item.taobao.com/item"],a.item-link[href*="detail.tmall.com/item"]');
+                    if(!allA.length) allA=document.querySelectorAll('a[href*="item.taobao.com/item"],a[href*="detail.tmall.com/item"]');
                     for(var k=0;k<allA.length;k++){
-                        if(allA[k].getBoundingClientRect().width>0)
-                            items.push({t:(allA[k].textContent||'').trim().substring(0,60),l:allA[k].href});
+                        var a=allA[k];
+                        if(a.getBoundingClientRect().width<1)continue;
+                        var href=a.href||'';
+                        if(href.indexOf('id=')===-1)continue;
+                        var title='';
+                        var titleEl=a.querySelector('.info-wrapper-title-text,.info-wrapper-title,[class*="title-text"]');
+                        if(titleEl){title=(titleEl.textContent||'').trim();}
+                        if(!title){titleEl=a.querySelector('[class*="title"]');if(titleEl){var t=(titleEl.textContent||'').trim();if(t.indexOf('1688')===-1&&t.length>3)title=t;}}
+                        if(!title){var raw=(a.innerText||'').trim().split('\\n')[0];if(raw.indexOf('1688')===-1&&raw.length>3)title=raw;}
+                        if(!title||title.length<3)continue;
+                        var price='';
+                        var priceEl=a.querySelector('.price-wrapper .price,.price');
+                        if(priceEl){price=(priceEl.textContent||'').replace(/[^0-9.]/g,'');}
+                        items.push({t:title.substring(0,80),p:price,l:href});
                     }
                     return JSON.stringify({c:items.length,i:items});
-                })()""")
+                })()""", "DOM提取")
                 try: data = json.loads(res)
                 except: data = {"c":0,"i":[]}
+                # 优先使用API数据(有真实标题和价格)
+                if api_items:
+                    rpt(f"    API数据: {len(api_items)}条 (优先使用)")
+                    data = {"c": len(api_items), "i": api_items}
                 nw = 0
                 for it in data.get("i", []):
                     link = it.get("l","")
+                    title = it.get("t","")
+                    price = it.get("p","")
                     pid = None
                     for pat in [r'id=(\d+)', r'item/(\d+)']:
                         m = re.search(pat, link)
@@ -740,7 +948,7 @@ def human_like_crawl(keyword):
                     if pid in seen_pid: continue
                     seen_pid.add(pid)
                     products.append({
-                        "id": pid, "t": it.get("t",""), "p": "", "sa": "", "sh": "", "l": link
+                        "id": pid, "t": title or it.get("t",""), "p": price or "", "sa": "", "sh": "", "l": link
                     })
                     nw += 1
                 rpt(f"    p{pg}: {data['c']}项目, +{nw} 累计{len(products)}")
@@ -772,7 +980,10 @@ def human_like_crawl(keyword):
         return csv_path, len(products)
 
     finally:
-        ws.close()
+        # 优雅关闭WebSocket（安全）
+        try:
+            ws.close()
+        except: pass
         # Step 11: 关闭Chrome + 保存Cookie + 清理临时Profile
         rpt("\n=== 11. 清理 ===")
         # Sync cookies back to base template (preserve login session)
@@ -791,7 +1002,13 @@ def human_like_crawl(keyword):
                 rpt(f"    ⚠️ Cookie回存失败: {e}")
         else:
             rpt("    ⚠️ Cookie文件过小，跳过回存")
-        graceful_shutdown()
+        # ★ 优雅关闭 — 始终执行，无论上面是否出错
+        try:
+            graceful_shutdown(clean_profile_dir)
+        except Exception as e:
+            rpt(f"    ⚠️ 优雅关闭异常: {e}")
+            subprocess.run(["pkill", "-TERM", "chrome"], check=False, capture_output=True, timeout=5)
+            time.sleep(5)
         if os.path.exists(clean_profile_dir):
             shutil.rmtree(clean_profile_dir, ignore_errors=True)
             rpt(f"    临时Profile已删除: {clean_profile_dir}")
