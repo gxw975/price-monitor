@@ -337,52 +337,200 @@ def close_login_popup(ws):
 
 
 # ═══════════════════ 滑块验证特征文档 ═══════════════════
-# 淘宝滑块验证码 (h5api.m.taobao.com)
+# 淘宝滑块验证码 — 两种形态:
 # ┌─────────────────────────────────────────────────────────┐
-# │ 触发条件    │ 导航到淘宝搜索页 s.taobao.com/search       │
-# │             │ 或登录后任意淘宝页面操作                    │
-# │ 检测方法    │ Page.getFrameTree → 查找iframe URL含       │
-# │             │ "h5api.m.taobao.com" 的frame              │
-# │ iframe穿透  │ Page.createIsolatedWorld → contextId      │
-# │ 滑块元素    │ [id*="nc_1_n1z"] — 拖拽按钮               │
-# │ 目标文本    │ [id*="nc_1__scale_text"] — 距离参考        │
-# │ X11偏移     │ (66, 119) — 实测服务器坐标补偿             │
-# │ 拖拽参数    │ 320-356采样点, 3.3-3.6s, 正弦波+easing    │
-# │ 验证判断    │ 拖拽后h5api iframe消失(宽=0) ⇒ 通过       │
-# │ 策略        │ 严禁绕过, 必须求解通过后再执行后续操作     │
+# │ 形态1: iframe内嵌 (h5api.m.taobao.com)                  │
+# │   - Page.getFrameTree查找iframe                         │
+# │   - Page.createIsolatedWorld穿透定位滑块元素             │
+# │   - 拖拽按钮: [id*="nc_1_n1z"]                          │
+# │                                                         │
+# │ 形态2: 全页面验证码拦截 (新标签页)                       │
+# │   - URL含 sec.taobao.com / h5api / captcha / risk       │
+# │   - 页面body含"验证"/"安全验证"/"滑动"/"拖动"           │
+# │   - 滑块元素: [id*="nc_1_n1z"] 或 .nc-lang-cnt          │
+# │   - 可能打开新标签页，需要扫描所有tabs                   │
+# │                                                         │
+# │ X11偏移: (66,119) — 服务器实测                           │
+# │ 拖拽参数: 320+采样点, 3.3-3.6s, 正弦波+easing           │
+# │ 策略: 严禁绕过, 每步操作前强制检查                       │
 # └─────────────────────────────────────────────────────────┘
 
+# 验证码URL特征
+CAPTCHA_URL_PATTERNS = ["h5api.m.taobao.com", "sec.taobao.com", "captcha", "risk", "acs.m.taobao.com/mtop/common"]
+CAPTCHA_TEXT_PATTERNS = ["安全验证", "请完成验证", "滑动验证", "拖动滑块", "滑动完成验证"]
+
+def _check_captcha_in_page(ws):
+    """检查当前连接的页面是否为验证码页面（URL+文本+元素三重检测）"""
+    try:
+        url = cdp_eval(ws, "window.location.href", timeout=3) or ""
+        for p in CAPTCHA_URL_PATTERNS:
+            if p in url: return True, "url:" + p
+    except: pass
+    try:
+        body = cdp_eval(ws, "(document.body?.innerText||'').substring(0,800)", timeout=3) or ""
+        for p in CAPTCHA_TEXT_PATTERNS:
+            if p in body: return True, "text:" + p
+    except: pass
+    try:
+        has_el = cdp_eval(ws, """(function(){
+            if(document.querySelector('[id*="nc_1_n1z"]'))return 'slider_el';
+            if(document.querySelector('.nc-lang-cnt,.slidetounlock,.btn_slide'))return 'slider_cls';
+            return '';
+        })()""", timeout=3) or ""
+        if has_el: return True, "element:" + has_el
+    except: pass
+    return False, ""
+
+def scan_tabs_for_captcha(main_ws):
+    """扫描所有Chrome标签页，返回验证码标签页的WebSocket URL（如果有）"""
+    try:
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json", timeout=3)
+        targets = json.loads(resp.read())
+        for t in targets:
+            if t.get("type") != "page": continue
+            url = t.get("url", "")
+            title = t.get("title", "")
+            for p in CAPTCHA_URL_PATTERNS:
+                if p in url:
+                    return t.get("webSocketDebuggerUrl", ""), f"url_match:{p}"
+            for p in CAPTCHA_TEXT_PATTERNS:
+                if p in title:
+                    return t.get("webSocketDebuggerUrl", ""), f"title_match:{p}"
+    except: pass
+    return None, None
+
 def ensure_no_captcha(ws, label="", timeout=15):
-    """通用滑块检测+求解 — 任何步骤遇到滑块自动处理，严禁绕过"""
+    """通用滑块检测+求解 — 覆盖iframe+全页面+新标签页，严禁绕过"""
     rpt(f"  🔍 滑块检测{f' ({label})' if label else ''}...")
-    ctx, sd = wait_for_slider_ready(ws, timeout=timeout)
-    if not ctx:
-        rpt("    ✅ 无滑块")
-        return True  # no captcha, proceed
-    rpt("    ⚠️ 检测到滑块验证! 自动求解中...")
-    if drag_slider_xlib(ws, ctx, sd):
-        time.sleep(random.uniform(2, 3))
-        # 验证滑块是否消失
-        ft = cdp_cmd(ws, "Page.getFrameTree")
-        def ck(n):
-            for c in n.get("childFrames", []):
-                if "h5api.m.taobao.com" in c.get("frame",{}).get("url",""):
-                    has = cdp_eval(ws, "(function(){var fs=document.querySelectorAll('iframe');for(var i=0;i<fs.length;i++){if((fs[i].src||'').indexOf('h5api')!==-1&&fs[i].getBoundingClientRect().width>0)return'true';}return'false';})()")
-                    return has == "true"
-                if ck(c): return True
+
+    # 1. 检查所有标签页是否有验证码页面
+    tab_ws_url, tab_reason = scan_tabs_for_captcha(ws)
+    if tab_ws_url:
+        rpt(f"    ⚠️ 发现验证码标签页: {tab_reason}")
+        import websocket
+        try:
+            cap_ws = websocket.create_connection(tab_ws_url, timeout=10)
+            rpt("    切换到验证码标签页, 尝试求解...")
+            solved = _solve_captcha_on_page(cap_ws, "标签页验证码")
+            cap_ws.close()
+            if solved:
+                # 切回主标签页
+                try:
+                    ws.send(json.dumps({"id": 999, "method": "Page.bringToFront"}))
+                    ws.recv()
+                except: pass
+                time.sleep(1)
+                return True
+        except Exception as e:
+            rpt(f"    ⚠️ 切换标签页失败: {e}")
+
+    # 2. 检查当前页面是否有验证码
+    found, reason = _check_captcha_in_page(ws)
+    if found:
+        rpt(f"    ⚠️ 当前页面检测到验证码: {reason}")
+        return _solve_captcha_on_page(ws, label)
+
+    # 3. 检查iframe内嵌验证码（原有逻辑）
+    ctx, sd = wait_for_slider_ready(ws, timeout=min(timeout, 8))
+    if ctx:
+        rpt("    ⚠️ iframe内检测到滑块验证! 自动求解中...")
+        if drag_slider_xlib(ws, ctx, sd):
+            time.sleep(random.uniform(2, 3))
+            ctx2, _ = wait_for_slider_ready(ws, timeout=3)
+            if not ctx2:
+                rpt("    ✅ 滑块验证通过!")
+                return True
+            rpt("    ❌ 滑块求解失败")
             return False
-        still_there = ck(ft.get("result",{}).get("frameTree",{}))
-        if not still_there:
-            rpt("    ✅ 滑块验证通过!")
-            return True
-        rpt("    ❌ 滑块求解失败, 仍在页面")
+        rpt("    ❌ 滑块拖拽异常")
         return False
-    rpt("    ❌ 滑块拖拽异常")
+
+    rpt("    ✅ 无滑块")
+    return True
+
+def _solve_captcha_on_page(ws, label=""):
+    """在当前页面上求解全页面滑块验证码"""
+    for attempt in range(3):
+        rpt(f"    求解尝试 {attempt+1}/3...")
+        # 查找滑块元素位置
+        try:
+            pos_data = cdp_eval(ws, """(function(){
+                var s=document.querySelector('[id*="nc_1_n1z"]');
+                if(!s)s=document.querySelector('.nc-lang-cnt .btn_slide,.slidetounlock .btn');
+                if(!s)s=document.querySelector('[class*="slide"]');
+                if(!s)return JSON.stringify({found:false});
+                var r=s.getBoundingClientRect();
+                var t=document.querySelector('[id*="nc_1__scale_text"]');
+                var dist=260;
+                if(t){var tr=t.getBoundingClientRect();dist=Math.round(tr.x+tr.width-r.x-r.width+3);}
+                var fl=(window.outerWidth-window.innerWidth)/2;
+                var to=window.outerHeight-window.innerHeight-fl;
+                var ox=(window.screenLeft||0)+fl,oy=(window.screenTop||0)+to;
+                return JSON.stringify({found:true,sx:Math.round(r.x+r.width/2),sy:Math.round(r.y+r.height/2),dist:dist,ox:ox,oy:oy});
+            })()""", timeout=5)
+            sd = json.loads(pos_data)
+        except:
+            time.sleep(2); continue
+
+        if not sd.get("found"):
+            rpt("    滑块元素未就绪, 等2s...")
+            time.sleep(2); continue
+
+        # 全页面滑块 — 直接用页面坐标+X11偏移
+        OX, OY = 66, 119
+        sx = sd["sx"] + sd.get("ox", 0) + OX
+        sy = sd["sy"] + sd.get("oy", 0) + OY
+        dist = sd["dist"] + random.randint(-3, 5)
+        rpt(f"    X11:({sx},{sy}) dist={dist}")
+
+        try:
+            disp = xd.Display()
+            def mov(x,y): xt.fake_input(disp, X.MotionNotify, x=int(x), y=int(y)); disp.sync()
+            ax, ay = sx - random.randint(60, 120), sy + random.randint(-10, 10)
+            for i in range(5):
+                p = (i+1)/5; mov(int(ax+(sx-ax)*p), int(ay+(sy-ay)*p))
+                time.sleep(0.015 + random.random() * 0.02)
+            mov(sx, sy); time.sleep(0.06 + random.random() * 0.05)
+            xt.fake_input(disp, X.ButtonPress, detail=1); disp.sync()
+            time.sleep(0.025 + random.random() * 0.03)
+            n = random.randint(320, 356)
+            dur = 3.3 + random.random() * 0.3
+            for i in range(n):
+                p = i / n
+                e = 1 - (1 - p) ** random.uniform(1.6, 2.8)
+                x = int(sx + dist * e)
+                y = sy + int(math.sin(p * math.pi * 4) * random.randint(1, 4))
+                if p > 0.85: y = sy + random.randint(-1, 1)
+                mov(x, y)
+                time.sleep(dur / n * (0.8 + random.random() * 0.4))
+            time.sleep(0.05 + random.random() * 0.04)
+            xt.fake_input(disp, X.ButtonRelease, detail=1); disp.sync()
+            disp.close()
+        except Exception as e:
+            rpt(f"    X11异常: {e}"); time.sleep(3); continue
+
+        time.sleep(4)
+        # 验证是否通过
+        found, reason = _check_captcha_in_page(ws)
+        if not found:
+            rpt(f"    ✅ 验证码求解通过!")
+            return True
+        rpt(f"    ❌ 验证码仍在 ({reason}), 重试...")
+        time.sleep(3)
+
+    rpt(f"    ❌ 3次求解失败")
     return False
 
 
 def has_captcha(ws, timeout=3):
-    """快速滑块检测（2-3s超时）— 用于每步操作前"""
+    """快速滑块检测（2-3s超时）— 覆盖iframe+全页面+标签页"""
+    # 1. 检查标签页
+    tab_ws_url, _ = scan_tabs_for_captcha(ws)
+    if tab_ws_url: return True
+    # 2. 检查当前页面
+    found, _ = _check_captcha_in_page(ws)
+    if found: return True
+    # 3. 检查iframe
     try:
         ft = cdp_cmd(ws, "Page.getFrameTree", t=timeout)
         def find(n):
@@ -397,26 +545,12 @@ def has_captcha(ws, timeout=3):
 
 
 def safe_eval(ws, js, label="", max_retries=3):
-    """带滑块自动检测的CDP eval — 每次调用前快速检查"""
+    """带滑块自动检测的CDP eval — 每次调用前快速检查（覆盖全页面+标签页+iframe）"""
     for attempt in range(max_retries):
-        # 快速检测滑块（2s）
+        # 快速检测滑块（覆盖所有形态）
         if has_captcha(ws, timeout=2):
             rpt(f"  ⚠️ [{label}] 检测到滑块! 自动求解...")
-            ctx, sd = wait_for_slider_ready(ws, timeout=10)
-            if ctx and sd:
-                ok = drag_slider_xlib(ws, ctx, sd)
-                if ok:
-                    time.sleep(2)
-                    # 确认滑块已消失
-                    if has_captcha(ws, timeout=2):
-                        rpt(f"    ❌ [{label}] 滑块仍在, 等5s重试")
-                        time.sleep(5)
-                        continue
-                    rpt(f"    ✅ [{label}] 滑块通过!")
-                else:
-                    rpt(f"    ❌ [{label}] 滑块拖拽失败")
-            else:
-                rpt(f"    ❌ [{label}] 滑块元素未就绪")
+            ensure_no_captcha(ws, label=label, timeout=10)
         # 执行实际CDP操作
         try:
             return cdp_eval(ws, js)
@@ -556,13 +690,41 @@ def human_like_crawl(keyword):
         })()"""))
         if search_coords.get("found"):
             rpt(f"    点击搜索框 ({search_coords['x']},{search_coords['y']})")
-            x11_click(search_coords["x"], search_coords["y"], count=3)
+            x11_click(search_coords["x"], search_coords["y"], count=1)
             time.sleep(random.uniform(0.5, 1.0))
-            rpt(f"    逐字输入: {keyword}")
-            x11_type(keyword)
-            time.sleep(random.uniform(0.5, 1.0))
-            subprocess.run(["xdotool", "key", "Return"], env=os.environ, capture_output=True, timeout=5)
+            # CDP直接设置搜索框值并触发事件（最可靠）
+            set_result = safe_eval(ws, f"""(function(){{
+                var q = document.getElementById('q') || document.querySelector('input[id*="search"]');
+                if(!q) return 'no_input';
+                q.focus();
+                q.value = '{keyword}';
+                q.dispatchEvent(new Event('input', {{bubbles:true}}));
+                q.dispatchEvent(new Event('change', {{bubbles:true}}));
+                return q.value;
+            }})()""", "设置搜索关键词")
+            rpt(f"    搜索框内容: {set_result[:30]}")
+            time.sleep(random.uniform(0.3, 0.6))
+            # CDP模拟回车（比xdotool更可靠）
+            cdp_cmd(ws, "Input.dispatchKeyEvent", {
+                "type": "keyDown", "key": "Enter", "code": "Enter",
+                "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13
+            })
+            cdp_cmd(ws, "Input.dispatchKeyEvent", {
+                "type": "keyUp", "key": "Enter", "code": "Enter",
+                "windowsVirtualKeyCode": 13, "nativeVirtualKeyCode": 13
+            })
             time.sleep(random.uniform(4, 6))
+            # 验证URL是否变化
+            cur_url = safe_eval(ws, "window.location.href", "检查URL")
+            rpt(f"    当前URL: {cur_url[:80]}")
+            # 如果URL没变，降级直接导航
+            if "s.taobao.com" not in cur_url:
+                rpt("    ⚠️ 搜索未生效, 降级CDP导航")
+                cdp_cmd(ws, "Page.navigate",
+                    {"url": f"https://s.taobao.com/search?q={urllib.request.quote(keyword)}"})
+                time.sleep(random.uniform(6, 10))
+                cur_url = safe_eval(ws, "window.location.href", "检查URL-导航后")
+                rpt(f"    导航后URL: {cur_url[:80]}")
         else:
             rpt("    ⚠️ 未找到搜索框, 降级CDP导航")
             cdp_cmd(ws, "Page.navigate",
@@ -617,6 +779,9 @@ def human_like_crawl(keyword):
             time.sleep(random.uniform(2, 3))
             safe_eval(ws, "window.history.back()", "返回"); time.sleep(2)
         except: pass
+
+        # 浏览后强制验证码检查
+        ensure_no_captcha(ws, "浏览后", timeout=15)
 
         # Step 8: DTS导出表格(两阶段: 先开"市场分析"面板 → 再点"导出表格")
         rpt("\n=== 8. DTS导出表格 ===")
