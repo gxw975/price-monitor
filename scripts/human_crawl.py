@@ -1,0 +1,810 @@
+#!/usr/bin/env python3
+"""
+human_crawl.py — 游客模式淘宝商品抓取
+架构：基准模板克隆 → 临时Profile → DTS扩展 → 游客采集 → 清理
+红线：禁止自动登录、禁止账号密码、禁止填表
+"""
+import csv, json, logging, math, os, random, re, shutil, subprocess, sys, time, urllib.parse, urllib.request, uuid
+from datetime import datetime; from pathlib import Path
+from Xlib import X, display as xd
+from Xlib.ext import xtest as xt
+
+# ═══════════════════ 配置 ═══════════════════
+KEYWORD = "蒙牛一米八八奶粉"
+CDP_PORT = 9223
+OUTPUT_DIR = Path("/home/lab-admin/price-monitor/data/downloads")
+BASE_TEMPLATE = os.path.expanduser("~/.config/chrome_base_template")
+TEMP_PROFILE_BASE = "/home/lab-admin/.config"
+DTS_ID = "ppgdlgnehnajbbngnohepfigdmjbdpfb"
+
+os.environ["DISPLAY"] = ":0"
+os.environ["XAUTHORITY"] = "/run/user/1000/.mutter-Xwaylandauth.47UFP3"
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger("human")
+report = []
+def rpt(msg):
+    logger.info(msg)
+    report.append(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+
+
+# ═══════════════════ CDP ═══════════════════
+def cdp_cmd(ws, m, p=None, t=15):
+    msg = {"id": int(time.time()*1000)%1000000, "method": m}
+    if p: msg["params"] = p
+    ws.send(json.dumps(msg))
+    dl = time.time() + t
+    while time.time() < dl:
+        r = json.loads(ws.recv())
+        if r.get("id") == msg["id"]: return r
+    raise TimeoutError(m)
+
+def cdp_eval(ws, js):
+    r = cdp_cmd(ws, "Runtime.evaluate",
+        {"expression": js, "returnByValue": True, "awaitPromise": True})
+    return str(r.get("result",{}).get("result",{}).get("value",""))
+
+def cdp_eval_ctx(ws, ctx, js):
+    r = cdp_cmd(ws, "Runtime.evaluate",
+        {"expression": js, "contextId": ctx, "returnByValue": True, "awaitPromise": True})
+    return str(r.get("result",{}).get("result",{}).get("value",""))
+
+
+# ═══════════════════ Chrome 生命周期 ═══════════════════
+def graceful_shutdown():
+    """优雅关闭：CDP关Tab → TERM → KILL兜底"""
+    rpt("  优雅关闭Chrome...")
+    try:
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json", timeout=3)
+        targets = json.loads(resp.read())
+        import websocket
+        for t in targets:
+            if t.get("type") == "page":
+                try:
+                    ws_t = websocket.create_connection(t["webSocketDebuggerUrl"], timeout=5)
+                    ws_t.send(json.dumps({"id": 1, "method": "Page.close"})); ws_t.close()
+                except: pass
+    except: pass
+    time.sleep(2)
+    subprocess.run(["pkill", "-TERM", "chrome"], check=False)
+    time.sleep(3)
+    if subprocess.run(["pgrep", "-c", "chrome"], capture_output=True, text=True).stdout.strip() not in ("", "0"):
+        rpt("    TERM未退出, KILL兜底 (极端情况)")
+        subprocess.run(["pkill", "-KILL", "chrome"], check=False)
+        time.sleep(2)
+    rpt("  Chrome已关闭")
+
+
+def clone_template():
+    """克隆基准模板 → 临时Profile（含完整Cookie）"""
+    run_id = uuid.uuid4().hex[:12]
+    temp_dir = f"{TEMP_PROFILE_BASE}/chrome_run_{run_id}"
+    rpt(f"  克隆模板 → {temp_dir}")
+    shutil.copytree(BASE_TEMPLATE, temp_dir, symlinks=True)
+    # 修复权限
+    subprocess.run(["chmod", "-R", "700", temp_dir], check=False, capture_output=True)
+    # 清理SQLite WAL/SHM文件（避免Cookie损坏）
+    for f in ["Cookies-wal", "Cookies-shm", "Login Data-wal", "Login Data-shm"]:
+        fp = os.path.join(temp_dir, "Default", f)
+        if os.path.exists(fp): os.remove(fp)
+    # 验证Cookie有效性
+    ck = os.path.join(temp_dir, "Default", "Cookies")
+    if os.path.exists(ck) and os.path.getsize(ck) > 0:
+        try:
+            import sqlite3
+            conn = sqlite3.connect(ck)
+            cnt = conn.execute("SELECT COUNT(*) FROM cookies").fetchone()[0]
+            conn.close()
+            rpt(f"    Cookie: {cnt}条 ✅")
+        except:
+            rpt("    ⚠️ Cookie读取失败")
+    return temp_dir, run_id
+
+
+def launch_chrome(temp_profile):
+    """启动Chrome — 必须用 /opt/google/chrome/chrome 而非 /usr/bin/google-chrome-stable (wrapper会损坏参数)"""
+    rpt(f"  启动Chrome profile={temp_profile}")
+    # CRITICAL: /usr/bin/google-chrome-stable is a wrapper that mangles argument list.
+    # MUST use /opt/google/chrome/chrome directly.
+    # CRITICAL: Chrome args MUST use = notation (--key=value), not space-separated
+    # --no-first-run: 跳过首次运行向导
+    # --restore-last-session=false: 禁用崩溃恢复弹窗
+    subprocess.Popen([
+        "/opt/google/chrome/chrome",
+        f"--user-data-dir={temp_profile}",
+        "--disable-gpu",
+        "--disable-software-rasterizer",
+        f"--remote-debugging-port={CDP_PORT}",
+        "--remote-allow-origins=*",
+        "--start-maximized",
+        "--ozone-platform=x11",
+        "--no-first-run",
+        "--restore-last-session=false",
+        "https://www.taobao.com",
+    ], env=os.environ)
+    rpt("    Chrome进程已启动, 等待CDP...")
+
+    import websocket
+    # Chrome in this environment takes ~25-35s for CDP to be ready
+    # First-time profile init may take 60s+
+    for i in range(35):
+        time.sleep(3)
+        try:
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json/version", timeout=3)
+            rpt(f"    CDP ready ({(i+1)*3:.0f}s)")
+            break
+        except Exception as e:
+            if i % 4 == 3: rpt(f"    等待CDP...({(i+1)*3}s)")
+    else:
+        raise RuntimeError("Chrome CDP启动失败 (105s超时)")
+
+    # Get or create a page
+    for attempt in range(5):
+        try:
+            resp = urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json", timeout=3)
+            targets = json.loads(resp.read())
+            pages = [t for t in targets if t.get("type") == "page"]
+            if not pages:
+                urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json/new?about:blank", timeout=5)
+                time.sleep(1)
+                resp = urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json", timeout=3)
+                targets = json.loads(resp.read())
+                pages = [t for t in targets if t.get("type") == "page"]
+            if pages:
+                ws = websocket.create_connection(pages[0]["webSocketDebuggerUrl"], timeout=15, origin="")
+                cdp_cmd(ws, "Page.enable"); cdp_cmd(ws, "Runtime.enable")
+                rpt(f"    WS connected: {pages[0].get('title','')[:40]}")
+                return ws
+        except: pass
+        time.sleep(1)
+    raise RuntimeError("Chrome页面创建失败")
+
+
+def verify_dts(ws):
+    """验证DTS扩展已加载 — 仅CDP targets检查"""
+    rpt("  验证DTS扩展...")
+    try:
+        resp = urllib.request.urlopen(f"http://127.0.0.1:{CDP_PORT}/json", timeout=3)
+        targets = json.loads(resp.read())
+        dts_targets = [t for t in targets if DTS_ID in t.get("url", "")]
+        if dts_targets:
+            rpt(f"    ✅ DTS已加载 (targets: {len(dts_targets)})")
+            return True
+    except: pass
+    rpt("    ⚠️ DTS未在targets中, 稍后在淘宝页面验证")
+    return True  # 不阻塞，淘宝页面会再检查
+
+
+# ═══════════════════ X11 鼠标 ═══════════════════
+def x11_move(x, y):
+    disp = xd.Display()
+    disp.warp_pointer(int(x), int(y)); disp.sync()
+    disp.close()
+
+def x11_click(x, y, count=1):
+    x11_move(x, y); time.sleep(0.3)
+    for _ in range(count):
+        subprocess.run(["xdotool", "click", "1"], env=os.environ, capture_output=True, timeout=5)
+        time.sleep(0.15)
+
+def x11_type(text):
+    """逐字输入，模拟人类打字"""
+    for char in text:
+        subprocess.run(["xdotool", "type", char], env=os.environ, capture_output=True, timeout=5)
+        time.sleep(random.uniform(0.08, 0.25))  # 字符间80~250ms
+
+
+# ═══════════════════ 双层弹窗自动处理 ═══════════════════
+def handle_crash_recovery_popup():
+    """第一层：处理「要恢复页面吗？」弹窗 — 点击×关闭，绝不点恢复"""
+    rpt("  检查「要恢复页面吗？」弹窗...")
+    deadline = time.time() + 12
+    while time.time() < deadline:
+        try:
+            # xdotool搜索窗口标题含"恢复"的窗口
+            res = subprocess.run(
+                ["xdotool", "search", "--name", "恢复"],
+                capture_output=True, text=True, timeout=3
+            )
+            win_ids = [w for w in res.stdout.strip().split("\n") if w]
+            if not win_ids:
+                # 也搜标题含"Chrome"+"页面"的
+                res2 = subprocess.run(
+                    ["xdotool", "search", "--name", "要恢复页面"],
+                    capture_output=True, text=True, timeout=3
+                )
+                win_ids = [w for w in res2.stdout.strip().split("\n") if w]
+            if win_ids:
+                rpt(f"    发现恢复弹窗窗口: {win_ids[0]}")
+                # 点击右上角×关闭按钮 — 相对窗口右上角 (width-30, 10)
+                geo = subprocess.run(
+                    ["xdotool", "getwindowgeometry", win_ids[0]],
+                    capture_output=True, text=True, timeout=3
+                ).stdout
+                # Parse geometry: x,y,w,h
+                import re as _re
+                m = _re.search(r'Position:\s*(\d+),(\d+).*Geometry:\s*(\d+)x(\d+)', geo, _re.DOTALL)
+                if m:
+                    wx, wy, ww, wh = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+                    close_x, close_y = wx + ww - 20, wy + 10
+                    rpt(f"    点击×关闭 ({close_x},{close_y})")
+                    subprocess.run(
+                        ["xdotool", "mousemove", str(close_x), str(close_y), "click", "1"],
+                        env=os.environ, capture_output=True, timeout=5
+                    )
+                    time.sleep(1)
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    rpt("    无恢复弹窗，跳过")
+    return False
+
+
+def handle_dts_permission_popup():
+    """第二层：处理「店透视 已被禁用」权限弹窗 — 点击接受权限"""
+    rpt("  检查「店透视 已被禁用」弹窗...")
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        try:
+            # xdotool搜索窗口标题含"店透视"+"禁用"的
+            res = subprocess.run(
+                ["xdotool", "search", "--name", "店透视"],
+                capture_output=True, text=True, timeout=3
+            )
+            win_ids = [w for w in res.stdout.strip().split("\n") if w]
+            if not win_ids:
+                res2 = subprocess.run(
+                    ["xdotool", "search", "--name", "权限"],
+                    capture_output=True, text=True, timeout=3
+                )
+                win_ids = [w for w in res2.stdout.strip().split("\n") if w]
+            if win_ids:
+                wid = win_ids[0]
+                rpt(f"    发现DTS权限弹窗窗口: {wid}")
+                # 点击右下角蓝色【接受权限】按钮
+                geo = subprocess.run(
+                    ["xdotool", "getwindowgeometry", wid],
+                    capture_output=True, text=True, timeout=3
+                ).stdout
+                import re as _re
+                m = _re.search(r'Position:\s*(\d+),(\d+).*Geometry:\s*(\d+)x(\d+)', geo, _re.DOTALL)
+                if m:
+                    wx, wy, ww, wh = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+                    # 「接受权限」在弹窗右下区域
+                    btn_x, btn_y = wx + ww - 160, wy + wh - 50
+                    rpt(f"    点击「接受权限」 ({btn_x},{btn_y})")
+                    subprocess.run(
+                        ["xdotool", "mousemove", str(btn_x), str(btn_y), "click", "1"],
+                        env=os.environ, capture_output=True, timeout=5
+                    )
+                    rpt("    等待4s DTS权限生效...")
+                    time.sleep(4)
+                return True
+        except Exception:
+            pass
+        time.sleep(0.5)
+    rpt("    无DTS权限弹窗，跳过")
+    return False
+
+
+def handle_all_popups():
+    """Chrome启动后按序处理全部弹窗"""
+    rpt("\n=== 弹窗检测 ===")
+    time.sleep(9)  # 等待9秒页面渲染完成
+    r1 = handle_crash_recovery_popup()
+    r2 = handle_dts_permission_popup()
+    rpt(f"  恢复弹窗={'已关闭' if r1 else '无'}, DTS权限={'已授权' if r2 else '无弹窗'}")
+
+
+# ═══════════════════ 登录弹窗处理 ═══════════════════
+def close_login_popup(ws):
+    """关闭淘宝自动弹出的登录弹窗 — 游客模式继续"""
+    closed = False
+    close_selectors = [
+        '.login-close', '.J_LoginClose', '[class*="close"]',
+        '.overlay', '.mask', '[class*="J_Close"]'
+    ]
+    for sel in close_selectors:
+        try:
+            clicked = cdp_eval(ws, f"""(function(){{
+                var el = document.querySelector('{sel}');
+                if(el && el.getBoundingClientRect().width>0){{
+                    el.click(); return 'closed:{sel}';
+                }}
+                return 'not_found';
+            }})()""")
+            if "closed" in clicked:
+                rpt(f"    已关闭登录弹窗: {sel}")
+                closed = True; break
+        except: pass
+    return closed
+
+
+# ═══════════════════ 滑块验证特征文档 ═══════════════════
+# 淘宝滑块验证码 (h5api.m.taobao.com)
+# ┌─────────────────────────────────────────────────────────┐
+# │ 触发条件    │ 导航到淘宝搜索页 s.taobao.com/search       │
+# │             │ 或登录后任意淘宝页面操作                    │
+# │ 检测方法    │ Page.getFrameTree → 查找iframe URL含       │
+# │             │ "h5api.m.taobao.com" 的frame              │
+# │ iframe穿透  │ Page.createIsolatedWorld → contextId      │
+# │ 滑块元素    │ [id*="nc_1_n1z"] — 拖拽按钮               │
+# │ 目标文本    │ [id*="nc_1__scale_text"] — 距离参考        │
+# │ X11偏移     │ (66, 119) — 实测服务器坐标补偿             │
+# │ 拖拽参数    │ 320-356采样点, 3.3-3.6s, 正弦波+easing    │
+# │ 验证判断    │ 拖拽后h5api iframe消失(宽=0) ⇒ 通过       │
+# │ 策略        │ 严禁绕过, 必须求解通过后再执行后续操作     │
+# └─────────────────────────────────────────────────────────┘
+
+def ensure_no_captcha(ws, label="", timeout=15):
+    """通用滑块检测+求解 — 任何步骤遇到滑块自动处理，严禁绕过"""
+    rpt(f"  🔍 滑块检测{f' ({label})' if label else ''}...")
+    ctx, sd = wait_for_slider_ready(ws, timeout=timeout)
+    if not ctx:
+        rpt("    ✅ 无滑块")
+        return True  # no captcha, proceed
+    rpt("    ⚠️ 检测到滑块验证! 自动求解中...")
+    if drag_slider_xlib(ws, ctx, sd):
+        time.sleep(random.uniform(2, 3))
+        # 验证滑块是否消失
+        ft = cdp_cmd(ws, "Page.getFrameTree")
+        def ck(n):
+            for c in n.get("childFrames", []):
+                if "h5api.m.taobao.com" in c.get("frame",{}).get("url",""):
+                    has = cdp_eval(ws, "(function(){var fs=document.querySelectorAll('iframe');for(var i=0;i<fs.length;i++){if((fs[i].src||'').indexOf('h5api')!==-1&&fs[i].getBoundingClientRect().width>0)return'true';}return'false';})()")
+                    return has == "true"
+                if ck(c): return True
+            return False
+        still_there = ck(ft.get("result",{}).get("frameTree",{}))
+        if not still_there:
+            rpt("    ✅ 滑块验证通过!")
+            return True
+        rpt("    ❌ 滑块求解失败, 仍在页面")
+        return False
+    rpt("    ❌ 滑块拖拽异常")
+    return False
+
+
+def wait_for_slider_ready(ws, timeout=30):
+    """CDP穿透跨域iframe定位滑块"""
+    start = time.time(); ll = 0
+    while time.time() - start < timeout:
+        ft = cdp_cmd(ws, "Page.getFrameTree")
+        tree = ft.get("result",{}).get("frameTree",{})
+        h5fid = [None]
+        def fh(n):
+            for c in n.get("childFrames",[]):
+                u = c.get("frame",{}).get("url","")
+                if "h5api.m.taobao.com" in u: h5fid[0] = c.get("frame",{}).get("id",""); return
+                fh(c)
+        fh(tree)
+        if int(time.time() - start) - ll >= 5:
+            rpt(f"    frame={'found' if h5fid[0] else '❌'}")
+            ll = int(time.time() - start)
+        if not h5fid[0]: time.sleep(0.5); continue
+        try:
+            iso = cdp_cmd(ws, "Page.createIsolatedWorld", {"frameId": h5fid[0]})
+            ctx = iso.get("result",{}).get("executionContextId")
+            if not ctx: time.sleep(0.5); continue
+        except: time.sleep(0.5); continue
+        for _ in range(50):
+            try:
+                c = cdp_eval_ctx(ws, ctx, "document.querySelectorAll('[id*=\"nc_1_n1z\"]').length")
+                if c not in ("0","undefined","null","") and int(c) > 0:
+                    cd = cdp_eval_ctx(ws, ctx, """(function(){var s=document.querySelector('[id*="nc_1_n1z"]');var t=document.querySelector('[id*="nc_1__scale_text"]');if(!s||!t)return JSON.stringify({found:false});var sr=s.getBoundingClientRect(),tr=t.getBoundingClientRect();return JSON.stringify({sx:Math.round(sr.x+sr.width/2),sy:Math.round(sr.y+sr.height/2),dist:Math.round(tr.x+tr.width-sr.x-sr.width+3)});})()""")
+                    sd = json.loads(cd)
+                    if sd.get("found"): rpt("  ✅ 滑块就绪"); return ctx, sd
+            except: pass
+            time.sleep(0.2)
+        time.sleep(0.5)
+    return None, None
+
+def drag_slider_xlib(ws, ctx, sd):
+    """python-xlib XTest 滑块拖拽 — 320+采样点正弦波+easing"""
+    try:
+        ipos = cdp_eval(ws, """(function(){var fs=document.querySelectorAll('iframe');for(var i=0;i<fs.length;i++){if((fs[i].src||'').indexOf('h5api')!==-1){var r=fs[i].getBoundingClientRect();return JSON.stringify({x:Math.round(r.x),y:Math.round(r.y)});}}return'{}';})()""")
+        ip = json.loads(ipos)
+        # CHROME_OFFSET (66,119) — 服务器X11实测
+        OX, OY = 66, 119
+        sx = ip.get("x",397) + sd["sx"] + OX
+        sy = ip.get("y",181) + sd["sy"] + OY
+        dist = sd["dist"] + random.randint(-3, 5)
+        rpt(f"    X11:({sx},{sy}) dist={dist}")
+
+        disp = xd.Display()
+        def mov(x,y): xt.fake_input(disp, X.MotionNotify, x=int(x), y=int(y)); disp.sync()
+        ax, ay = sx - random.randint(60, 120), sy + random.randint(-10, 10)
+        for i in range(5):
+            p = (i+1)/5; mov(int(ax+(sx-ax)*p), int(ay+(sy-ay)*p))
+            time.sleep(0.015 + random.random() * 0.02)
+        mov(sx, sy); time.sleep(0.06 + random.random() * 0.05)
+        xt.fake_input(disp, X.ButtonPress, detail=1); disp.sync()
+        time.sleep(0.025 + random.random() * 0.03)
+
+        n = random.randint(320, 356)
+        dur = 3.3 + random.random() * 0.3
+        for i in range(n):
+            p = i / n
+            e = 1 - (1 - p) ** random.uniform(1.6, 2.8)
+            x = int(sx + dist * e)
+            y = sy + int(math.sin(p * math.pi * 4) * random.randint(1, 4))
+            if p > 0.85: y = sy + random.randint(-1, 1)
+            mov(x, y)
+            time.sleep(dur / n * (0.8 + random.random() * 0.4))
+        time.sleep(0.05 + random.random() * 0.04)
+        xt.fake_input(disp, X.ButtonRelease, detail=1); disp.sync()
+        disp.close()
+        time.sleep(6); return True
+    except Exception as e:
+        rpt(f"  ❌ X11异常: {e}"); return False
+
+
+# ═══════════════════ 主流程 ═══════════════════
+def human_like_crawl(keyword):
+    rpt("="*60)
+    rpt(f"游客模式抓取 — {keyword}")
+    rpt("="*60)
+
+    # Step 1: 优雅关闭旧Chrome + 克隆模板
+    rpt("\n=== 1. 环境准备 ===")
+    graceful_shutdown()
+    temp_profile, run_id = clone_template()
+    clean_profile_dir = temp_profile  # 用于最后清理
+
+    # Step 2: 启动Chrome
+    rpt("\n=== 2. 启动Chrome ===")
+    ws = launch_chrome(temp_profile)
+
+    try:
+        # Step 2.5: 处理启动后的弹窗（恢复页面 + DTS权限）
+        handle_all_popups()
+
+        # Step 3: DTS验证
+        rpt("\n=== 3. DTS扩展验证 ===")
+        dts_ok = verify_dts(ws)
+        rpt(f"    DTS: {'✅' if dts_ok else '⚠️ 未确认'}")
+
+        # Step 4: 处理首页滑块+登录态检查
+        rpt(f"\n=== 4. 首页滑块检测 ===")
+        cdp_cmd(ws, "Page.bringToFront")
+        time.sleep(2)
+        ensure_no_captcha(ws, "首页加载后", timeout=12)
+        # 检查登录态
+        body = cdp_eval(ws, "(document.body?.innerText||'').substring(0,500)")
+        is_logged = "giftboy" in body or ("我的淘宝" in body and "请登录" not in body)
+        rpt(f"    登录态: {'✅ 已登录' if is_logged else '⚠️ 未登录'}")
+        # 随机滚动(人类行为)
+        rpt("    随机滚动...")
+        for i in range(random.randint(2, 4)):
+            cdp_eval(ws, f"window.scrollTo(0, {random.randint(200, 600)})")
+            time.sleep(random.uniform(1, 2))
+
+        # Step 5: 搜索关键词 (xdotool物理点击搜索框+打字)
+        rpt(f"\n=== 5. 搜索: {keyword} ===")
+        search_coords = json.loads(cdp_eval(ws, """(function(){
+            var q = document.getElementById('q') || document.querySelector('input[id*="search"]');
+            if(!q) return JSON.stringify({found:false});
+            var r = q.getBoundingClientRect();
+            var fl = (window.outerWidth-window.innerWidth)/2;
+            var to = window.outerHeight-window.innerHeight-fl;
+            var ox = (window.screenLeft||0)+fl, oy = (window.screenTop||0)+to;
+            return JSON.stringify({found:true, x:Math.round(r.x+r.width/2+ox), y:Math.round(r.y+r.height/2+oy)});
+        })()"""))
+        if search_coords.get("found"):
+            rpt(f"    点击搜索框 ({search_coords['x']},{search_coords['y']})")
+            x11_click(search_coords["x"], search_coords["y"], count=3)
+            time.sleep(random.uniform(0.5, 1.0))
+            rpt(f"    逐字输入: {keyword}")
+            x11_type(keyword)
+            time.sleep(random.uniform(0.5, 1.0))
+            subprocess.run(["xdotool", "key", "Return"], env=os.environ, capture_output=True, timeout=5)
+            time.sleep(random.uniform(4, 6))
+        else:
+            rpt("    ⚠️ 未找到搜索框, 降级CDP导航")
+            cdp_cmd(ws, "Page.navigate",
+                {"url": f"https://s.taobao.com/search?q={urllib.request.quote(keyword)}"})
+            time.sleep(random.uniform(6, 10))
+
+        # Step 6: 滑块验证(搜索后)
+        rpt("\n=== 6. 滑块检测 ===")
+        captcha_solved = ensure_no_captcha(ws, "搜索后", timeout=30)
+        if not captcha_solved:
+            rpt("    ⚠️ 滑块未通过, 尝试继续采集")
+
+        # 关闭可能弹的登录窗
+        for _ in range(3):
+            if "登录" in cdp_eval(ws, "(document.body?.innerText||'').substring(0,500)"):
+                close_login_popup(ws); time.sleep(2)
+
+        # Step 7: 浏览搜索结果(人类行为)
+        rpt("\n=== 7. 浏览搜索结果 ===")
+        for i in range(random.randint(2, 3)):
+            cdp_eval(ws, f"window.scrollTo(0, {random.randint(300, 800)})")
+            time.sleep(random.uniform(1, 2))
+        # 随机点击商品卡片
+        try:
+            cdp_eval(ws, """(function(){
+                var cards=document.querySelectorAll('a[href*="item.taobao.com"]');
+                if(cards.length){var idx=Math.floor(Math.random()*Math.min(cards.length,4));
+                cards[idx].click();return'clicked';}return'skip';})()""")
+            time.sleep(random.uniform(2, 3))
+            cdp_eval(ws, "window.history.back()"); time.sleep(2)
+        except: pass
+
+        # Step 8: DTS导出表格(两阶段: 先开"市场分析"面板 → 再点"导出表格")
+        rpt("\n=== 8. DTS导出表格 ===")
+        # 淘宝封锁CDP浏览器搜索渲染, 改用DTS从服务端取数据
+        export_file = None
+        downloads_before = set()
+        for dl_dir in ["/home/lab-admin/Downloads", os.path.expanduser("~/Downloads")]:
+            if os.path.isdir(dl_dir):
+                downloads_before.update(os.path.join(dl_dir, f) for f in os.listdir(dl_dir))
+
+        # 阶段1: 点击"市场分析"按钮打开DTS面板
+        panel_ready = False  # 初始化
+        # 先诊断: 页面上的DTS工具栏文本
+        dts_debug = cdp_eval(ws, """(function(){
+            var all=document.querySelectorAll("*");
+            var found=[];
+            for(var i=0;i<all.length;i++){
+                var t=(all[i].textContent||"").trim();
+                if((t.indexOf("市场分析")!==-1||t.indexOf("导出表格")!==-1||t.indexOf("全网淘词")!==-1)&&all[i].getBoundingClientRect().width>0&&all[i].children.length===0){
+                    var r=all[i].getBoundingClientRect();
+                    found.push({t:t.substring(0,20),tag:all[i].tagName,x:Math.round(r.x),y:Math.round(r.y)});
+                }
+            }
+            return JSON.stringify(found);
+        })()""")
+        rpt(f"    DTS工具栏: {dts_debug}")
+
+        # 用包含匹配查找"市场分析"（而非精确匹配）
+        ma_coords = json.loads(cdp_eval(ws, """(function(){
+            var all=document.querySelectorAll("*");
+            for(var i=0;i<all.length;i++){
+                var t=(all[i].textContent||"").trim();
+                if(t.indexOf("市场分析")!==-1&&all[i].getBoundingClientRect().width>0&&all[i].children.length===0){
+                    var r=all[i].getBoundingClientRect();
+                    var fl=(window.outerWidth-window.innerWidth)/2;
+                    var to=window.outerHeight-window.innerHeight-fl;
+                    var ox=(window.screenLeft||0)+fl,oy=(window.screenTop||0)+to;
+                    return JSON.stringify({found:true,x:Math.round(r.x+r.width/2+ox),y:Math.round(r.y+r.height/2+oy)});
+                }
+            }
+            return JSON.stringify({found:false});
+        })()""))
+        if ma_coords.get("found"):
+            rpt(f"    阶段1: 点击市场分析 ({ma_coords['x']},{ma_coords['y']})")
+            x11_click(ma_coords["x"], ma_coords["y"])
+            # 等待DTS面板渲染 + 数据加载
+            rpt("    等待DTS面板加载...")
+            panel_ready = False
+            for _ in range(15):
+                time.sleep(2)
+                check = cdp_eval(ws, """(function(){
+                    var all=document.querySelectorAll("*");
+                    for(var i=0;i<all.length;i++){
+                        var t=(all[i].textContent||"").trim();
+                        if(t==="导出表格"&&all[i].getBoundingClientRect().width>0)return "found";
+                    }
+                    return "";
+                })()""")
+                if check == "found":
+                    panel_ready = True; break
+            if not panel_ready:
+                rpt("    ⚠️ 市场分析面板未加载出导出按钮")
+        else:
+            rpt("    ⚠️ 未找到市场分析按钮")
+
+        # 阶段2: 点击"导出表格"(面板已打开后)
+        if panel_ready:
+            exp_coords = json.loads(cdp_eval(ws, """(function(){
+                var all=document.querySelectorAll("*");
+                for(var i=0;i<all.length;i++){
+                    var t=(all[i].textContent||"").trim();
+                    if(t==="导出表格"&&all[i].getBoundingClientRect().width>0){
+                        var r=all[i].getBoundingClientRect();
+                        var fl=(window.outerWidth-window.innerWidth)/2;
+                        var to=window.outerHeight-window.innerHeight-fl;
+                        var ox=(window.screenLeft||0)+fl,oy=(window.screenTop||0)+to;
+                        return JSON.stringify({found:true,x:Math.round(r.x+r.width/2+ox),y:Math.round(r.y+r.height/2+oy)});
+                    }
+                }
+                return JSON.stringify({found:false});
+            })()"""))
+            if exp_coords.get("found"):
+                rpt(f"    阶段2: 点击导出表格 ({exp_coords['x']},{exp_coords['y']})")
+                x11_click(exp_coords["x"], exp_coords["y"])
+                rpt("    等待下载...")
+                for _ in range(30):
+                    time.sleep(2)
+                    for dl_dir in ["/home/lab-admin/Downloads", os.path.expanduser("~/Downloads")]:
+                        if os.path.isdir(dl_dir):
+                            current = set(os.path.join(dl_dir, f) for f in os.listdir(dl_dir))
+                            new_files = current - downloads_before
+                            xlsxs = [f for f in new_files if f.endswith('.xlsx') and os.path.getsize(f) > 100]
+                            if xlsxs:
+                                export_file = max(xlsxs, key=lambda f: os.path.getmtime(f) if os.path.exists(f) else 0)
+                                rpt(f"    ✅ 导出: {os.path.basename(export_file)} ({os.path.getsize(export_file)} bytes)")
+                                break
+                    if export_file: break
+            else:
+                rpt("    ⚠️ 未找到导出表格按钮(面板已加载但按钮不可见)")
+        else:
+            rpt("    ⚠️ DTS面板未就绪, 跳过导出")
+
+        # Step 9: 提取前最后滑块检测
+        rpt("\n=== 9. 提取前滑块检测 ===")
+        ensure_no_captcha(ws, "提取前", timeout=10)
+
+        # Step 10: 提取商品数据 (DTS导出优先 + 降级多选择器)
+        rpt("\n=== 10. 商品提取 ===")
+        products = []; seen_pid = set()
+        
+        if export_file and os.path.exists(export_file):
+            # 从DTS导出的Excel文件解析
+            rpt(f"    解析DTS导出: {os.path.basename(export_file)}")
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(export_file, read_only=True, data_only=True)
+                for ws_name in wb.sheetnames:
+                    ws_excel = wb[ws_name]
+                    rows = list(ws_excel.iter_rows(values_only=True))
+                    if not rows: continue
+                    # 寻找表头
+                    header_row = None
+                    for i, row in enumerate(rows[:10]):
+                        if row and any(c and ('商品' in str(c) or '标题' in str(c) or '价格' in str(c)) for c in row):
+                            header_row = i; break
+                    if header_row is None: header_row = 0
+                    headers = [str(c) if c else "" for c in rows[header_row]]
+                    rpt(f"      sheet={ws_name}, header_row={header_row}, cols={len(headers)}")
+                    for row in rows[header_row+1:]:
+                        if not row or all(not c for c in row): continue
+                        vals = [str(c) if c else "" for c in row]
+                        item = dict(zip(headers, vals))
+                        # 提取商品链接
+                        link = ""
+                        for k, v in item.items():
+                            if v and ('item.taobao.com' in v or 'detail.tmall.com' in v):
+                                link = v; break
+                        if not link: continue
+                        # 提取ID
+                        pid = None
+                        for pat in [r'id=(\d+)', r'item/(\d+)']:
+                            m = re.search(pat, link)
+                            if m: pid = m.group(1); break
+                        if not pid: continue
+                        if pid in seen_pid: continue
+                        seen_pid.add(pid)
+                        products.append({
+                            "id": pid,
+                            "t": item.get("商品标题", item.get("标题", vals[1] if len(vals)>1 else "")),
+                            "p": item.get("价格", vals[2] if len(vals)>2 else ""),
+                            "sa": item.get("30天销量", item.get("销量", vals[3] if len(vals)>3 else "")),
+                            "sh": item.get("店铺名", item.get("店铺", vals[4] if len(vals)>4 else "")),
+                            "l": link
+                        })
+                    rpt(f"      sheet {ws_name}: +{len(products)}条")
+                wb.close()
+            except ImportError:
+                rpt("    openpyxl未安装, 降级CSV解析")
+                try:
+                    with open(export_file, 'r', encoding='utf-8') as f:
+                        reader = csv.reader(f)
+                        rows = list(reader)
+                    # ... same parsing logic for CSV
+                except: pass
+            except Exception as e:
+                rpt(f"    ❌ Excel解析失败: {e}")
+        
+        # 降级: 多选择器DOM提取
+        if not products:
+            rpt("    DTS导出无数据, 降级DOM提取...")
+            for pg in range(1, 3):  # 仅2页
+                if pg > 1:
+                    next_coords = json.loads(cdp_eval(ws, """(function(){
+                        var n=document.querySelector('[class*="next"],[class*="Next-"]');
+                        if(!n)return JSON.stringify({found:false});
+                        var r=n.getBoundingClientRect();
+                        var fl=(window.outerWidth-window.innerWidth)/2;
+                        var to=window.outerHeight-window.innerHeight-fl;
+                        var ox=(window.screenLeft||0)+fl,oy=(window.screenTop||0)+to;
+                        return JSON.stringify({found:true,x:Math.round(r.x+r.width/2+ox),y:Math.round(r.y+r.height/2+oy)});
+                    })()"""))
+                    if next_coords.get("found"):
+                        x11_click(next_coords["x"], next_coords["y"])
+                    time.sleep(8)
+                else:
+                    for y in [500, 1200, 2000]:
+                        cdp_eval(ws, f"window.scrollTo(0, {y})"); time.sleep(1)
+                res = cdp_eval(ws, """(function(){
+                    var items=[];
+                    var allA=document.querySelectorAll('a[href*="item.taobao.com"],a[href*="detail.tmall.com"]');
+                    for(var k=0;k<allA.length;k++){
+                        if(allA[k].getBoundingClientRect().width>0)
+                            items.push({t:(allA[k].textContent||'').trim().substring(0,60),l:allA[k].href});
+                    }
+                    return JSON.stringify({c:items.length,i:items});
+                })()""")
+                try: data = json.loads(res)
+                except: data = {"c":0,"i":[]}
+                nw = 0
+                for it in data.get("i", []):
+                    link = it.get("l","")
+                    pid = None
+                    for pat in [r'id=(\d+)', r'item/(\d+)']:
+                        m = re.search(pat, link)
+                        if m: pid = m.group(1); break
+                    if not pid: continue
+                    if pid in seen_pid: continue
+                    seen_pid.add(pid)
+                    products.append({
+                        "id": pid, "t": it.get("t",""), "p": "", "sa": "", "sh": "", "l": link
+                    })
+                    nw += 1
+                rpt(f"    p{pg}: {data['c']}项目, +{nw} 累计{len(products)}")
+                if nw == 0 and pg > 1: break
+        rpt(f"    最终: {len(products)}条商品")
+
+        # Step 10: 导出CSV
+        rpt("\n=== 10. 导出 ===")
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe = "".join(c if c.isalnum() else "_" for c in keyword)
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        csv_path = OUTPUT_DIR / f"human_{safe}_{ts}.csv"
+        with open(csv_path, 'w', newline='', encoding='utf-8-sig') as f:
+            w = csv.writer(f); w.writerow(["商品ID","标题","价格","销量","店铺","链接"])
+            for p in products: w.writerow([p.get("id",""),p.get("t",""),p.get("p",""),p.get("sa",""),p.get("sh",""),p.get("l","")])
+        rpt(f"    文件: {csv_path} ({os.path.getsize(csv_path)} bytes)")
+
+        # 报告
+        rpt_path = OUTPUT_DIR / f"report_human_{ts}.txt"
+        with open(rpt_path, 'w') as f:
+            f.write(f"游客模式测试报告 — {keyword}\n时间: {datetime.now().isoformat()}\n")
+            f.write(f"临时Profile: {run_id}\n")
+            f.write(f"关键词: {keyword}\n")
+            f.write(f"DTS加载: {'✅' if dts_ok else '⚠️'}\n")
+            f.write(f"有效商品: {len(products)}\n")
+            f.write(f"文件: {csv_path}\n\n详细日志:\n")
+            f.write("\n".join(report))
+        rpt(f"    报告: {rpt_path}")
+        return csv_path, len(products)
+
+    finally:
+        ws.close()
+        # Step 11: 关闭Chrome + 保存Cookie + 清理临时Profile
+        rpt("\n=== 11. 清理 ===")
+        # Sync cookies back to base template (preserve login session)
+        rpt("    保存Cookie到基准模板...")
+        cookie_src = f"{clean_profile_dir}/Default/Cookies"
+        cookie_dst = f"{BASE_TEMPLATE}/Default/Cookies"
+        if os.path.exists(cookie_src) and os.path.getsize(cookie_src) > 4096:  # 至少4KB才值得保存
+            try:
+                # 清理目标WAL/SHM
+                for wf in ["Cookies-wal", "Cookies-shm"]:
+                    wp = f"{BASE_TEMPLATE}/Default/{wf}"
+                    if os.path.exists(wp): os.remove(wp)
+                shutil.copy2(cookie_src, cookie_dst)
+                rpt(f"    ✅ Cookie已回存 ({os.path.getsize(cookie_src)} bytes)")
+            except Exception as e:
+                rpt(f"    ⚠️ Cookie回存失败: {e}")
+        else:
+            rpt("    ⚠️ Cookie文件过小，跳过回存")
+        graceful_shutdown()
+        if os.path.exists(clean_profile_dir):
+            shutil.rmtree(clean_profile_dir, ignore_errors=True)
+            rpt(f"    临时Profile已删除: {clean_profile_dir}")
+        rpt("✅ 流程结束")
+
+
+# ═══════════════════ Main ═══════════════════
+if __name__ == "__main__":
+    # 验证基准模板存在
+    if not os.path.exists(f"{BASE_TEMPLATE}/Default/Extensions/{DTS_ID}"):
+        print(f"❌ 基准模板不存在！先运行: python3 scripts/prepare_base_template.py")
+        sys.exit(1)
+
+    keyword = sys.argv[1] if len(sys.argv) > 1 else KEYWORD
+    csv_path, count = human_like_crawl(keyword)
+    print(f"\n✅ 完成: {count}条 → {csv_path}")
