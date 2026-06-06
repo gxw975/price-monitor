@@ -17,6 +17,11 @@ interface Keyword {
   created_at: string | null
 }
 
+interface SearchState {
+  status: 'idle' | 'running' | 'completed' | 'failed'
+  message?: string
+}
+
 export default function KeywordsPage() {
   const { user } = useAuth()
   const router = useRouter()
@@ -33,6 +38,8 @@ export default function KeywordsPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{ created: number; skipped: number; errors: string[] } | null>(null)
+  const [searchStates, setSearchStates] = useState<Record<number, SearchState>>({})
+  const [batchSearchRunning, setBatchSearchRunning] = useState(false)
 
   const fetchKeywords = useCallback(async () => {
     setLoading(true)
@@ -51,12 +58,152 @@ export default function KeywordsPage() {
 
   useEffect(() => { fetchKeywords() }, [fetchKeywords])
 
+  const searchKeyword = async (keywordId: number, keywordName: string) => {
+    setSearchStates((prev) => ({
+      ...prev,
+      [keywordId]: { status: 'running', message: '搜索中...' },
+    }))
+    try {
+      const data = await apiFetch('/api/keywords/search', {
+        method: 'POST',
+        body: JSON.stringify({ keyword_id: keywordId }),
+      })
+      if (!data.success) {
+        setSearchStates((prev) => ({
+          ...prev,
+          [keywordId]: { status: 'failed', message: data.message || '搜索失败' },
+        }))
+        setError(data.message || '搜索失败')
+        return
+      }
+      const taskIds: string[] = data.task_ids || []
+      if (taskIds.length > 0) {
+        await pollSearchStatus(keywordId, taskIds)
+      }
+    } catch (err: any) {
+      setSearchStates((prev) => ({
+        ...prev,
+        [keywordId]: { status: 'failed', message: err.message || '请求失败' },
+      }))
+      setError(err.message || '搜索失败')
+    }
+  }
+
+  const searchAllKeywords = async () => {
+    setBatchSearchRunning(true)
+    setError('')
+    const activeKeywords = keywords.filter((k) => k.is_active)
+    if (activeKeywords.length === 0) {
+      setError('没有启用的关键词可以搜索')
+      setBatchSearchRunning(false)
+      return
+    }
+    try {
+      const data = await apiFetch('/api/keywords/search', {
+        method: 'POST',
+        body: JSON.stringify({ keyword_id: null }),
+      })
+      if (!data.success) {
+        setError(data.message || '搜索失败')
+        setBatchSearchRunning(false)
+        return
+      }
+      const taskIds: string[] = data.task_ids || []
+      for (const taskId of taskIds) {
+        const kwIdStr = taskId.split('_')[1]
+        const kwId = parseInt(kwIdStr)
+        if (!isNaN(kwId)) {
+          setSearchStates((prev) => ({
+            ...prev,
+            [kwId]: { status: 'running', message: '搜索中...' },
+          }))
+        }
+      }
+      await pollAllSearchStatus(taskIds)
+    } catch (err: any) {
+      setError(err.message || '搜索失败')
+    } finally {
+      setBatchSearchRunning(false)
+    }
+  }
+
+  const pollSearchStatus = async (keywordId: number, taskIds: string[]) => {
+    const maxAttempts = 120
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 3000))
+      try {
+        const data = await apiFetch(
+          `/api/keywords/search/status?task_ids=${taskIds.join(',')}`
+        )
+        const task = data.tasks?.[taskIds[0]]
+        if (task?.status === 'completed') {
+          setSearchStates((prev) => ({
+            ...prev,
+            [keywordId]: { status: 'completed', message: task.message || '搜索完成' },
+          }))
+          fetchKeywords()
+          return
+        }
+        if (task?.status === 'failed') {
+          setSearchStates((prev) => ({
+            ...prev,
+            [keywordId]: { status: 'failed', message: task.message || '搜索失败' },
+          }))
+          return
+        }
+      } catch {
+        // continue polling
+      }
+    }
+    setSearchStates((prev) => ({
+      ...prev,
+      [keywordId]: { status: 'failed', message: '搜索超时' },
+    }))
+  }
+
+  const pollAllSearchStatus = async (taskIds: string[]) => {
+    const maxAttempts = 120
+    for (let i = 0; i < maxAttempts; i++) {
+      await new Promise((r) => setTimeout(r, 3000))
+      try {
+        const data = await apiFetch(
+          `/api/keywords/search/status?task_ids=${taskIds.join(',')}`
+        )
+        if (data.all_done) {
+          for (const [tid, task] of Object.entries(data.tasks)) {
+            const t = task as any
+            const kwId = parseInt(tid.split('_')[1])
+            if (!isNaN(kwId)) {
+              setSearchStates((prev) => ({
+                ...prev,
+                [kwId]: {
+                  status: t.status as 'completed' | 'failed',
+                  message: t.message || (t.status === 'completed' ? '搜索完成' : '搜索失败'),
+                },
+              }))
+            }
+          }
+          fetchKeywords()
+          return
+        }
+      } catch {
+        // continue polling
+      }
+    }
+  }
+
   const handleCreate = async () => {
     if (!formName.trim()) { setError('请输入关键词名称'); return }
     setError('')
     try {
-      await apiFetch('/api/keywords/create', { method: 'POST', body: JSON.stringify({ name: formName.trim(), platform: formPlatform }) })
-      setFormName(''); setShowForm(false); fetchKeywords()
+      const data = await apiFetch('/api/keywords/create', {
+        method: 'POST',
+        body: JSON.stringify({ name: formName.trim(), platform: formPlatform }),
+      })
+      setFormName(''); setShowForm(false); await fetchKeywords()
+      if (data.item?.id) {
+        searchKeyword(data.item.id, data.item.name)
+      }
     } catch (err: any) { setError(err.message || '创建失败') }
   }
 
@@ -204,10 +351,26 @@ export default function KeywordsPage() {
           )}
 
           <button onClick={handleExport}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 ml-auto">
+            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
             导出 Excel
           </button>
+
+          {canWrite && (
+            <button
+              onClick={searchAllKeywords}
+              disabled={batchSearchRunning}
+              className="rounded-md bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-700 disabled:opacity-50 ml-auto"
+            >
+              {batchSearchRunning ? '搜索中...' : '全部立即搜索'}
+            </button>
+          )}
         </div>
+
+        {error && (
+          <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
 
         {importResult && (
           <div className="mb-4 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
@@ -264,17 +427,18 @@ export default function KeywordsPage() {
                   <th className="px-4 py-3 font-medium">最近抓取</th>
                   <th className="px-4 py-3 font-medium">状态</th>
                   <th className="px-4 py-3 font-medium">创建人</th>
-                  {canWrite && <th className="px-4 py-3 font-medium w-32">操作</th>}
+                  <th className="px-4 py-3 font-medium w-44">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
-                  <tr><td colSpan={canWrite ? 9 : 8} className="px-4 py-12 text-center text-gray-400">加载中...</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-400">加载中...</td></tr>
                 ) : keywords.length === 0 ? (
-                  <tr><td colSpan={canWrite ? 9 : 8} className="px-4 py-12 text-center text-gray-400">暂无关键词</td></tr>
+                  <tr><td colSpan={10} className="px-4 py-12 text-center text-gray-400">暂无关键词</td></tr>
                 ) : (
                   keywords.map((kw) => {
                     const cs = getCrawlStatus(kw)
+                    const ss = searchStates[kw.id]
                     return (
                       <tr key={kw.id} className="hover:bg-gray-50">
                         {canWrite && (
@@ -311,16 +475,43 @@ export default function KeywordsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-500">{kw.created_by_name || '-'}</td>
-                        {canWrite && (
-                          <td className="px-4 py-3">
+                        <td className="px-4 py-3">
+                          <div className="flex flex-col gap-1">
                             <div className="flex gap-2">
-                              <button onClick={() => handleToggleActive(kw)} className="text-xs text-blue-600 hover:text-blue-800">
-                                {kw.is_active ? '禁用' : '启用'}
-                              </button>
-                              <button onClick={() => handleDelete(kw.id)} className="text-xs text-red-600 hover:text-red-800">删除</button>
+                              {canWrite && (
+                                <>
+                                  <button onClick={() => handleToggleActive(kw)} className="text-xs text-blue-600 hover:text-blue-800">
+                                    {kw.is_active ? '禁用' : '启用'}
+                                  </button>
+                                  <button onClick={() => handleDelete(kw.id)} className="text-xs text-red-600 hover:text-red-800">
+                                    删除
+                                  </button>
+                                </>
+                              )}
                             </div>
-                          </td>
-                        )}
+                            {canWrite && kw.is_active && (
+                              <div className="flex items-center gap-2">
+                                <button
+                                  onClick={() => searchKeyword(kw.id, kw.name)}
+                                  disabled={ss?.status === 'running'}
+                                  className="text-xs text-orange-600 hover:text-orange-800 disabled:opacity-40"
+                                >
+                                  {ss?.status === 'running' ? '⏳ 搜索中...' : '🔍 立即搜索'}
+                                </button>
+                                {ss && ss.status !== 'idle' && (
+                                  <span className={cn(
+                                    'text-xs',
+                                    ss.status === 'completed' ? 'text-green-600' : '',
+                                    ss.status === 'failed' ? 'text-red-500' : '',
+                                    ss.status === 'running' ? 'text-blue-500' : '',
+                                  )}>
+                                    {ss.message}
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     )
                   })

@@ -1,3 +1,8 @@
+# DEPRECATED: 此模块依赖CDP远程调试(Chrome --remote-debugging-port)，已被淘宝检测封锁。
+# 替代方案: src/services/xdotool_crawler.py (纯xdotool物理操作)
+# 保留此文件仅作历史参考，不再被任何生产代码导入。
+# 迁移日期: 2026-06-06
+
 """淘宝商品 SKU 抓取技能
 
 通过 OpenCLI 控制真实 Chrome 浏览器，访问商品详情页，
@@ -27,6 +32,7 @@ from typing import Any
 logger = logging.getLogger("sku_crawler")
 
 SESSION_PREFIX = "sku_crawl"
+OPENCLI_BIN = "/home/lab-admin/.nvm/versions/node/v22.22.0/bin/opencli"
 OPENCLI_TIMEOUT = 30
 OPENCLI_PROFILE = os.environ.get("OPENCLI_PROFILE", "zu4794g4")
 SLEEP_MIN = 1.0
@@ -61,7 +67,7 @@ class TimeoutError(Exception):
 
 
 def _run_opencli(args: Sequence[str], timeout: int = OPENCLI_TIMEOUT) -> subprocess.CompletedProcess[str]:
-    cmd = ["opencli", "--profile", OPENCLI_PROFILE] + list(args)
+    cmd = [OPENCLI_BIN, "--profile", OPENCLI_PROFILE] + list(args)
     logger.debug("执行命令: %s", " ".join(cmd))
 
     try:
