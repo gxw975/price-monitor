@@ -78,11 +78,38 @@ class PageVerifier:
     # ═══════════════════════════════════════════════════════════════
 
     def _find_chrome_wid(self) -> str | None:
-        result = _xd("search", "--class", "google-chrome")
+        """查找真正的Chrome浏览器窗口（排除10x10隐藏辅助窗口）。"""
+        # 优先按名称搜索"淘宝"
+        result = _xd("search", "--name", "淘宝")
         wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
         if wids:
             return wids[0]
-        for name in ["淘宝", "Google Chrome"]:
+        # 按class搜索，选最大窗口
+        result = _xd("search", "--class", "google-chrome")
+        wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
+        if wids and len(wids) > 1:
+            best_wid = None
+            best_area = 0
+            for wid in wids:
+                try:
+                    geo = _xd("getwindowgeometry", "--shell", wid)
+                    w = h = 0
+                    for line in geo.split("\n"):
+                        if line.startswith("WIDTH="):
+                            w = int(line.split("=")[1])
+                        elif line.startswith("HEIGHT="):
+                            h = int(line.split("=")[1])
+                    area = w * h
+                    if area > best_area:
+                        best_area = area
+                        best_wid = wid
+                except Exception:
+                    pass
+            if best_wid and best_area > 10000:
+                return best_wid
+        if wids:
+            return wids[0]
+        for name in ["Google Chrome"]:
             result = _xd("search", "--name", name)
             wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
             if wids:
@@ -122,19 +149,26 @@ class PageVerifier:
     # 截图分析
     # ═══════════════════════════════════════════════════════════════
 
+    _screenshot_failed = False  # 类级标记，避免重复日志
+
     def _take_screenshot(self) -> Any | None:
-        """使用 PIL.ImageGrab 截取全屏"""
+        """使用 PIL.ImageGrab 截取全屏。失败时静默降级。"""
+        if PageVerifier._screenshot_failed:
+            return None
         try:
             from PIL import ImageGrab
             img = ImageGrab.grab()
             self._last_screenshot = img
             return img
         except Exception as e:
-            logger.warning("截图失败: %s", e)
+            PageVerifier._screenshot_failed = True
+            logger.debug("截图不可用 (PIL.ImageGrab): %s", e)
             return None
 
     def _save_debug_screenshot(self, name: str) -> str:
-        """保存截图用于调试"""
+        """保存截图用于调试。失败时静默降级。"""
+        if PageVerifier._screenshot_failed:
+            return ""
         try:
             from PIL import ImageGrab
             img = ImageGrab.grab()
@@ -144,6 +178,7 @@ class PageVerifier:
             logger.info("[截图] 已保存: %s", path)
             return path
         except Exception:
+            PageVerifier._screenshot_failed = True
             return ""
 
     def _check_region_color(self, x: int, y: int, w: int, h: int,

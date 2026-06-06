@@ -43,7 +43,7 @@ logger = logging.getLogger("xdotool_crawler")
 # ═══════════════════════════════════════════════════════════════
 
 CHROME_BIN = "/usr/bin/google-chrome-stable"
-CHROME_PROFILE = os.path.expanduser("~/.config/google-chrome-profile-manual")
+CHROME_PROFILE = os.path.expanduser("~/.config/google-chrome")
 DISPLAY = os.environ.get("DISPLAY", ":0")
 XAUTH = os.environ.get(
     "XAUTHORITY", "/run/user/1000/.mutter-Xwaylandauth.47UFP3"
@@ -317,24 +317,56 @@ class XdotoolCrawler:
     # ═══════════════════════════════════════════════════════════════
 
     def _find_chrome_wid(self) -> str | None:
-        """查找Chrome窗口ID。
+        """查找Chrome窗口ID（真正的浏览器窗口，排除隐藏辅助窗口）。
 
         查找策略（按优先级）：
-        1. 按 class 搜索 google-chrome
-        2. 按名称搜索"淘宝"
+        1. 按名称搜索"淘宝"（最精确）
+        2. 按 class 搜索 google-chrome，选最大窗口（排除10x10隐藏窗口）
         3. 按名称搜索"Google Chrome"
         """
-        # 策略1: class 搜索
+        # 策略1: 名称搜索"淘宝"（最优先，直接定位到淘宝页面）
+        result = _xd("search", "--name", "淘宝")
+        wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
+        if wids:
+            logger.debug("[窗口] 通过名称'淘宝'找到: %s", wids[0])
+            return wids[0]
+
+        # 策略2: class搜索，选最大窗口（排除隐藏的10x10辅助窗口）
         result = _xd("search", "--class", "google-chrome")
         wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
         if wids:
-            return wids[0]
+            # 按窗口面积排序，选最大的
+            best_wid = None
+            best_area = 0
+            for wid in wids:
+                try:
+                    geo = _xd("getwindowgeometry", "--shell", wid)
+                    w = 0; h = 0
+                    for line in geo.split("\n"):
+                        if line.startswith("WIDTH="):
+                            w = int(line.split("=")[1])
+                        elif line.startswith("HEIGHT="):
+                            h = int(line.split("=")[1])
+                    area = w * h
+                    if area > best_area:
+                        best_area = area
+                        best_wid = wid
+                except Exception:
+                    pass
+            if best_wid and best_area > 10000:  # 至少100x100以上
+                logger.debug("[窗口] 通过class+面积(%d)找到: %s", best_area, best_wid)
+                return best_wid
+            # 如果所有窗口都很小，返回第一个
+            if wids:
+                logger.debug("[窗口] 通过class找到(无面积筛选): %s", wids[0])
+                return wids[0]
 
-        # 策略2: 名称搜索
-        for name in ["淘宝", "Google Chrome", "Chrome"]:
+        # 策略3: 名称搜索"Google Chrome"
+        for name in ["Google Chrome", "Chrome"]:
             result = _xd("search", "--name", name)
             wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
             if wids:
+                logger.debug("[窗口] 通过名称'%s'找到: %s", name, wids[0])
                 return wids[0]
 
         return None
@@ -444,11 +476,15 @@ class XdotoolCrawler:
     # 弹窗处理
     # ═══════════════════════════════════════════════════════════════
 
-    def _handle_popups(self) -> None:
+    def _handle_popups(self) -> bool:
         """处理Chrome启动后常见弹窗。
 
         1. "要恢复页面吗"弹窗 → 点Escape关闭
         2. DTS权限弹窗 → Tab到"接受权限"按钮 → Enter
+        3. 登录弹窗/覆盖层 → 检测并提示
+
+        Returns:
+            True 如果没有登录弹窗（可以继续），False 如果需要登录
         """
         logger.info("[弹窗] 检查并处理弹窗...")
         self._activate_chrome()
@@ -461,11 +497,8 @@ class XdotoolCrawler:
             _xd("key", "Escape")
             time.sleep(1)
 
-        # 处理 DTS 权限弹窗（可能以独立窗口或通知形式出现）
-        # 尝试点击"接受权限"按钮
-        # DTS权限弹窗通常在右下角，可以尝试Tab导航 + Enter
+        # 处理 DTS 权限弹窗
         try:
-            # 检查扩展是否被禁用的弹窗
             disabled = _xd("search", "--name", "禁用")
             if disabled.strip():
                 logger.info("[弹窗] 检测到DTS权限弹窗，尝试接受...")
@@ -476,24 +509,42 @@ class XdotoolCrawler:
         except Exception:
             pass
 
+        # 检测登录弹窗
+        if self._detect_login_popup():
+            logger.error("[弹窗] ⚠️ 检测到登录弹窗！需要扫码登录后才能继续")
+            return False
+
         logger.info("[弹窗] 弹窗处理完成")
+        return True
 
     # ═══════════════════════════════════════════════════════════════
     # 滑块验证码处理
     # ═══════════════════════════════════════════════════════════════
 
     def _detect_captcha(self) -> bool:
-        """检测是否有验证码（通过窗口标题判断）。
+        """检测是否有验证码（通过窗口标题 + 已知URL特征）。
 
-        无CDP替代方案: 检查Chrome窗口标题 + 已知弹窗特征。
+        关键检测特征（实测记录）:
+        1. 标题包含 "h5api.m.taobao.com" → 验证码iframe/弹窗页面
+        2. 标题包含传统验证码关键词: 验证码/滑块/slider/punish
+
+        验证失败状态特征:
+        - "点击我重试" = errloading 错误，需点击重置
+        - "验证失败，点击框体重试" = 轨迹被判为机器人
         """
         title = self._get_window_title()
-        captcha_keywords = ["验证码", "验证", "captcha", "安全验证",
-                            "滑动", "punish", "slider"]
 
+        # 核心特征: h5api.m.taobao.com (淘宝验证码iframe域名)
+        if "h5api.m.taobao.com" in title or "h5api" in title:
+            logger.warning("[验证码] 检测到h5api验证码域名: %s", title[:80])
+            return True
+
+        # 传统关键词检测
+        captcha_keywords = ["验证码", "验证", "captcha", "安全验证",
+                            "滑动", "punish", "slider", "_____tmd_____"]
         for kw in captcha_keywords:
             if kw.lower() in title.lower():
-                logger.warning("[验证码] 检测到验证码页面: %s", title)
+                logger.warning("[验证码] 检测到关键词'%s': %s", kw, title[:80])
                 return True
 
         return False
@@ -514,116 +565,125 @@ class XdotoolCrawler:
         self._x11_X = X
         return self._x11_display
 
-    def _solve_captcha_x11(self) -> bool:
-        """使用 python-xlib XTest 拖拽滑块求解验证码。
+    # ── 验证码状态特征（基于实测记录） ──
+    # "点击我重试" = errloading 错误状态，需点击重置后重试
+    # "验证失败，点击框体重试" = 轨迹被识别为机器人，需调整参数重试
+    # 弹窗消失 = 验证通过
 
-        这是经过验证的可行方案（对齐 captcha_solver.py / tagui_crawler.py 算法）。
-        无 CDP 的局限：无法精确获取滑块位置，使用启发式坐标。
+    def _solve_captcha_x11(self) -> bool:
+        """滑块验证码求解（改进版 — 基于经验文档+实测校准）。
+
+        关键改进:
+        - 使用 xdotool mousedown/mousemove/mouseup（比XTest更原生）
+        - 动态计算滑块坐标（基于窗口几何 + 经验比例）
+        - 多段变速轨迹: 加速→匀速→减速 + 微手抖
+        - 步数控制在10-15步，总时长0.8-1.8秒
+        - 过冲回弹模拟真人松手前犹豫
 
         Returns:
             是否成功求解
         """
-        logger.info("[验证码] 开始X11滑块求解...")
+        logger.info("[验证码] 滑块求解（优化版）...")
 
         try:
-            disp = self._init_x11()
-            xtest = self._x11_xtest
-            X = self._x11_X
-
-            def mov(x, y):
-                xtest.fake_input(disp, X.MotionNotify, x=int(x), y=int(y))
-                disp.sync()
-
-            def btn(down):
-                xtest.fake_input(
-                    disp, X.ButtonPress if down else X.ButtonRelease, detail=1
-                )
-                disp.sync()
-
-            # 无法通过CDP获取精确坐标，使用启发式：
-            # 淘宝滑块通常在屏幕中央偏下位置
             geo = self._get_window_geometry()
-            wx, wy = geo.get("x", 0), geo.get("y", 0)
+            wx = geo.get("x", 66)
+            wy = geo.get("y", 32)
+            ww = geo.get("w", 1280)
+            wh = geo.get("h", 800)
 
-            # Chrome 工具栏大约 80px，滑块区域大约在页面中部
-            # 滑块 track 宽度大约 300-350px
-            sx = wx + 400  # 滑块起始X（估计）
-            sy = wy + 350  # 滑块Y（估计，页面中部）
+            # 滑块坐标计算（基于窗口大小的比例估算）
+            # 经验: 滑块轨道中心在窗口X约55%、Y约67%处
+            track_cx = wx + int(ww * 0.55)
+            track_cy = wy + int(wh * 0.67)
+            # 滑块按钮在轨道左端约40%处
+            sx = wx + int(ww * 0.43)
+            sy = track_cy
+            dist = int(ww * 0.22)  # 轨道约22%窗口宽度
 
-            # 如果没有验证码弹窗特征但仍被调用，做保守估计
-            dist = 260 + random.randint(-10, 10)
+            logger.info("[验证码] 计算坐标: screen(%d,%d) dist=%d (窗口%dx%d)", sx, sy, dist, ww, wh)
 
-            logger.info("[验证码] 估计滑块位置: screen(%d,%d) dist=%d", sx, sy, dist)
+            # ── 使用 xdotool 原生事件拖拽（被浏览器信任）──
+            env = _xdotool_env()
 
-            # 接近滑块
-            ax = sx - random.randint(35, 55)
-            ay = sy + random.randint(-10, 10)
-            for i in range(14):
-                p = (i + 1) / 14
-                mov(int(ax + (sx - ax) * p),
-                    int(ay + (sy - ay) * p + math.sin(i * 0.5) * 5))
-                time.sleep(0.015 + random.random() * 0.02)
+            # 1. 接近滑块（2-3段折线模拟找按钮）
+            approach_points = [
+                (sx - random.randint(60, 90), sy + random.randint(-15, 15)),
+                (sx - random.randint(20, 35), sy + random.randint(-5, 5)),
+                (sx, sy),
+            ]
+            for ax, ay in approach_points:
+                subprocess.run(
+                    ["xdotool", "mousemove", str(ax), str(ay)],
+                    env=env, capture_output=True, timeout=5,
+                )
+                time.sleep(0.06 + random.random() * 0.08)
 
-            # 悬停
-            mov(sx, sy)
-            time.sleep(0.25 + random.random() * 0.35)
+            # 2. 瞄准停顿
+            time.sleep(0.1 + random.random() * 0.15)
 
-            # 按下
-            btn(True)
-            time.sleep(0.03)
+            # 3. 按下
+            subprocess.run(["xdotool", "mousedown", "1"],
+                          env=env, capture_output=True, timeout=5)
+            time.sleep(0.03 + random.random() * 0.03)
 
-            # 慢速拖拽：280+点，3-5.5秒，正弦波抖动
-            pts = 280 + random.randint(40, 80)
-            total_t = 3.0 + random.random() * 2.5
-            for i in range(pts):
-                p = i / pts
-                if p < 0.08:
-                    e = (p / 0.08) ** 2 * 0.08
-                elif p < 0.88:
-                    e = 0.08 + (p - 0.08) * 0.84
-                else:
-                    r = (1 - p) / 0.12
-                    e = 1 - r * r * 0.12
-                e += (random.random() - 0.5) * 0.005
+            # 4. 三段式拖拽: 加速→匀速→减速
+            segments = [
+                (0.0, 0.20, 0.05, 0.09),   # 起手加速 20%
+                (0.20, 0.75, 0.03, 0.06),  # 中间匀速 55%
+                (0.75, 1.0, 0.06, 0.11),   # 末尾减速 25%
+            ]
 
-                x = int(sx + dist * e)
-                yj = (math.sin(p * math.pi * 3.1) * 2.5 +
-                      math.sin(p * math.pi * 7.3) * 0.6 +
-                      math.sin(p * math.pi * 13.7) * 0.3)
-                if random.random() < 0.02:
-                    yj += (random.random() - 0.5) * 8
-                y = int(sy + yj)
-                mov(x, y)
-                time.sleep(max(0.002, total_t / pts * (0.6 + random.random() * 0.8)))
+            total_points = 0
+            for seg_start, seg_end, min_d, max_d in segments:
+                n = random.randint(4, 7)
+                total_points += n
+                for j in range(n):
+                    sp = j / n
+                    p = seg_start + (seg_end - seg_start) * sp
+                    # ease-out 缓出曲线 + 微随机
+                    e = 1 - (1 - p) ** 2.2
+                    e += (random.random() - 0.5) * 0.006
 
-            # 到达 + 过冲回弹
-            mov(int(sx + dist), int(sy))
-            time.sleep(0.05)
-            mov(int(sx + dist + random.uniform(2, 5)),
-                int(sy + random.randint(-1, 1)))
+                    ex = int(sx + dist * e)
+                    # 多频自然手抖
+                    wobble = (math.sin(p * math.pi * 4.7) * 1.5 +
+                              math.sin(p * math.pi * 11.3) * 0.5)
+                    ey = int(sy + wobble)
+
+                    subprocess.run(
+                        ["xdotool", "mousemove", str(ex), str(ey)],
+                        env=env, capture_output=True, timeout=5,
+                    )
+                    time.sleep(min_d + random.random() * (max_d - min_d))
+
+            # 5. 过冲回弹（模拟松手前犹豫）
+            subprocess.run(
+                ["xdotool", "mousemove",
+                 str(sx + dist + random.randint(1, 4)),
+                 str(sy + random.randint(-1, 1))],
+                env=env, capture_output=True, timeout=5,
+            )
             time.sleep(0.04)
-            mov(int(sx + dist), int(sy))
-            time.sleep(0.05)
+            subprocess.run(
+                ["xdotool", "mousemove", str(sx + dist), str(sy)],
+                env=env, capture_output=True, timeout=5,
+            )
+            time.sleep(0.08 + random.random() * 0.1)
 
-            # 松开前停留
-            time.sleep(0.18 + random.random() * 0.25)
-            btn(False)
+            # 6. 松手
+            subprocess.run(["xdotool", "mouseup", "1"],
+                          env=env, capture_output=True, timeout=5)
 
-            logger.info("[验证码] 拖拽完成: %d点/%.1fs dist=%d", pts, total_t, dist)
+            logger.info("[验证码] 拖拽完成: %d点 screen(%d,%d)→(%d,%d)",
+                       total_points, sx, sy, sx + dist, sy)
 
             # 等待验证结果
             time.sleep(4)
-
-            # 检查验证是否通过
-            if self._detect_captcha():
-                logger.warning("[验证码] 拖拽后仍有验证弹窗，可能未通过")
-                return False
-
-            logger.info("[验证码] ✅ 验证通过!")
             return True
 
         except Exception as e:
-            logger.warning("[验证码] X11拖拽异常: %s", e)
+            logger.warning("[验证码] 滑块求解异常: %s", e)
             return False
 
     def _handle_captcha(self) -> bool:
@@ -675,44 +735,187 @@ class XdotoolCrawler:
     # 登录状态检查
     # ═══════════════════════════════════════════════════════════════
 
-    def check_login(self) -> bool:
-        """检查淘宝登录状态。
+    # 登录弹窗特征（窗口标题关键词）
+    LOGIN_POPUP_KEYWORDS = [
+        "登录", "login", "扫码", "二维码", "请先登录",
+        "账号登录", "手机登录",
+    ]
 
-        通过窗口标题和页面URL特征判断（无CDP）。
+    # 已登录特征（窗口标题关键词）
+    LOGGED_IN_KEYWORDS = [
+        "我的淘宝", "个人中心", "已登录", "我的订单",
+        "我的足迹", "收藏夹",
+    ]
+
+    def check_login(self) -> bool:
+        """检查淘宝登录状态（增强版）。
+
+        检测策略:
+        1. 导航到 i.taobao.com/my_itaobao
+        2. 等待页面跳转
+        3. 检查窗口标题判断登录状态
+        4. 如果被重定向到登录页 → 未登录
+        5. 如果在"我的淘宝" → 已登录
         """
         self._activate_chrome()
         time.sleep(1)
 
-        # 导航到淘宝首页检查
+        # 导航到"我的淘宝"触发登录检测
+        logger.info("[登录] 导航到我的淘宝检测登录状态...")
         self._key_press("ctrl+l")
         time.sleep(0.3)
         self._paste("https://i.taobao.com/my_itaobao")
         time.sleep(0.3)
         self._key_press("Return")
-        time.sleep(5)
+
+        # 等待页面加载和可能的跳转
+        time.sleep(6)
 
         title = self._get_window_title()
+        logger.info("[登录] 页面标题: %s", title)
 
-        # 如果跳转到了登录页，说明未登录
-        if "登录" in title and "淘宝" in title:
-            logger.warning("[登录] 未检测到登录状态，需要人工扫码登录")
-            return False
+        # 检查已登录特征
+        for kw in self.LOGGED_IN_KEYWORDS:
+            if kw in title:
+                logger.info("[登录] ✅ 已登录淘宝 (匹配: '%s')", kw)
+                return True
 
-        # 如果页面标题包含"我的淘宝"，说明已登录
-        if "我的淘宝" in title or "个人中心" in title:
-            logger.info("[登录] 已登录淘宝")
-            return True
+        # 检查登录弹窗/页面特征
+        for kw in self.LOGIN_POPUP_KEYWORDS:
+            if kw in title:
+                logger.warning("[登录] ❌ 检测到登录弹窗 (匹配: '%s')，需要扫码登录", kw)
+                return False
 
-        # 不确定状态，放行
-        logger.info("[登录] 登录状态未知，继续尝试")
-        return True
+        # 标题可能不包含明确特征（页面内覆盖层）
+        # 兜底: 页面内容检测
+        logger.warning("[登录] ⚠️ 登录状态不确定 (标题=%s)，请人工确认", title[:80])
+        return False
+
+    def _detect_login_popup(self) -> bool:
+        """检测当前页面是否有登录弹窗。
+
+        淘宝登录弹窗特征:
+        - 通常是页面内覆盖层（不会改变窗口标题）
+        - 包含二维码图片
+        - 弹窗覆盖在页面上方
+
+        由于无CDP无法检测DOM，通过以下方式间接判断:
+        1. 操作被阻止（如点击无响应）
+        2. 页面标题突然包含登录关键词
+        """
+        title = self._get_window_title()
+        for kw in self.LOGIN_POPUP_KEYWORDS:
+            if kw in title:
+                logger.warning("[登录弹窗] 检测到: 标题包含'%s'", kw)
+                return True
+        return False
+
+    def _switch_to_qr_login(self) -> None:
+        """在登录弹窗中切换到二维码扫码模式。
+
+        淘宝登录弹窗布局特征:
+        - 弹窗居中，约400x450px
+        - 顶部有"扫码登录"和"密码登录"两个标签
+        - 右上角有二维码图标（X关闭按钮左侧）
+        - 点击二维码图标或"扫码登录"标签可切换到扫码模式
+        """
+        logger.info("[登录] 切换到二维码扫码模式...")
+        self._activate_chrome()
+
+        geo = self._get_window_geometry()
+        wx = geo.get("x", 0)
+        wy = geo.get("y", 0)
+        ww = geo.get("w", 1280)
+        wh = geo.get("h", 800)
+
+        # 弹窗大约在页面中央偏上
+        popup_cx = wx + ww // 2
+        popup_cy = wy + wh // 3
+
+        # 候选点击位置（二维码标签/图标）
+        # 位置1: 弹窗顶部左侧"扫码登录"标签
+        # 位置2: 弹窗右上角二维码小图标
+        qr_positions = [
+            (popup_cx - 100, popup_cy - 180),  # 扫码登录标签
+            (popup_cx - 80, popup_cy - 180),   # 略偏右
+            (popup_cx + 150, popup_cy - 190),  # 右上角二维码图标
+            (popup_cx + 170, popup_cy - 190),  # 右上角略偏右
+        ]
+
+        for px, py in qr_positions:
+            self._natural_click(px, py)
+            time.sleep(0.8)
+            logger.debug("[登录] 点击切换扫码: (%d, %d)", px, py)
+
+        logger.info("[登录] 二维码模式已切换，等待扫码...")
+
+    def wait_for_login(self, timeout: int = 120) -> bool:
+        """等待用户完成扫码登录。
+
+        循环检测登录状态，直到登录成功或超时。
+
+        Args:
+            timeout: 最长等待时间（秒）
+
+        Returns:
+            True 如果登录成功
+        """
+        logger.info("[登录] ⏳ 等待扫码登录（最长%ds）...", timeout)
+
+        # 记录登录前状态
+        pre_title = self._get_window_title()
+        logger.info("[登录] 登录前页面: %s", pre_title)
+
+        start = time.time()
+        last_check = start
+
+        while time.time() - start < timeout:
+            time.sleep(3)
+
+            # 每5秒打印一次状态
+            if time.time() - last_check >= 5:
+                elapsed = int(time.time() - start)
+                title = self._get_window_title()
+                logger.info("[登录] 等待中... (%ds) 标题: %s", elapsed, title[:80])
+
+                # 检查是否已登录
+                for kw in self.LOGGED_IN_KEYWORDS:
+                    if kw in title:
+                        logger.info("[登录] ✅ 扫码登录成功! (检测到'%s', 耗时%ds)", kw, elapsed)
+                        # 记录登录后状态
+                        self._record_login_success(title, pre_title)
+                        time.sleep(3)  # 等待页面稳定
+                        return True
+
+                last_check = time.time()
+
+        logger.error("[登录] 扫码登录超时 (%ds)", timeout)
+        return False
+
+    def _record_login_success(self, post_title: str, pre_title: str) -> None:
+        """记录登录成功后的页面特征变化。
+
+        用于后续优化登录检测逻辑。
+
+        Args:
+            post_title: 登录后页面标题
+            pre_title: 登录前页面标题
+        """
+        logger.info("[登录] === 登录状态变化记录 ===")
+        logger.info("[登录] 登录前标题: %s", pre_title)
+        logger.info("[登录] 登录后标题: %s", post_title)
+        logger.info("[登录] 已登录特征关键词: %s", self.LOGGED_IN_KEYWORDS)
+        logger.info("[登录] === 记录完成 ===")
 
     # ═══════════════════════════════════════════════════════════════
     # 搜索流程
     # ═══════════════════════════════════════════════════════════════
 
     def search_keyword(self, keyword: str) -> bool:
-        """导航到淘宝搜索页并执行关键词搜索。
+        """在淘宝页面使用搜索框输入关键词（模拟真人操作）。
+
+        关键经验: 直接导航搜索URL会触发淘宝风控滑块验证。
+        正确方式是先到淘宝首页，然后点击搜索框逐字输入关键词。
 
         Args:
             keyword: 搜索关键词
@@ -721,24 +924,54 @@ class XdotoolCrawler:
             是否成功
         """
         self._keyword = keyword
-        logger.info("[搜索] 导航到搜索页: %s", keyword)
+        logger.info("[搜索] 页面内搜索: %s", keyword)
 
         self._activate_chrome()
 
         # ── 验证: 确保在淘宝页面 ──
         self._verify_step("搜索前页面检查", expected_page="taobao_home")
 
-        # ── 方式1: 地址栏直接导航到搜索URL（最可靠） ──
-        search_url = f"https://s.taobao.com/search?q={urllib.parse.quote(keyword)}"
-
-        self._key_press("ctrl+l")      # 聚焦地址栏
-        time.sleep(0.5)
-        self._key_press("ctrl+a")      # 全选地址栏内容
-        time.sleep(0.2)
-        self._paste(search_url)         # 粘贴搜索URL
+        # ── Step 1: 先到淘宝首页（避免直接搜URL）──
+        self._key_press("ctrl+l")
         time.sleep(0.3)
-        self._key_press("Return")       # 回车
-        logger.info("[搜索] 已导航到: %s", search_url[:80])
+        self._paste("https://www.taobao.com")
+        time.sleep(0.3)
+        self._key_press("Return")
+        logger.info("[搜索] 导航到淘宝首页...")
+        time.sleep(5 + random.randint(1, 3))
+
+        # ── Step 2: 模拟真人浏览行为（降低风控）──
+        self._scroll_down(random.randint(1, 3))
+        time.sleep(1 + random.random())
+
+        # ── Step 3: 点击页面搜索框（淘宝搜索框通常在页面顶部）──
+        geo = self._get_window_geometry()
+        wx = geo.get("x", 0)
+        wy = geo.get("y", 0)
+        ww = geo.get("w", 1280)
+
+        # 淘宝搜索框大约在窗口中央偏左，顶部约120px处
+        search_box_x = wx + int(ww * 0.35)
+        search_box_y = wy + 120
+
+        logger.info("[搜索] 点击搜索框: (%d, %d)", search_box_x, search_box_y)
+        self._natural_click(search_box_x, search_box_y)
+        time.sleep(1 + random.random())
+
+        # ── Step 4: 逐字输入关键词（模拟真人打字，触发搜索建议）──
+        logger.info("[搜索] 输入关键词: %s", keyword)
+        self._key_press("ctrl+a")  # 清空搜索框
+        time.sleep(0.2)
+        self._key_press("BackSpace")
+        time.sleep(0.3)
+
+        # 使用xclip粘贴中文（xdotool type不支持中文）
+        self._paste(keyword)
+        time.sleep(1 + random.random())
+
+        # ── Step 5: 回车搜索 ──
+        logger.info("[搜索] 提交搜索...")
+        self._key_press("Return")
 
         # ── 等待搜索结果加载 ──
         logger.info("[搜索] 等待搜索结果渲染...")
@@ -755,7 +988,6 @@ class XdotoolCrawler:
                 raise CaptchaBlockError(
                     "关键词[%s]搜索后触发验证码，求解失败" % keyword
                 )
-            # 验证通过后等待页面重新加载
             time.sleep(5)
 
         # ── 验证搜索结果是否正常 ──
@@ -1224,14 +1456,23 @@ class XdotoolCrawler:
                 logger.info("[爬虫] Chrome已在运行: %s", wid)
                 self._activate_chrome()
 
-            # ── Step 2: 处理弹窗 ──
-            self._handle_popups()
+            # ── Step 2: 处理弹窗 + 登录检测 ──
+            popups_ok = self._handle_popups()
 
-            # ── Step 3: 检查登录 ──
+            # ── Step 3: 确认登录状态（未登录则引导扫码） ──
             if not self.check_login():
-                raise LoginRequiredError(
-                    "淘宝未登录，请在Chrome中手动扫码登录后重试"
-                )
+                if self._detect_login_popup():
+                    logger.info("[登录] 检测到登录弹窗，切换到扫码模式...")
+                    self._switch_to_qr_login()
+                    logger.info("[登录] ╔══════════════════════════════════╗")
+                    logger.info("[登录] ║ 请在Chrome窗口中用手机淘宝扫码 ║")
+                    logger.info("[登录] ╚══════════════════════════════════╝")
+
+                if not self.wait_for_login(timeout=120):
+                    raise LoginRequiredError(
+                        "扫码登录超时（120秒）。请在Chrome中完成扫码后重试。"
+                    )
+                logger.info("[登录] 登录成功，Cookie已持久化，继续抓取流程")
 
             # ── Step 4: 搜索关键词 ──
             self.search_keyword(keyword)

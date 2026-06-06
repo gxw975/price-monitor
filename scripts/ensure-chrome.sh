@@ -10,7 +10,7 @@
 #   --disable-crash-reporter
 #   --ozone-platform=x11
 
-CHROME_USER_DATA="/home/lab-admin/.config/google-chrome-profile-manual"
+CHROME_USER_DATA="/home/lab-admin/.config/google-chrome"
 CHROME_BIN="/usr/bin/google-chrome-stable"
 MAX_WAIT=30
 
