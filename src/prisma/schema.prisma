@@ -143,15 +143,20 @@ model OperationLog {
 /// v3.0 新增模型 — 以监控商品为中心的全流程管理
 
 model MonitorProduct {
-  id            Int      @id @default(autoincrement())
-  name          String
-  description   String?
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @default(now()) @map("updated_at")
-  importBatches ImportBatch[]
-  skuCategories SkuCategory[]
-  alerts        Alert[]
-  products      Product[]
+  id                  Int      @id @default(autoincrement())
+  name                String
+  brand               String?
+  description         String?
+  priceThresholdBag   Float?   @map("price_threshold_bag")
+  priceThresholdCan   Float?   @map("price_threshold_can")
+  priceThresholdMix   Float?   @map("price_threshold_mix")
+  salesThreshold      Float?   @map("sales_threshold")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @default(now()) @map("updated_at")
+  importBatches       ImportBatch[]
+  skuCategories       SkuCategory[]
+  alerts              Alert[]
+  products            Product[]
 
   @@map("MonitorProduct")
 }

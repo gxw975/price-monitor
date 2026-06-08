@@ -1,9 +1,9 @@
-# 已废弃: 2026-06-08 系统改为手动Excel导入模式，不再使用自动抓取和淘宝登录功能
-"""淘宝登录状态管理 API（已废弃）
+"""淘宝登录状态管理 API
 
-⚠️ 自 2026-06-08 起，本模块所有接口已废弃。系统改为手动Excel导入模式，不再需要淘宝登录。
+通过 xdotool 检查 Chrome 中的淘宝登录状态。
+登录操作需要在真实 Chrome 窗口中人工完成扫码。
 
-端点（全部废弃）：
+端点：
   GET  /api/taobao/status        登录状态检测
   POST /api/taobao/login/start   提示用户手动扫码登录
   POST /api/taobao/login/confirm 确认登录完成

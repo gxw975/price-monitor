@@ -13,7 +13,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from services.auth_service import get_current_user
@@ -51,12 +51,26 @@ def _get_conn() -> Any:
 
 class MonitorProductCreate(BaseModel):
     name: str
+    brand: str | None = None
     description: str | None = None
+    price_threshold_bag: float | None = None
+    price_threshold_can: float | None = None
+    price_threshold_mix: float | None = None
+    sales_threshold: float | None = None
 
 
 class MonitorProductUpdate(BaseModel):
     name: str | None = None
+    brand: str | None = None
     description: str | None = None
+    price_threshold_bag: float | None = None
+    price_threshold_can: float | None = None
+    price_threshold_mix: float | None = None
+    sales_threshold: float | None = None
+
+class ConfirmImportRequest(BaseModel):
+    file_name: str
+    selected_product_ids: list[str]
 
 
 class SkuCategoryCreate(BaseModel):
@@ -114,8 +128,10 @@ def create_monitor_product(
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                'INSERT INTO "MonitorProduct" (name, description) VALUES (%s, %s) RETURNING *',
-                (body.name, body.description),
+                'INSERT INTO "MonitorProduct" (name, brand, description, price_threshold_bag, price_threshold_can, price_threshold_mix, sales_threshold) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *',
+                (body.name, body.brand, body.description, body.price_threshold_bag,
+                 body.price_threshold_can, body.price_threshold_mix, body.sales_threshold),
             )
             item = dict(cur.fetchone())
             conn.commit()
@@ -141,12 +157,12 @@ def update_monitor_product(
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             updates = []
             params = []
-            if body.name is not None:
-                updates.append('name = %s')
-                params.append(body.name)
-            if body.description is not None:
-                updates.append('description = %s')
-                params.append(body.description)
+            for field in ['name', 'brand', 'description', 'price_threshold_bag',
+                          'price_threshold_can', 'price_threshold_mix', 'sales_threshold']:
+                val = getattr(body, field, None)
+                if val is not None:
+                    updates.append(f'{field} = %s')
+                    params.append(val)
             if not updates:
                 raise HTTPException(status_code=400, detail="无更新内容")
             updates.append('updated_at = NOW()')
@@ -309,5 +325,174 @@ def list_imports(
     except Exception:
         logger.exception("查询导入历史失败")
         raise HTTPException(status_code=500, detail="查询失败")
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════
+# 商品列表 + 预警
+# ═══════════════════════════════════════════════
+
+@router.get("/{product_id}/products")
+def list_products(
+    product_id: int,
+    keyword: str | None = None,
+    limit: int = 200,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """获取监控商品下的所有淘宝商品"""
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if keyword:
+                cur.execute(
+                    'SELECT * FROM "Product" WHERE monitor_product_id=%s AND (title ILIKE %s OR shop_name ILIKE %s OR product_id ILIKE %s) ORDER BY last_updated_at DESC LIMIT %s',
+                    (product_id, f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", limit),
+                )
+            else:
+                cur.execute(
+                    'SELECT * FROM "Product" WHERE monitor_product_id=%s ORDER BY last_updated_at DESC LIMIT %s',
+                    (product_id, limit),
+                )
+            items = [dict(r) for r in cur.fetchall()]
+            for item in items:
+                for df in ('created_at', 'last_updated_at', 'last_sku_crawled_at'):
+                    if item.get(df): item[df] = item[df].isoformat()
+        return {"items": items, "total": len(items)}
+    except Exception:
+        logger.exception("查询商品列表失败")
+        raise HTTPException(status_code=500, detail="查询失败")
+    finally:
+        conn.close()
+
+
+@router.get("/{product_id}/alerts")
+def list_alerts_for_product(
+    product_id: int,
+    limit: int = 50,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """获取监控商品的所有预警记录"""
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                'SELECT a.*, p.title AS product_title FROM "Alert" a LEFT JOIN "Product" p ON a.product_id=p.product_id WHERE a.monitor_product_id=%s ORDER BY a.created_at DESC LIMIT %s',
+                (product_id, limit),
+            )
+            items = [dict(r) for r in cur.fetchall()]
+            for item in items:
+                for df in ('created_at', 'sent_at', 'handled_at'):
+                    if item.get(df): item[df] = item[df].isoformat()
+        return {"items": items, "total": len(items)}
+    except Exception:
+        logger.exception("查询预警失败")
+        raise HTTPException(status_code=500, detail="查询失败")
+    finally:
+        conn.close()
+
+
+# ═══════════════════════════════════════════════
+# Excel 导入（两阶段）
+# ═══════════════════════════════════════════════
+
+@router.post("/{product_id}/import", dependencies=[Depends(_check_write_permission)])
+async def import_excel_preview(
+    product_id: int,
+    file: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """阶段A — 上传DTS Excel，返回清洗后的预览数据"""
+    import os as _os, tempfile as _tempfile, uuid as _uuid
+    from pathlib import Path as _Path
+
+    temp_path = ""
+    try:
+        if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+            raise HTTPException(status_code=400, detail="仅支持Excel文件格式")
+
+        suffix = _Path(file.filename).suffix
+        temp_path = _os.path.join(_tempfile.gettempdir(), f"dts_import_{_uuid.uuid4().hex}{suffix}")
+        with open(temp_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        from services.dts_parser import DtsDataParser
+        parser = DtsDataParser()
+        parsed = parser.parse(temp_path)
+        if not parsed:
+            raise HTTPException(status_code=400, detail="Excel解析失败")
+        valid, ad_count = parser.clean_ad_data(parsed)
+
+        return {"code": 200, "msg": "解析成功", "data": {
+            "file_name": file.filename, "total_count": len(parsed),
+            "ad_count": ad_count, "valid_count": len(valid), "preview_data": valid,
+        }}
+    except HTTPException: raise
+    except Exception as e:
+        logger.exception("Excel预览失败")
+        raise HTTPException(status_code=500, detail=f"解析失败：{e}")
+    finally:
+        if temp_path and _os.path.exists(temp_path):
+            try: _os.unlink(temp_path)
+            except OSError: pass
+
+
+@router.post("/{product_id}/import/confirm", dependencies=[Depends(_check_write_permission)])
+def confirm_import(
+    product_id: int,
+    data: ConfirmImportRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """阶段B — 确认导入"""
+    conn = _get_conn()
+    try:
+        if not data.selected_product_ids:
+            raise HTTPException(status_code=400, detail="未选择任何商品")
+
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO "ImportBatch" (monitor_product_id, file_name, total_count, ad_count, valid_count, imported_by) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id',
+                (product_id, data.file_name, len(data.selected_product_ids), 0, len(data.selected_product_ids), current_user.get("user_id")),
+            )
+            batch_id = cur.fetchone()[0]
+            conn.commit()
+
+        inserted = 0
+        from services.product_service import _get_conn as svc_conn_fn
+        svc = svc_conn_fn()
+        try:
+            for pid in data.selected_product_ids:
+                try:
+                    with svc.cursor() as cur:
+                        cur.execute('SELECT product_id FROM "Product" WHERE product_id=%s', (pid,))
+                        if cur.fetchone():
+                            cur.execute('UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, last_updated_at=NOW() WHERE product_id=%s', (product_id, batch_id, pid))
+                        else:
+                            cur.execute('INSERT INTO "Product" (product_id, title, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) VALUES (%s,%s,%s,%s,FALSE,FALSE,NOW(),NOW())', (pid, pid, product_id, batch_id))
+                        inserted += 1
+                    svc.commit()
+                except Exception:
+                    svc.rollback()
+                    logger.exception("插入失败: %s", pid)
+        finally:
+            svc.close()
+
+        with conn.cursor() as cur:
+            cur.execute('UPDATE "ImportBatch" SET valid_count=%s WHERE id=%s', (inserted, batch_id))
+            conn.commit()
+
+        from scripts.check_alerts import run_alerts
+        ar = run_alerts(test_mode=False, force=False)
+
+        return {"code": 200, "msg": "导入成功", "data": {
+            "batch_id": batch_id, "import_result": {"success_count": inserted, "fail_count": len(data.selected_product_ids)-inserted, "total": len(data.selected_product_ids)},
+            "alert_result": {"checked": ar.get("checked",0), "sent": ar.get("sent",0)},
+        }}
+    except HTTPException: raise
+    except Exception as e:
+        logger.exception("确认导入失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail=f"导入失败：{e}")
     finally:
         conn.close()
