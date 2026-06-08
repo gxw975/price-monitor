@@ -17,7 +17,7 @@ interface HealthResult {
   items: HealthItem[]
 }
 
-type LogFile = 'crawl' | 'alert' | 'backend' | 'frontend'
+type LogFile = 'alert' | 'backend' | 'frontend'
 
 export default function DiagnosticsPage() {
   const { user } = useAuth()
@@ -25,7 +25,7 @@ export default function DiagnosticsPage() {
 
   const [health, setHealth] = useState<HealthResult | null>(null)
   const [loading, setLoading] = useState(true)
-  const [logFile, setLogFile] = useState<LogFile>('crawl')
+  const [logFile, setLogFile] = useState<LogFile>('alert')
   const [logLines, setLogLines] = useState<string[]>([])
   const [logInfo, setLogInfo] = useState({ total_lines: 0, showing: 0 })
   const [logLoading, setLogLoading] = useState(false)
@@ -104,7 +104,6 @@ export default function DiagnosticsPage() {
   }
 
   const logFiles: { key: LogFile; label: string }[] = [
-    { key: 'crawl', label: '抓取日志' },
     { key: 'alert', label: '预警日志' },
     { key: 'backend', label: '后端日志' },
     { key: 'frontend', label: '前端日志' },

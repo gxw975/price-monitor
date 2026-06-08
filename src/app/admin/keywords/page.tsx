@@ -312,7 +312,7 @@ export default function KeywordsPage() {
       <div className="mx-auto max-w-5xl">
         <div className="mb-6 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">关键词监控</h1>
-          <span className="text-sm text-gray-500">管理搜索关键词</span>
+          <span className="text-sm text-gray-500">关键词用于数据筛选和商品归类，搜索已改为手动Excel导入模式</span>
         </div>
 
         <div className="mb-4 flex items-center gap-3 flex-wrap">
@@ -350,18 +350,10 @@ export default function KeywordsPage() {
             </>
           )}
 
-          <button onClick={handleExport}
-            className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
-            导出 Excel
-          </button>
-
           {canWrite && (
-            <button
-              onClick={searchAllKeywords}
-              disabled={batchSearchRunning}
-              className="rounded-md bg-orange-600 px-4 py-2 text-sm text-white hover:bg-orange-700 disabled:opacity-50 ml-auto"
-            >
-              {batchSearchRunning ? '搜索中...' : '全部立即搜索'}
+            <button onClick={handleExport}
+              className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">
+              导出 Excel
             </button>
           )}
         </div>
@@ -489,27 +481,6 @@ export default function KeywordsPage() {
                                 </>
                               )}
                             </div>
-                            {canWrite && kw.is_active && (
-                              <div className="flex items-center gap-2">
-                                <button
-                                  onClick={() => searchKeyword(kw.id, kw.name)}
-                                  disabled={ss?.status === 'running'}
-                                  className="text-xs text-orange-600 hover:text-orange-800 disabled:opacity-40"
-                                >
-                                  {ss?.status === 'running' ? '⏳ 搜索中...' : '🔍 立即搜索'}
-                                </button>
-                                {ss && ss.status !== 'idle' && (
-                                  <span className={cn(
-                                    'text-xs',
-                                    ss.status === 'completed' ? 'text-green-600' : '',
-                                    ss.status === 'failed' ? 'text-red-500' : '',
-                                    ss.status === 'running' ? 'text-blue-500' : '',
-                                  )}>
-                                    {ss.message}
-                                  </span>
-                                )}
-                              </div>
-                            )}
                           </div>
                         </td>
                       </tr>

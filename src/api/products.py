@@ -1,20 +1,23 @@
-"""商品详情 API
+"""商品管理 API
 
-提供商品详情、价格历史、关联关键词和预警记录。
-权限：全员可查看。
+提供商品详情查询、Excel导入、价格历史、关联关键词和预警记录。
+权限：查看全员可访问，导入仅admin/manager。
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import tempfile
+import uuid
 from datetime import date, timedelta
+from pathlib import Path
 from typing import Any
 
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 
 from services.auth_service import get_current_user
 
@@ -24,7 +27,13 @@ logger = logging.getLogger("api.products")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 _SCHEMA = "price_monitor"
 
-router = APIRouter(prefix="/api/products", tags=["products"])
+router = APIRouter(prefix="/api/products", tags=["商品管理"])
+
+
+def _check_write_permission(role: str) -> None:
+    """校验写入权限：仅管理员和主管可操作"""
+    if role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="权限不足，仅管理员和主管可以操作")
 
 
 def _parse_db_url(url: str) -> tuple[str, str]:
@@ -134,3 +143,81 @@ def get_product_detail(
         raise HTTPException(status_code=500, detail="查询商品详情失败")
     finally:
         conn.close()
+
+
+@router.post("/import-excel", dependencies=[Depends(_check_write_permission)])
+async def import_product_excel(
+    file: UploadFile = File(...),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """手动导入DTS店透视导出的Excel文件，解析后批量入库并触发预警检测。
+
+    权限：仅admin/manager角色可访问。
+    """
+    temp_path: str = ""
+    try:
+        # 校验文件类型
+        if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
+            raise HTTPException(status_code=400, detail="仅支持Excel文件格式（.xlsx/.xls）")
+
+        # 写入临时文件（DtsDataParser.parse 需要文件路径）
+        suffix = Path(file.filename).suffix
+        temp_path = os.path.join(tempfile.gettempdir(), f"dts_import_{uuid.uuid4().hex}{suffix}")
+        with open(temp_path, "wb") as f:
+            content = await file.read()
+            f.write(content)
+
+        logger.info("Excel导入: 文件=%s 大小=%d bytes", file.filename, len(content))
+
+        # 解析Excel文件（复用现有DTS解析逻辑）
+        from services.dts_parser import DtsDataParser
+
+        parser = DtsDataParser()
+        parsed_data = parser.parse(temp_path)
+        if not parsed_data or len(parsed_data) == 0:
+            raise HTTPException(status_code=400, detail="Excel文件解析失败，未提取到有效商品数据")
+
+        logger.info("Excel解析: %d 条商品数据", len(parsed_data))
+
+        # 批量入库（复用现有商品服务，用"手动导入"作为关键词）
+        from services.product_service import insert_search_results
+
+        inserted = insert_search_results("手动导入", parsed_data)
+
+        # 导入成功后立即触发预警检测
+        from scripts.check_alerts import run_alerts
+
+        alert_result = run_alerts(test_mode=False, force=False)
+
+        logger.info("Excel导入完成: 成功%d条, 预警检测=%s", inserted, alert_result)
+
+        return {
+            "code": 200,
+            "msg": "导入成功",
+            "data": {
+                "import_result": {
+                    "success_count": inserted,
+                    "fail_count": len(parsed_data) - inserted,
+                    "total": len(parsed_data),
+                },
+                "alert_result": {
+                    "checked": alert_result.get("checked", 0),
+                    "price_alerts": alert_result.get("price_alerts", 0),
+                    "sales_alerts": alert_result.get("sales_alerts", 0),
+                    "sent": alert_result.get("sent", 0),
+                },
+            },
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Excel导入失败: %s", e)
+        raise HTTPException(status_code=500, detail=f"导入失败：{e}")
+    finally:
+        # 清理临时文件
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass

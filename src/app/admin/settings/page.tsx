@@ -32,7 +32,7 @@ interface Settings {
   updated_at: string | null
 }
 
-type Tab = 'service' | 'cron' | 'alert' | 'push' | 'taobao'
+type Tab = 'service' | 'cron' | 'alert' | 'push'
 
 interface TaobaoLoginState {
   success: boolean
@@ -374,7 +374,6 @@ export default function SettingsPage() {
     { key: 'cron', label: '定时任务' },
     { key: 'alert', label: '报警阈值' },
     { key: 'push', label: '推送设置' },
-    { key: 'taobao', label: '淘宝登录' },
   ]
 
   const serviceLabels: Record<string, string> = {
@@ -942,157 +941,6 @@ export default function SettingsPage() {
                 </div>
               </div>
             )}
-          </div>
-        )}
-
-        {tab === 'taobao' && (
-          <div className="space-y-4">
-            <div className="rounded-lg border border-gray-200 bg-white p-6">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-base font-semibold text-gray-900">淘宝账号登录</h2>
-                {tbStatus && (
-                  <span className={`text-sm px-3 py-1 rounded-full font-medium ${
-                    tbStatus.logged_in ? 'bg-green-100 text-green-700' :
-                    tbStatus.blocked ? 'bg-red-100 text-red-700' :
-                    'bg-gray-100 text-gray-500'
-                  }`}>
-                    {tbStatus.logged_in
-                      ? `已登录${tbStatus.username ? `：${tbStatus.username}` : ''}`
-                      : tbStatus.blocked ? '账号受限' : '未登录'}
-                  </span>
-                )}
-              </div>
-
-              {tbMsg && (
-                <div className={`mb-4 rounded-lg px-4 py-3 text-sm ${
-                  tbMsg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-200' :
-                  tbMsg.type === 'error' ? 'bg-red-50 text-red-700 border border-red-200' :
-                  'bg-yellow-50 text-yellow-700 border border-yellow-200'
-                }`}>
-                  {tbMsg.text}
-                </div>
-              )}
-
-              {tbLogin?.qrcode ? (
-                <>
-                  <div
-                    className="mb-4 flex justify-center rounded-lg border border-gray-200 bg-gray-50 cursor-pointer hover:bg-gray-100 transition-colors"
-                    style={{ minHeight: '500px' }}
-                    onClick={() => setTbZoom(true)}
-                  >
-                    <img
-                      src={tbLogin.qrcode}
-                      alt="淘宝登录二维码"
-                      className="w-full h-auto object-contain rounded"
-                    />
-                  </div>
-                  <p className="mb-3 text-xs text-center text-gray-400">点击图片可放大查看</p>
-                </>
-              ) : (
-                <div
-                  className="mb-4 flex items-center justify-center rounded-lg border border-dashed border-gray-300 bg-gray-50 text-gray-400"
-                  style={{ minHeight: '500px' }}
-                >
-                  <div className="text-center">
-                    <svg className="mx-auto mb-2 h-10 w-10 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
-                    </svg>
-                    <p className="text-sm">点击下方按钮获取登录二维码</p>
-                  </div>
-                </div>
-              )}
-
-              <div className="flex gap-3 flex-wrap">
-                {!tbLogin?.qrcode ? (
-                  <button
-                    onClick={startTaobaoLogin}
-                    disabled={tbLoading}
-                    className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {tbLoading ? (
-                      <>
-                        <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
-                        打开浏览器中...
-                      </>
-                    ) : (
-                      <>
-                        <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 5.25v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.5a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM4.5 19.5a7.5 7.5 0 0115 0v.75H4.5V19.5z" />
-                        </svg>
-                        刷新淘宝登录
-                      </>
-                    )}
-                  </button>
-                ) : (
-                  <>
-                    <button
-                      onClick={refreshTaobaoQR}
-                      disabled={tbLoading}
-                      className="flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-5 py-2.5 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M23 4v6h-6"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-                      </svg>
-                      刷新二维码
-                    </button>
-                    <span className="flex items-center gap-2 text-sm text-green-600">
-                      <span className="inline-block h-2 w-2 animate-pulse rounded-full bg-green-400" />
-                      等待扫码中...
-                    </span>
-                  </>
-                )}
-
-                {tbStatus?.logged_in && (
-                  <button
-                    onClick={handleTaobaoLogout}
-                    disabled={tbLoading}
-                    className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-5 py-2.5 text-sm font-medium text-red-700 hover:bg-red-100 disabled:opacity-50 ml-auto"
-                  >
-                    退出登录
-                  </button>
-                )}
-              </div>
-
-              <div className="mt-4 rounded-lg bg-blue-50 border border-blue-100 px-4 py-3">
-                <div className="flex items-start gap-2">
-                  <svg className="h-5 w-5 text-blue-400 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <div className="text-sm text-blue-700">
-                    <p className="font-medium mb-1">登录说明</p>
-                    <ol className="list-decimal list-inside space-y-1 text-blue-600">
-                      <li>点击「刷新淘宝登录」获取最新二维码</li>
-                      <li>使用手机淘宝/天猫APP扫描二维码</li>
-                      <li>在手机上确认登录</li>
-                      <li>登录成功后状态会自动更新，后续抓取任务将使用该账号</li>
-                    </ol>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {tbZoom && tbLogin?.qrcode && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 cursor-pointer"
-            onClick={() => setTbZoom(false)}
-          >
-            <div className="relative max-h-[90vh] max-w-[90vw]">
-              <img
-                src={tbLogin.qrcode}
-                alt="淘宝登录二维码（放大）"
-                className="max-h-[90vh] max-w-[90vw] object-contain rounded-lg shadow-2xl"
-              />
-              <button
-                onClick={() => setTbZoom(false)}
-                className="absolute -top-3 -right-3 rounded-full bg-white p-2 shadow-lg hover:bg-gray-100"
-              >
-                <svg className="h-5 w-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
           </div>
         )}
       </div>

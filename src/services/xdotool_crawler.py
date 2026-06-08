@@ -1,3 +1,4 @@
+# 已废弃: 2026-06-08 系统改为手动Excel导入模式，不再使用自动抓取功能
 """纯xdotool物理操作爬虫 — 零CDP，彻底绕过淘宝检测
 
 基于已验证的技术栈:
@@ -67,12 +68,14 @@ DOWNLOAD_TIMEOUT = 120
 FLOW_TIMEOUT = 45 * 60  # 总流程超时 45 分钟
 
 # DTS 自动加载配置（经验验证参数）
-AUTO_LOAD_SINGLE_WAIT = 25       # 每次点击后等待25秒
-AUTO_LOAD_BATCH_SIZE = 8          # 每8次点击一批
-AUTO_LOAD_BATCH_PAUSE = 325       # 每批后暂停325秒（约5.5分钟）
-AUTO_LOAD_MAX_BATCHES = 12        # 最多12批
+AUTO_LOAD_SINGLE_WAIT = 15       # 每次点击后等待15秒（加速测试）
+AUTO_LOAD_BATCH_SIZE = 5          # 每5次点击一批（加速测试）
+AUTO_LOAD_BATCH_PAUSE = 30        # 每批后暂停30秒（加速测试）
+AUTO_LOAD_MAX_BATCHES = 6         # 最多6批
 # 滑块验证配置
-MAX_SLIDER_RETRIES = 3
+MAX_SLIDER_RETRIES = 5
+# 验证失败特征（基于实测）
+CAPTCHA_FAIL_KEYWORDS = ["验证失败", "点击框体重试", "点击我重试", "再试一次"]
 
 
 def _xdotool_env() -> dict:
@@ -119,6 +122,15 @@ class XdotoolCrawler:
         self._x11_X = None
         self._keyword: str = ""
         self._verifier = None  # 延迟初始化
+        self._captcha_detector = None  # 延迟初始化
+        self._captcha_detect_info = None  # 最近一次检测结果详情
+
+    def _get_captcha_detector(self):
+        """获取验证码检测器（延迟导入避免循环依赖）"""
+        if self._captcha_detector is None:
+            from services.captcha_detector import CaptchaDetector
+            self._captcha_detector = CaptchaDetector()
+        return self._captcha_detector
 
     def _get_verifier(self):
         """获取页面验证器（延迟导入避免循环依赖）"""
@@ -130,37 +142,46 @@ class XdotoolCrawler:
     def _verify_step(self, step_name: str, expected_page: str = "") -> dict:
         """每个操作前的综合验证（页面状态 + 验证码）。
 
-        验证通过 → 返回 {"ok": True}
-        验证码检出 → 自动调用求解 → 求解成功返回 {"ok": True}
-        页面不匹配 → 记录警告但继续执行（避免因为标题检测误判而中断）
+        使用增强的多维检测（标题 + URL + CDP），确保不遗漏页面内覆盖层验证码。
+        检测到验证码 → 立即求解 → 求解失败则抛出 CaptchaBlockError。
 
-        严禁绕过验证码 — 检测到验证码必须立即处理。
+        严禁绕过滑块验证 — 检测到验证码必须立即处理。
         """
+        # ── 先使用增强的爬虫内置检测（标题+URL+CDP） ──
+        has_captcha_direct = self._detect_captcha()
+
+        # ── 同时使用 page_verifier 做页面断言 ──
         verifier = self._get_verifier()
         result = verifier.verify_before_action(
             step_name, expected_page, self._keyword
         )
 
-        if result["has_captcha"]:
+        # 合并检测结果（任一来源检测到都算）
+        has_captcha = has_captcha_direct or result.get("has_captcha", False)
+
+        # 记录每步页面特征
+        title = self._get_window_title()
+        self._record_feature(step_name,
+            f"captcha={has_captcha} page_ok={result.get('page_ok')} "
+            f"expected={expected_page} title='{title[:80]}'")
+
+        if has_captcha:
             logger.warning("[验证] %s: 检测到验证码，立即处理!", step_name)
             if not self._handle_captcha():
                 raise CaptchaBlockError(
                     "步骤'%s'验证码求解失败" % step_name
                 )
-            # 验证通过后重新检查页面
+            # 验证通过后重新检查
             time.sleep(3)
-            result2 = verifier.verify_before_action(
-                f"{step_name}(验证后)", expected_page, self._keyword
-            )
-            if result2["has_captcha"]:
+            still_has = self._detect_captcha()
+            if still_has:
                 raise CaptchaBlockError(
                     "步骤'%s'验证码求解后仍检测到验证码" % step_name
                 )
-            result = result2
 
-        if not result["page_ok"]:
+        if not result.get("page_ok"):
             logger.warning(
-                "[验证] %s: 页面状态异常 — %s — 继续执行（避免误判中断）",
+                "[验证] %s: 页面状态异常 — %s — 排查是否因验证码阻塞",
                 step_name, "; ".join(result.get("warnings", []))
             )
 
@@ -324,18 +345,10 @@ class XdotoolCrawler:
         2. 按 class 搜索 google-chrome，选最大窗口（排除10x10隐藏窗口）
         3. 按名称搜索"Google Chrome"
         """
-        # 策略1: 名称搜索"淘宝"（最优先，直接定位到淘宝页面）
-        result = _xd("search", "--name", "淘宝")
-        wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
-        if wids:
-            logger.debug("[窗口] 通过名称'淘宝'找到: %s", wids[0])
-            return wids[0]
-
-        # 策略2: class搜索，选最大窗口（排除隐藏的10x10辅助窗口）
+        # 策略1: class搜索，选最大窗口（排除隐藏的10x10辅助窗口）
         result = _xd("search", "--class", "google-chrome")
         wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
         if wids:
-            # 按窗口面积排序，选最大的
             best_wid = None
             best_area = 0
             for wid in wids:
@@ -353,8 +366,8 @@ class XdotoolCrawler:
                         best_wid = wid
                 except Exception:
                     pass
-            if best_wid and best_area > 10000:  # 至少100x100以上
-                logger.debug("[窗口] 通过class+面积(%d)找到: %s", best_area, best_wid)
+            if best_wid and best_area > 100000:  # 至少320x320以上真实窗口
+                logger.debug("[窗口] 通过面积(%d)找到: %s", best_area, best_wid)
                 return best_wid
             # 如果所有窗口都很小，返回第一个
             if wids:
@@ -379,8 +392,8 @@ class XdotoolCrawler:
             return False
 
         try:
-            _xd("windowactivate", "--sync", wid)
-            _xd("windowfocus", "--sync", wid)
+            _xd("windowactivate", wid)
+            _xd("windowfocus", wid)
             self._chrome_wid = wid
             time.sleep(0.3)
             return True
@@ -405,6 +418,13 @@ class XdotoolCrawler:
                         result[k.lower()] = int(v)
                     except ValueError:
                         pass
+            # xdotool outputs WIDTH/HEIGHT, provide w/h aliases
+            if "width" in result:
+                result["w"] = result["width"]
+            if "height" in result:
+                result["h"] = result["height"]
+            if "x" not in result and "X" in result:
+                result["x"] = result["X"] if "X" in result else 0
             return result
         except Exception:
             return {"x": 0, "y": 0, "w": 1280, "h": 800}
@@ -522,32 +542,175 @@ class XdotoolCrawler:
     # ═══════════════════════════════════════════════════════════════
 
     def _detect_captcha(self) -> bool:
-        """检测是否有验证码（通过窗口标题 + 已知URL特征）。
+        """检测验证码（截图分析 + 标题检测，无干扰操作）。
 
-        关键检测特征（实测记录）:
-        1. 标题包含 "h5api.m.taobao.com" → 验证码iframe/弹窗页面
-        2. 标题包含传统验证码关键词: 验证码/滑块/slider/punish
+        检测策略:
+        1. 【优先】截图分析：白色弹窗 → 灰色滑轨 → 文字行 → >>箭头
+        2. 【备用】CDP Runtime.evaluate（如果CDP端口可用）
+        3. 【备用】窗口标题关键词匹配
 
-        验证失败状态特征:
-        - "点击我重试" = errloading 错误，需点击重置
-        - "验证失败，点击框体重试" = 轨迹被判为机器人
+        绝不操作浏览器UI（不碰地址栏、不切换焦点）。
+        检测到验证码时将精确坐标存入 self._captcha_detect_info。
         """
-        title = self._get_window_title()
+        detector = self._get_captcha_detector()
+        wid = self._chrome_wid or self._find_chrome_wid()
+        if not wid:
+            return False
 
-        # 核心特征: h5api.m.taobao.com (淘宝验证码iframe域名)
-        if "h5api.m.taobao.com" in title or "h5api" in title:
-            logger.warning("[验证码] 检测到h5api验证码域名: %s", title[:80])
+        found, info = detector.detect(wid)
+        if found:
+            self._captcha_detect_info = info
+            method = info.get("method", "unknown")
+            if method == "screenshot":
+                logger.warning(
+                    "[验证码] 截图检测到滑块弹窗: 置信度=%d%%, 轨Y=%d, 轨宽=%d",
+                    info.get("confidence", 0),
+                    info.get("track_y", 0),
+                    info.get("track_width", 0),
+                )
+            elif method == "title":
+                logger.warning("[验证码] 标题检测到'%s': %s",
+                             info.get("keyword", ""), info.get("title", "")[:100])
+            self._record_feature("captcha_detect", f"method:{method}")
             return True
 
-        # 传统关键词检测
-        captcha_keywords = ["验证码", "验证", "captcha", "安全验证",
-                            "滑动", "punish", "slider", "_____tmd_____"]
-        for kw in captcha_keywords:
-            if kw.lower() in title.lower():
-                logger.warning("[验证码] 检测到关键词'%s': %s", kw, title[:80])
+        return False
+
+    def _detect_captcha_cdp(self) -> bool:
+        """通过CDP Runtime.evaluate直接检查页面DOM中的验证码元素。
+
+        检测淘宝滑块验证码的DOM特征:
+        - #nc_1_n1z (标准淘宝滑块按钮)
+        - .nc_wrapper (滑块容器)
+        - [class*="captcha"], [class*="verify"] (通用验证码)
+        - window.location.href 中的风控URL特征
+        """
+        try:
+            import urllib.request, json as _json, websocket
+            # 连接CDP
+            resp = urllib.request.urlopen("http://127.0.0.1:9223/json", timeout=3)
+            targets = _json.loads(resp.read())
+
+            # 找当前页面
+            page_ws = None
+            for t in targets:
+                if t.get("type") == "page":
+                    page_ws = t.get("webSocketDebuggerUrl")
+                    break
+            if not page_ws:
+                return False
+
+            ws = websocket.create_connection(page_ws, timeout=5,
+                origin="http://127.0.0.1:9223")
+
+            # DOM检测表达式
+            detect_js = """
+            (function(){
+                var result = {found: false, type: '', detail: ''};
+
+                // 检查淘宝标准滑块元素
+                var slider = document.querySelector('#nc_1_n1z');
+                var wrapper = document.querySelector('.nc_wrapper');
+                var scaleText = document.querySelector('#nc_1__scale_text');
+                if (slider && wrapper) {
+                    result.found = true;
+                    result.type = 'nc_slider';
+                    result.detail = '淘宝标准滑块验证码(nc_1_n1z)';
+                    var sr = slider.getBoundingClientRect();
+                    var wr = wrapper.getBoundingClientRect();
+                    result.sliderX = Math.round(sr.x + sr.width/2);
+                    result.sliderY = Math.round(sr.y + sr.height/2);
+                    result.trackWidth = Math.round(wr.width);
+                    result.visible = sr.width > 0 && sr.height > 0;
+                }
+
+                // 检查通用验证码元素
+                if (!result.found) {
+                    var captchaEls = document.querySelectorAll(
+                        '[class*="captcha"], [class*="verify"], [id*="captcha"], [id*="verify"], ' +
+                        '[class*="slider"], [class*="滑块"], [class*="验证"], ' +
+                        '.baxia-dialog, .sufei-dialog, .login-form'
+                    );
+                    for (var i = 0; i < captchaEls.length; i++) {
+                        var el = captchaEls[i];
+                        var rect = el.getBoundingClientRect();
+                        if (rect.width > 50 && rect.height > 50) {
+                            result.found = true;
+                            result.type = 'captcha_element';
+                            result.detail = el.className || el.id || 'captcha_dom';
+                            break;
+                        }
+                    }
+                }
+
+                // 检查URL中的风控特征
+                if (!result.found) {
+                    var url = window.location.href;
+                    var urlFlags = ['h5api', 'punish', '_____tmd_____', 'x5sec', 'errloading'];
+                    for (var j = 0; j < urlFlags.length; j++) {
+                        if (url.indexOf(urlFlags[j]) >= 0) {
+                            result.found = true;
+                            result.type = 'url_flag';
+                            result.detail = 'URL含风控标记: ' + urlFlags[j];
+                            break;
+                        }
+                    }
+                }
+
+                // 检查页面标题
+                if (!result.found) {
+                    var title = document.title;
+                    var titleFlags = ['验证码', '滑块', '拦截', 'captcha', 'verify'];
+                    for (var k = 0; k < titleFlags.length; k++) {
+                        if (title.indexOf(titleFlags[k]) >= 0) {
+                            result.found = true;
+                            result.type = 'title_flag';
+                            result.detail = '标题含: ' + titleFlags[k];
+                            break;
+                        }
+                    }
+                }
+
+                return JSON.stringify(result);
+            })();
+            """
+
+            msg = _json.dumps({
+                "id": 1, "method": "Runtime.evaluate",
+                "params": {"expression": detect_js, "returnByValue": True}
+            })
+            ws.send(msg)
+            raw = ws.recv()
+            ws.close()
+
+            data = _json.loads(raw)
+            value = _json.loads(
+                data.get("result", {}).get("result", {}).get("value", "{}")
+            )
+
+            if value.get("found"):
+                logger.warning("[验证码] CDP检测到验证码: type=%s detail=%s visible=%s",
+                    value.get("type"), value.get("detail"), value.get("visible"))
+                self._record_feature("captcha_detect",
+                    f"cdp:{value.get('type')}:{value.get('detail')}")
+                # 保存滑块坐标供后续求解使用
+                if value.get("sliderX"):
+                    self._cdp_slider_x = value["sliderX"]
+                    self._cdp_slider_y = value.get("sliderY", 0)
+                    self._cdp_track_w = value.get("trackWidth", 0)
                 return True
 
-        return False
+            return False
+
+        except Exception as e:
+            logger.debug("[验证码] CDP检测不可用: %s", e)
+            return False
+
+    def _record_feature(self, step: str, detail: str) -> None:
+        """记录每一步的页面特征"""
+        title = self._get_window_title()
+        logger.info("[特征] %s | detail=%s | title=%s",
+                   step, detail, title[:120])
 
     def _init_x11(self):
         """初始化 python-xlib XTest（用于滑块拖拽）"""
@@ -571,112 +734,166 @@ class XdotoolCrawler:
     # 弹窗消失 = 验证通过
 
     def _solve_captcha_x11(self) -> bool:
-        """滑块验证码求解（改进版 — 基于经验文档+实测校准）。
+        """滑块验证码求解（v3 — 高仿真人类拖拽轨迹）。
 
         关键改进:
-        - 使用 xdotool mousedown/mousemove/mouseup（比XTest更原生）
-        - 动态计算滑块坐标（基于窗口几何 + 经验比例）
-        - 多段变速轨迹: 加速→匀速→减速 + 微手抖
-        - 步数控制在10-15步，总时长0.8-1.8秒
-        - 过冲回弹模拟真人松手前犹豫
+        - 40-60个拖拽点，总时长2-3.5秒（模拟人类拖拽速度）
+        - 非线性变速: 慢启动→加速→匀速→减速→微停顿→到位
+        - Y轴自然漂移: 多频正弦波叠加，模拟人手不稳定
+        - 过冲回弹: 松手前短暂超过目标再回来
+        - 使用 xdotool 原生事件（浏览器信任 isTrusted=true）
 
         Returns:
             是否成功求解
         """
-        logger.info("[验证码] 滑块求解（优化版）...")
+        logger.info("[验证码] 滑块求解v3（高仿真轨迹）...")
 
         try:
+            # ── 获取窗口几何（两种路径都需要ww）──
             geo = self._get_window_geometry()
-            wx = geo.get("x", 66)
+            wx = geo.get("x", 0)
             wy = geo.get("y", 32)
             ww = geo.get("w", 1280)
             wh = geo.get("h", 800)
 
-            # 滑块坐标计算（基于窗口大小的比例估算）
-            # 经验: 滑块轨道中心在窗口X约55%、Y约67%处
-            track_cx = wx + int(ww * 0.55)
-            track_cy = wy + int(wh * 0.67)
-            # 滑块按钮在轨道左端约40%处
-            sx = wx + int(ww * 0.43)
-            sy = track_cy
-            dist = int(ww * 0.22)  # 轨道约22%窗口宽度
+            # ── 坐标来源优先级 ──
+            # 1. 截图检测器精确坐标（CaptchaDetector）
+            # 2. CDP DOM检测坐标
+            # 3. 视口估算（最后手段，不推荐）
+            detector = self._get_captcha_detector()
+            detect_info = getattr(self, '_captcha_detect_info', None)
+            det_sx, det_sy, det_dist = detector.get_slider_coords(wx, wy, detect_info)
+
+            cdp_sx = getattr(self, '_cdp_slider_x', 0)
+            cdp_sy = getattr(self, '_cdp_slider_y', 0)
+            cdp_dist = getattr(self, '_cdp_track_w', 0)
+
+            if det_sx is not None and det_sy is not None:
+                # 截图检测器提供了精确坐标
+                sx = det_sx
+                sy = det_sy
+                dist = det_dist if det_dist > 0 else int(ww * 0.22)
+                logger.info("[验证码] 使用截图精确坐标: (%d,%d) dist=%d", sx, sy, dist)
+            elif cdp_sx > 0 and cdp_sy > 0:
+                # CDP提供了精确坐标 — 直接使用
+                sx = cdp_sx
+                sy = cdp_sy
+                dist = cdp_dist if cdp_dist > 0 else int(ww * 0.22)
+                logger.info("[验证码] 使用CDP精确坐标: (%d,%d) dist=%d", sx, sy, dist)
+            else:
+                # ── 估算坐标（视口基准，仅紧急备用）──
+                logger.warning("[验证码] ⚠️ 无精确坐标，使用估算值（可能不准）")
+                toolbar_h = 85
+                viewport_y = wy + toolbar_h
+                viewport_h = wh - toolbar_h
+
+                sx = wx + int(ww * 0.43)
+                sy = viewport_y + int(viewport_h * 0.48)
+                dist = int(ww * 0.22)
+
+            # 随机微调起始位置（±5px模拟每次点击的微小差异）
+            sx += random.randint(-5, 5)
+            sy += random.randint(-3, 3)
 
             logger.info("[验证码] 计算坐标: screen(%d,%d) dist=%d (窗口%dx%d)", sx, sy, dist, ww, wh)
 
-            # ── 使用 xdotool 原生事件拖拽（被浏览器信任）──
             env = _xdotool_env()
 
-            # 1. 接近滑块（2-3段折线模拟找按钮）
-            approach_points = [
-                (sx - random.randint(60, 90), sy + random.randint(-15, 15)),
-                (sx - random.randint(20, 35), sy + random.randint(-5, 5)),
+            # ── 阶段1: 接近滑块 ──
+            approach = [
+                (sx - random.randint(80, 120), sy + random.randint(-20, 20)),
+                (sx - random.randint(30, 50), sy + random.randint(-8, 8)),
                 (sx, sy),
             ]
-            for ax, ay in approach_points:
-                subprocess.run(
-                    ["xdotool", "mousemove", str(ax), str(ay)],
-                    env=env, capture_output=True, timeout=5,
-                )
-                time.sleep(0.06 + random.random() * 0.08)
+            for ax, ay in approach:
+                subprocess.run(["xdotool", "mousemove", str(ax), str(ay)],
+                              env=env, capture_output=True, timeout=5)
+                time.sleep(0.08 + random.random() * 0.12)
 
-            # 2. 瞄准停顿
-            time.sleep(0.1 + random.random() * 0.15)
+            # ── 阶段2: 瞄准停顿（模拟人眼看准目标）──
+            time.sleep(0.15 + random.random() * 0.25)
 
-            # 3. 按下
+            # ── 阶段3: 按下鼠标 ──
             subprocess.run(["xdotool", "mousedown", "1"],
                           env=env, capture_output=True, timeout=5)
-            time.sleep(0.03 + random.random() * 0.03)
+            # 按下后微停顿（模拟反应时间）
+            time.sleep(0.05 + random.random() * 0.08)
 
-            # 4. 三段式拖拽: 加速→匀速→减速
-            segments = [
-                (0.0, 0.20, 0.05, 0.09),   # 起手加速 20%
-                (0.20, 0.75, 0.03, 0.06),  # 中间匀速 55%
-                (0.75, 1.0, 0.06, 0.11),   # 末尾减速 25%
-            ]
+            # ── 阶段4: 主拖拽轨迹（40-60点，2-3.5秒）──
+            total_points = random.randint(40, 60)
+            total_time = random.uniform(2.0, 3.5)  # 总拖拽时长
 
-            total_points = 0
-            for seg_start, seg_end, min_d, max_d in segments:
-                n = random.randint(4, 7)
-                total_points += n
-                for j in range(n):
-                    sp = j / n
-                    p = seg_start + (seg_end - seg_start) * sp
-                    # ease-out 缓出曲线 + 微随机
-                    e = 1 - (1 - p) ** 2.2
-                    e += (random.random() - 0.5) * 0.006
+            # 生成非线性时间分布（慢-快-慢）
+            time_points = []
+            for i in range(total_points):
+                p = i / (total_points - 1)  # 0→1
+                # S曲线: 开始慢，中间快，结尾慢
+                if p < 0.15:
+                    # 起始阶段：非常慢（模拟克服静摩擦）
+                    t_scale = p * 2.5  # 慢速
+                elif p < 0.75:
+                    # 中间阶段：匀速偏快
+                    t_scale = 0.375 + (p - 0.15) * 0.8
+                else:
+                    # 结尾阶段：减速
+                    t_scale = 0.855 + (p - 0.75) * 0.6
+                time_points.append(t_scale * total_time)
 
-                    ex = int(sx + dist * e)
-                    # 多频自然手抖
-                    wobble = (math.sin(p * math.pi * 4.7) * 1.5 +
-                              math.sin(p * math.pi * 11.3) * 0.5)
-                    ey = int(sy + wobble)
+            # 生成空间轨迹（带自然漂移）
+            for i in range(total_points):
+                p = i / (total_points - 1)
 
-                    subprocess.run(
-                        ["xdotool", "mousemove", str(ex), str(ey)],
-                        env=env, capture_output=True, timeout=5,
-                    )
-                    time.sleep(min_d + random.random() * (max_d - min_d))
+                # X方向：使用ease-out曲线 + 微随机
+                ease = 1 - (1 - p) ** 2.5
+                # 添加微小的前后抖动（模拟手指微颤）
+                jitter = (random.random() - 0.5) * 0.003 * (1 - abs(p - 0.5) * 2)
+                x_progress = ease + jitter
 
-            # 5. 过冲回弹（模拟松手前犹豫）
-            subprocess.run(
-                ["xdotool", "mousemove",
-                 str(sx + dist + random.randint(1, 4)),
-                 str(sy + random.randint(-1, 1))],
-                env=env, capture_output=True, timeout=5,
-            )
-            time.sleep(0.04)
-            subprocess.run(
-                ["xdotool", "mousemove", str(sx + dist), str(sy)],
-                env=env, capture_output=True, timeout=5,
-            )
-            time.sleep(0.08 + random.random() * 0.1)
+                ex = int(sx + dist * x_progress)
 
-            # 6. 松手
+                # Y方向：多频手抖叠加
+                wobble = (math.sin(p * math.pi * 3.7) * 2.0 +
+                          math.sin(p * math.pi * 7.3) * 1.0 +
+                          math.sin(p * math.pi * 13.7) * 0.4 +
+                          (random.random() - 0.5) * 0.8)
+                ey = int(sy + wobble)
+
+                subprocess.run(
+                    ["xdotool", "mousemove", str(ex), str(ey)],
+                    env=env, capture_output=True, timeout=5,
+                )
+
+                # 计算该点应该等待的时间
+                if i < total_points - 1:
+                    dt = time_points[i + 1] - time_points[i]
+                    # 添加微小的随机等待变异
+                    dt += (random.random() - 0.5) * 0.01
+                    if dt < 0.005:
+                        dt = 0.005
+                    time.sleep(dt)
+
+            # ── 阶段5: 过冲回弹（松手前短暂犹豫）──
+            overshoot = random.randint(2, 6)
+            for _ in range(random.randint(2, 4)):
+                ox = sx + dist + overshoot + random.randint(-2, 2)
+                oy = sy + random.randint(-2, 2)
+                subprocess.run(["xdotool", "mousemove", str(ox), str(oy)],
+                              env=env, capture_output=True, timeout=5)
+                time.sleep(0.03 + random.random() * 0.05)
+
+            # 回到目标位置
+            time.sleep(0.02)
+            subprocess.run(["xdotool", "mousemove", str(sx + dist), str(sy)],
+                          env=env, capture_output=True, timeout=5)
+            # 松手前的最后停顿
+            time.sleep(0.06 + random.random() * 0.1)
+
+            # ── 阶段6: 松手 ──
             subprocess.run(["xdotool", "mouseup", "1"],
                           env=env, capture_output=True, timeout=5)
 
-            logger.info("[验证码] 拖拽完成: %d点 screen(%d,%d)→(%d,%d)",
-                       total_points, sx, sy, sx + dist, sy)
+            logger.info("[验证码] 拖拽完成: %d点 screen(%d,%d)→(%d,%d) 约%.1fs",
+                       total_points, sx, sy, sx + dist, sy, total_time)
 
             # 等待验证结果
             time.sleep(4)
@@ -689,27 +906,118 @@ class XdotoolCrawler:
     def _handle_captcha(self) -> bool:
         """处理验证码：检测 → 求解 → 验证结果。
 
+        增强策略：
+        1. X11拖拽（优先尝试）
+        2. 失败后点击"点我反馈" → "频繁看到验证码" → 提交（降低难度）
+        3. 降低难度后重新拖拽
+
         Returns:
             是否成功处理
         """
-        for attempt in range(1, MAX_SLIDER_RETRIES + 1):
-            if not self._detect_captcha():
-                logger.info("[验证码] 无验证码弹窗")
-                return True
+        captcha_detected = self._detect_captcha()
+        if not captcha_detected:
+            logger.info("[验证码] 无验证码弹窗")
+            return True
 
+        for attempt in range(1, MAX_SLIDER_RETRIES + 1):
             logger.info("[验证码] 第 %d/%d 次尝试求解", attempt, MAX_SLIDER_RETRIES)
             self._activate_chrome()
 
+            # 第2次失败后，尝试反馈降低难度
+            if attempt >= 3 and not self._captcha_feedback_reduce():
+                logger.warning("[验证码] 反馈降难失败，继续尝试拖拽")
+
             if self._solve_captcha_x11():
-                time.sleep(3)
+                time.sleep(4)
                 if not self._detect_captcha():
+                    logger.info("[验证码] ✅ 第%d次求解成功!", attempt)
                     return True
                 logger.warning("[验证码] 拖拽后验证码仍在，重试...")
             else:
                 time.sleep(3)
 
+            # 如果检测到验证失败提示，点击重试
+            self._click_captcha_retry()
+
         logger.error("[验证码] 求解失败，已重试%d次", MAX_SLIDER_RETRIES)
         return False
+
+    def _captcha_feedback_reduce(self) -> bool:
+        """点击验证码弹窗底部的'点我反馈' → 选择'频繁看到验证码' → 提交。
+
+        策略来源: 实测验证 — 提交反馈后验证难度降低。
+
+        Returns:
+            是否成功提交反馈
+        """
+        logger.info("[验证码] 尝试反馈降低验证难度...")
+        try:
+            self._activate_chrome()
+            geo = self._get_window_geometry()
+            wx = geo.get("x", 0)
+            wy = geo.get("y", 0)
+            ww = geo.get("w", 1280)
+            wh = geo.get("h", 800)
+
+            # 验证码弹窗通常在页面中央
+            # "点我反馈"链接在弹窗底部区域
+            # 弹窗约500x350，中心在(ww/2, wh*0.4)
+            popup_bottom_y = wy + int(wh * 0.52)
+
+            # 点击"点我反馈"（弹窗底部偏左）
+            feedback_x = wx + int(ww * 0.35)
+            feedback_y = popup_bottom_y
+            logger.info("[反馈] 点击'点我反馈' (%d, %d)", feedback_x, feedback_y)
+            self._natural_click(feedback_x, feedback_y)
+            time.sleep(3)
+
+            # 检查是否打开了新标签页
+            title = self._get_window_title()
+            logger.info("[反馈] 当前页面: %s", title[:80])
+
+            # "频繁看到验证码"选项 — 在新标签页中
+            # 选项位置通常在页面中部偏左
+            opt_x = wx + int(ww * 0.25)
+            opt_y = wy + int(wh * 0.45)
+            logger.info("[反馈] 点击'频繁看到验证码'选项 (%d, %d)", opt_x, opt_y)
+            self._natural_click(opt_x, opt_y)
+            time.sleep(1.5)
+
+            # 点击"提交"按钮（页面底部）
+            submit_x = wx + int(ww * 0.5)
+            submit_y = wy + int(wh * 0.65)
+            logger.info("[反馈] 点击'提交' (%d, %d)", submit_x, submit_y)
+            self._natural_click(submit_x, submit_y)
+            time.sleep(3)
+
+            # 验证标签页是否自动关闭
+            title = self._get_window_title()
+            logger.info("[反馈] 提交后页面: %s", title[:80])
+            logger.info("[反馈] 验证难度应已降低，重新尝试拖拽...")
+            return True
+
+        except Exception as e:
+            logger.warning("[反馈] 异常: %s", e)
+            return False
+
+    def _click_captcha_retry(self) -> None:
+        """检测验证失败提示并点击重试按钮"""
+        title = self._get_window_title()
+        for kw in CAPTCHA_FAIL_KEYWORDS:
+            if kw in title:
+                logger.info("[验证码] 检测到失败提示'%s'，点击重试", kw)
+                self._activate_chrome()
+                geo = self._get_window_geometry()
+                wx = geo.get("x", 0)
+                wy = geo.get("y", 0)
+                ww = geo.get("w", 1280)
+                wh = geo.get("h", 800)
+                # 重试按钮通常在滑块轨道上方
+                retry_x = wx + int(ww * 0.5)
+                retry_y = wy + int(wh * 0.58)
+                self._natural_click(retry_x, retry_y)
+                time.sleep(2)
+                return
 
     def _check_captcha_barrier(self, step_name: str) -> None:
         """每个操作步骤后检查验证码，有则立即处理。
@@ -981,14 +1289,19 @@ class XdotoolCrawler:
         self._scroll_down(random.randint(2, 5))
         time.sleep(1 + random.random() * 2)
 
-        # ── 检查验证码 ──
-        if self._detect_captcha():
-            logger.warning("[搜索] 搜索后触发验证码!")
-            if not self._handle_captcha():
-                raise CaptchaBlockError(
-                    "关键词[%s]搜索后触发验证码，求解失败" % keyword
-                )
-            time.sleep(5)
+        # ── 检查验证码（多维检测: 标题+URL+CDP） ──
+        # 搜索后是最容易触发验证码的时机，必须彻底检查
+        for check_round in range(3):  # 多次检查确保持续验证码能被捕获
+            if self._detect_captcha():
+                logger.warning("[搜索] 搜索后第%d次检查触发验证码!", check_round + 1)
+                if not self._handle_captcha():
+                    raise CaptchaBlockError(
+                        "关键词[%s]搜索后触发验证码，求解失败" % keyword
+                    )
+                time.sleep(5)
+            else:
+                break
+            time.sleep(2)
 
         # ── 验证搜索结果是否正常 ──
         self._verify_step("搜索后页面验证", expected_page="search")
@@ -996,9 +1309,10 @@ class XdotoolCrawler:
         title = self._get_window_title()
         logger.info("[搜索] 页面标题: %s", title)
 
-        if "验证" in title or "captcha" in title.lower():
+        # 最终URL检查确认没有验证码
+        if self._detect_captcha():
             raise CaptchaBlockError(
-                "关键词[%s]搜索结果被验证码拦截" % keyword
+                "关键词[%s]搜索结果仍被验证码拦截" % keyword
             )
 
         logger.info("[搜索] ✅ 搜索结果就绪")
@@ -1023,13 +1337,18 @@ class XdotoolCrawler:
         wx, wy = geo.get("x", 0), geo.get("y", 0)
         ww = geo.get("w", 1280)
 
-        # DTS 扩展图标候选位置（相对于Chrome窗口左上角）
-        # Chrome工具栏高度约40-60px，扩展图标在地址栏右侧
+        # DTS icon position: toolbar Y + right-side X
+        # Chrome UI layout: outer = inner + 87px (tabs 42% + toolbar 58%)
+        # Tab bar ~37px, toolbar center ~56px from window top
+        tbar_y = wy + 56  # toolbar center Y (screen)
+        # DTS icon: 2nd pinned ext among 2 + puzzle + avatar on main Chrome
+        # Each ~30px, DTS center ~105px from right edge
         candidates = [
-            (wx + ww - 200, wy + 45),  # 主要候选
-            (wx + ww - 250, wy + 45),  # 更靠左
-            (wx + ww - 150, wy + 45),  # 更靠右
-            (wx + ww - 220, wy + 50),  # Y微调
+            (ww - 105, tbar_y),     # DTS icon (2nd pinned, ~105px from right)
+            (ww - 90, tbar_y),      # 1st ext position
+            (ww - 120, tbar_y),     # slightly left
+            (ww - 105, tbar_y + 3), # Y微调
+            (ww - 105, tbar_y - 3),
         ]
 
         for i, (cx, cy) in enumerate(candidates):
@@ -1049,30 +1368,30 @@ class XdotoolCrawler:
         return True  # 乐观假设点中了
 
     def _click_market_analysis(self) -> bool:
-        """点击DTS面板中的"市场分析"按钮。
+        """点击DTS弹出面板中的'市场分析'按钮。
 
-        策略：DTS面板打开后，"市场分析"按钮通常在页面左侧面板中。
+        DTS弹出窗口锚定在扩展图标位置(窗口右侧~105px)，向左下方展开约400x500px。
         """
         logger.info("[DTS] 点击市场分析...")
         self._activate_chrome()
 
         geo = self._get_window_geometry()
         wx, wy = geo.get("x", 0), geo.get("y", 0)
-        wh = geo.get("h", 800)
+        ww = geo.get("w", 1280)
 
-        # DTS 面板在页面左侧，"市场分析"按钮在面板中部偏上位置
-        # 屏幕坐标估算
+        # DTS popup is near right edge, "市场分析" in upper portion
+        popup_x = ww - 200  # ~200px from right (inside popup)
+        popup_y = wy + 160  # ~160px from window top (below toolbar)
         candidates = [
-            (wx + 150, wy + wh // 3),      # 左侧面板 1/3 处
-            (wx + 120, wy + wh // 3),      # 稍微偏左
-            (wx + 180, wy + wh // 3),      # 稍微偏右
-            (wx + 150, wy + wh // 4),      # 更靠上
+            (popup_x, popup_y),
+            (popup_x - 50, popup_y),
+            (popup_x + 50, popup_y),
+            (popup_x, popup_y + 30),
         ]
 
         for cx, cy in candidates:
             self._natural_click(cx, cy)
             time.sleep(3)
-            # 检查是否打开了新标签页
             title = self._get_window_title()
             if "市场分析" in title or "分析" in title:
                 logger.info("[DTS] 市场分析面板已打开!")
@@ -1082,21 +1401,22 @@ class XdotoolCrawler:
         return True
 
     def _click_start_analysis(self) -> bool:
-        """点击DTS面板中的"开始分析"按钮。"""
+        """点击DTS弹出面板中的'开始分析'按钮。"""
         logger.info("[DTS] 点击开始分析...")
         self._activate_chrome()
 
         geo = self._get_window_geometry()
-        wx, wy = geo.get("x", 0), geo.get("y", 0)
-        wh = geo.get("h", 800)
+        wy = geo.get("y", 0)
         ww = geo.get("w", 1280)
 
-        # "开始分析"按钮通常在DTS面板内容区域的中部
+        # "开始分析"在弹出面板中部
+        popup_x = ww - 200
+        popup_y = wy + 250
         candidates = [
-            (wx + ww // 2, wy + wh // 2),
-            (wx + ww // 2, wy + wh // 3),
-            (wx + ww // 3, wy + wh // 2),
-            (wx + ww // 2, wy + wh * 2 // 3),
+            (popup_x, popup_y),
+            (popup_x - 50, popup_y),
+            (popup_x, popup_y + 40),
+            (popup_x + 50, popup_y),
         ]
 
         for cx, cy in candidates:
@@ -1128,14 +1448,13 @@ class XdotoolCrawler:
         ww = geo.get("w", 1280)
         wh = geo.get("h", 800)
 
-        # DTS面板底部按钮区域
-        # "自动加载"/"加载下一页"按钮通常在面板最下面一行
+        # DTS弹出面板底部 — "自动加载"按钮在弹出面板底部区域
         auto_load_positions = [
-            (wx + ww // 2, wy + wh - 80),       # 底部中间
-            (wx + ww // 2, wy + wh - 100),      # 底部偏上
-            (wx + ww // 3, wy + wh - 80),       # 左下
-            (wx + ww * 2 // 3, wy + wh - 80),   # 右下
-            (wx + ww // 2, wy + wh - 120),      # 更偏上
+            (ww - 200, wy + 480),      # 弹出面板底部中间
+            (ww - 200, wy + 520),      # 稍下
+            (ww - 150, wy + 480),      # 偏右
+            (ww - 250, wy + 480),      # 偏左
+            (ww - 200, wy + 450),      # 稍上
         ]
 
         SINGLE_WAIT = AUTO_LOAD_SINGLE_WAIT      # 每次点击后等待25秒
@@ -1231,11 +1550,11 @@ class XdotoolCrawler:
         wx, wy = geo.get("x", 0), geo.get("y", 0)
         ww = geo.get("w", 1280)
 
-        # "全选"通常在表格左上角
+        # "全选"在DTS弹出面板数据表格左上角
         candidates = [
-            (wx + 100, wy + 200),
-            (wx + 80, wy + 220),
-            (wx + 120, wy + 200),
+            (ww - 360, wy + 250),
+            (ww - 340, wy + 270),
+            (ww - 380, wy + 250),
         ]
 
         for cx, cy in candidates:
@@ -1254,27 +1573,28 @@ class XdotoolCrawler:
         ww = geo.get("w", 1280)
         wh = geo.get("h", 800)
 
-        # "导出表格"按钮通常在DTS面板底部或工具栏
+        # DTS弹出面板 — "导出表格"按钮在面板底部
+        # 用户反馈：点击一次即自动下载，文件名含日期
         export_positions = [
-            (wx + ww - 200, wy + 80),          # 右上角工具栏
-            (wx + ww - 150, wy + 80),
-            (wx + ww - 200, wy + 100),
-            (wx + ww // 2, wy + wh - 60),       # 底部
+            (ww - 200, wy + 550),          # 弹出面板底部
+            (ww - 200, wy + 520),          # 稍上
+            (ww - 150, wy + 550),          # 偏右
+            (ww - 250, wy + 550),          # 偏左
         ]
 
         for cx, cy in export_positions:
             self._natural_click(cx, cy)
             time.sleep(1.5)
 
-        # 等待导出下拉菜单出现
+        # 等待下载触发
         time.sleep(2)
 
-        # 点击 xlsx 格式选项
-        # 通常在点击"导出表格"后的下拉菜单中
+        # xlsx格式通常在点击导出后自动下载，无需额外选择
+        # 如果弹出下拉菜单，在相同区域附近
         xlsx_positions = [
-            (wx + ww - 200, wy + 150),
-            (wx + ww - 200, wy + 200),
-            (wx + ww - 200, wy + 250),
+            (ww - 200, wy + 580),
+            (ww - 200, wy + 550),
+            (ww - 150, wy + 580),
         ]
 
         for cx, cy in xlsx_positions:
@@ -1455,6 +1775,15 @@ class XdotoolCrawler:
                 self._chrome_wid = wid
                 logger.info("[爬虫] Chrome已在运行: %s", wid)
                 self._activate_chrome()
+
+            # ── 入口验证码屏障: 检查当前页面是否已被验证码阻塞 ──
+            self._record_feature("入口", "开始抓取前页面状态检查")
+            if self._detect_captcha():
+                logger.warning("[爬虫] 入口检测到验证码，尝试求解...")
+                if not self._handle_captcha():
+                    raise CaptchaBlockError("入口验证码求解失败，页面已被封锁")
+                logger.info("[爬虫] 入口验证码已清除，继续流程")
+                time.sleep(3)
 
             # ── Step 2: 处理弹窗 + 登录检测 ──
             popups_ok = self._handle_popups()
