@@ -4,7 +4,7 @@ import { apiFetch } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { useCallback, useEffect, useState } from 'react'
 
-type Tab = 'push' | 'maintenance'
+type Tab = 'push' | 'wechat' | 'maintenance'
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -21,6 +21,13 @@ export default function SettingsPage() {
   const [workStart, setWorkStart] = useState(9)
   const [workEnd, setWorkEnd] = useState(18)
 
+  // Wechat push
+  const [wechatEnabled, setWechatEnabled] = useState(false)
+  const [wechatSendkey, setWechatSendkey] = useState('')
+  const [wechatMasked, setWechatMasked] = useState('')
+  const [wechatConfigured, setWechatConfigured] = useState(false)
+  const [wechatTesting, setWechatTesting] = useState(false)
+
   // Maintenance
   const [actionLoading, setActionLoading] = useState('')
 
@@ -35,6 +42,13 @@ export default function SettingsPage() {
       setWorkStart(s.work_start_hour || 9)
       setWorkEnd(s.work_end_hour || 18)
     } catch { /**/ } finally { setLoading(false) }
+    // Also fetch wechat status
+    try {
+      const wr = await apiFetch('/api/wechat/status')
+      setWechatEnabled(wr.data?.enabled || false)
+      setWechatMasked(wr.data?.sendkey_masked || '')
+      setWechatConfigured(wr.data?.sendkey_configured || false)
+    } catch { /**/ }
   }, [])
 
   useEffect(() => { fetchSettings() }, [fetchSettings])
@@ -68,7 +82,7 @@ export default function SettingsPage() {
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 20 }}>系统设置</h1>
 
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 20 }}>
-        {[{ key: 'push' as Tab, label: '推送设置' }, { key: 'maintenance' as Tab, label: '系统维护' }].map(t => (
+        {[{ key: 'push' as Tab, label: '推送设置' }, { key: 'wechat' as Tab, label: '微信推送' }, { key: 'maintenance' as Tab, label: '系统维护' }].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer',
             borderBottom: tab === t.key ? '2px solid #1677ff' : '2px solid transparent',
@@ -122,6 +136,87 @@ export default function SettingsPage() {
             </div>
             <p style={{ color: '#6b7280', fontSize: 12 }}>推送仅在工作日 {workStart}:00-{workEnd}:00 发送</p>
             <button onClick={saveSettings} disabled={saving} style={btnPrimary}>{saving ? '保存中...' : '保存设置'}</button>
+          </div>
+        </div>
+      )}
+
+      {tab === 'wechat' && (
+        <div style={{ maxWidth: 600 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>个人微信推送</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ padding: 12, border: '1px solid #e5e7eb', borderRadius: 8, background: '#f9fafb' }}>
+              <p style={{ fontWeight: 500, marginBottom: 4 }}>使用 Server酱 推送</p>
+              <p style={{ color: '#6b7280', fontSize: 13, marginBottom: 8 }}>
+                1. 打开 <a href="https://sct.ftqq.com" target="_blank" style={{ color: '#1677ff' }}>sct.ftqq.com</a> 扫码关注公众号
+                <br />2. 获取 SendKey 后填入下方
+                <br />3. 免费额度：每天 5 条，预警场景足够使用
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ fontWeight: 500 }}>启用微信推送</h3>
+                <p style={{ color: '#6b7280', fontSize: 13 }}>开启后预警消息将同时推送到微信</p>
+              </div>
+              <label style={{ position: 'relative', display: 'inline-block', width: 44, height: 24 }}>
+                <input type="checkbox" checked={wechatEnabled} onChange={async e => {
+                  setWechatEnabled(e.target.checked)
+                  try {
+                    await apiFetch('/api/wechat/config', {
+                      method: 'PUT', body: JSON.stringify({
+                        wechat_push_enabled: e.target.checked,
+                        wechat_sendkey: wechatSendkey,
+                      }),
+                    })
+                  } catch { /**/ }
+                }} style={{ opacity: 0, width: 0, height: 0 }} />
+                <span style={{
+                  position: 'absolute', cursor: 'pointer', top: 0, left: 0, right: 0, bottom: 0,
+                  backgroundColor: wechatEnabled ? '#1677ff' : '#ccc', borderRadius: 24,
+                  transition: '.3s',
+                }}>
+                  <span style={{
+                    position: 'absolute', content: '', height: 18, width: 18,
+                    left: wechatEnabled ? 23 : 3, bottom: 3,
+                    backgroundColor: 'white', borderRadius: '50%', transition: '.3s',
+                  }} />
+                </span>
+              </label>
+            </div>
+
+            <div>
+              <label style={labelStyle}>Server酱 SendKey</label>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input value={wechatSendkey}
+                  onChange={e => setWechatSendkey(e.target.value)}
+                  onBlur={async () => {
+                    if (wechatSendkey) {
+                      try {
+                        await apiFetch('/api/wechat/config', {
+                          method: 'PUT', body: JSON.stringify({
+                            wechat_push_enabled: wechatEnabled,
+                            wechat_sendkey: wechatSendkey,
+                          }),
+                        })
+                      } catch { /**/ }
+                    }
+                  }}
+                  style={inputStyle} placeholder="SCT123456..." />
+              </div>
+              {wechatMasked && <p style={{ color: '#6b7280', fontSize: 12, marginTop: 4 }}>已配置: {wechatMasked}</p>}
+            </div>
+
+            <button onClick={async () => {
+              setWechatTesting(true)
+              try {
+                const res = await apiFetch('/api/wechat/test', { method: 'POST' })
+                setMsg({ type: 'success', text: res.msg || '测试消息发送成功' })
+              } catch (err: any) {
+                setMsg({ type: 'error', text: '发送失败，请检查 SendKey 是否正确' })
+              } finally { setWechatTesting(false) }
+            }} disabled={!wechatConfigured || wechatTesting} style={btnPrimary}>
+              {wechatTesting ? '发送中...' : '发送测试消息'}
+            </button>
           </div>
         </div>
       )}
