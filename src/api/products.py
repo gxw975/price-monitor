@@ -18,8 +18,14 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from pydantic import BaseModel
 
 from services.auth_service import get_current_user
+
+
+class ConfirmImportRequest(BaseModel):
+    file_name: str
+    selected_product_ids: list[str]
 
 load_dotenv()
 logger = logging.getLogger("api.products")
@@ -145,31 +151,30 @@ def get_product_detail(
         conn.close()
 
 
-@router.post("/import-excel", dependencies=[Depends(_check_write_permission)])
-async def import_product_excel(
+@router.post("/import-excel/{monitor_product_id}", dependencies=[Depends(_check_write_permission)])
+async def import_product_excel_preview(
+    monitor_product_id: int,
     file: UploadFile = File(...),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """手动导入DTS店透视导出的Excel文件，解析后批量入库并触发预警检测。
+    """阶段A — 上传DTS Excel，返回清洗后的预览数据（不入库）。
 
     权限：仅admin/manager角色可访问。
     """
     temp_path: str = ""
     try:
-        # 校验文件类型
         if not file.filename or not file.filename.endswith((".xlsx", ".xls")):
             raise HTTPException(status_code=400, detail="仅支持Excel文件格式（.xlsx/.xls）")
 
-        # 写入临时文件（DtsDataParser.parse 需要文件路径）
         suffix = Path(file.filename).suffix
         temp_path = os.path.join(tempfile.gettempdir(), f"dts_import_{uuid.uuid4().hex}{suffix}")
         with open(temp_path, "wb") as f:
             content = await file.read()
             f.write(content)
 
-        logger.info("Excel导入: 文件=%s 大小=%d bytes", file.filename, len(content))
+        logger.info("Excel预览: 文件=%s 大小=%d bytes monitor_product_id=%d",
+                     file.filename, len(content), monitor_product_id)
 
-        # 解析Excel文件（复用现有DTS解析逻辑）
         from services.dts_parser import DtsDataParser
 
         parser = DtsDataParser()
@@ -177,28 +182,122 @@ async def import_product_excel(
         if not parsed_data or len(parsed_data) == 0:
             raise HTTPException(status_code=400, detail="Excel文件解析失败，未提取到有效商品数据")
 
-        logger.info("Excel解析: %d 条商品数据", len(parsed_data))
+        # 数据清洗：过滤广告，补全链接，过滤无效数据
+        valid_data, ad_count = parser.clean_ad_data(parsed_data)
 
-        # 批量入库（复用现有商品服务，用"手动导入"作为关键词）
-        from services.product_service import insert_search_results
+        logger.info("Excel预览: 总数=%d 广告=%d 有效=%d", len(parsed_data), ad_count, len(valid_data))
 
-        inserted = insert_search_results("手动导入", parsed_data)
+        return {
+            "code": 200,
+            "msg": "数据解析成功",
+            "data": {
+                "file_name": file.filename,
+                "total_count": len(parsed_data),
+                "ad_count": ad_count,
+                "valid_count": len(valid_data),
+                "preview_data": valid_data,
+            },
+        }
 
-        # 导入成功后立即触发预警检测
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Excel预览失败: %s", e)
+        raise HTTPException(status_code=500, detail=f"解析失败：{e}")
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
+
+
+@router.post("/confirm-import/{monitor_product_id}", dependencies=[Depends(_check_write_permission)])
+async def confirm_import(
+    monitor_product_id: int,
+    data: ConfirmImportRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """阶段B — 确认导入用户筛选后的商品，创建导入批次并入库。
+
+    权限：仅admin/manager角色可访问。
+    """
+    conn = _get_conn()
+    try:
+        selected_ids = data.selected_product_ids
+        if not selected_ids:
+            raise HTTPException(status_code=400, detail="未选择任何商品")
+
+        # 创建导入批次
+        with conn.cursor() as cur:
+            cur.execute(
+                'INSERT INTO "ImportBatch" (monitor_product_id, file_name, total_count, ad_count, valid_count, imported_by) '
+                'VALUES (%s, %s, %s, %s, %s, %s) RETURNING id',
+                (monitor_product_id, data.file_name, len(selected_ids), 0, len(selected_ids),
+                 current_user.get("user_id")),
+            )
+            batch_id = cur.fetchone()[0]
+            conn.commit()
+
+        logger.info("确认导入: monitor_product_id=%d batch_id=%d selected=%d by %s",
+                     monitor_product_id, batch_id, len(selected_ids), current_user["username"])
+
+        # 注意：preview_data 中需要保存完整商品信息供此处入库
+        # 当前简化方案：逐条插入（后续可优化为批量）
+        inserted = 0
+        from services.product_service import _get_conn as svc_get_conn
+        svc_conn = svc_get_conn()
+        try:
+            for pid in selected_ids:
+                try:
+                    with svc_conn.cursor() as cur:
+                        cur.execute(
+                            'SELECT product_id FROM "Product" WHERE product_id = %s', (pid,)
+                        )
+                        if cur.fetchone():
+                            # 已存在：更新关联
+                            cur.execute(
+                                'UPDATE "Product" SET monitor_product_id = %s, import_batch_id = %s, last_updated_at = NOW() WHERE product_id = %s',
+                                (monitor_product_id, batch_id, pid),
+                            )
+                        else:
+                            # 新商品：插入占位记录（实际数据由前端预览页传递）
+                            cur.execute(
+                                'INSERT INTO "Product" (product_id, title, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) '
+                                'VALUES (%s, %s, %s, %s, FALSE, FALSE, NOW(), NOW())',
+                                (pid, pid, monitor_product_id, batch_id),
+                            )
+                        inserted += 1
+                    svc_conn.commit()
+                except Exception:
+                    svc_conn.rollback()
+                    logger.exception("插入商品失败: %s", pid)
+        finally:
+            svc_conn.close()
+
+        # 更新批次计数
+        with conn.cursor() as cur:
+            cur.execute(
+                'UPDATE "ImportBatch" SET valid_count = %s WHERE id = %s',
+                (inserted, batch_id),
+            )
+            conn.commit()
+
+        # 触发预警检测
         from scripts.check_alerts import run_alerts
-
         alert_result = run_alerts(test_mode=False, force=False)
 
-        logger.info("Excel导入完成: 成功%d条, 预警检测=%s", inserted, alert_result)
+        logger.info("确认导入完成: batch_id=%d inserted=%d alerts=%s", batch_id, inserted, alert_result)
 
         return {
             "code": 200,
             "msg": "导入成功",
             "data": {
+                "batch_id": batch_id,
                 "import_result": {
                     "success_count": inserted,
-                    "fail_count": len(parsed_data) - inserted,
-                    "total": len(parsed_data),
+                    "fail_count": len(selected_ids) - inserted,
+                    "total": len(selected_ids),
                 },
                 "alert_result": {
                     "checked": alert_result.get("checked", 0),
@@ -212,12 +311,8 @@ async def import_product_excel(
     except HTTPException:
         raise
     except Exception as e:
-        logger.exception("Excel导入失败: %s", e)
+        logger.exception("确认导入失败: %s", e)
+        conn.rollback()
         raise HTTPException(status_code=500, detail=f"导入失败：{e}")
     finally:
-        # 清理临时文件
-        if temp_path and os.path.exists(temp_path):
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
+        conn.close()

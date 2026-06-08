@@ -139,3 +139,47 @@ model OperationLog {
   @@index([created_at])
   @@index([action])
 }
+
+/// v3.0 新增模型 — 以监控商品为中心的全流程管理
+
+model MonitorProduct {
+  id            Int      @id @default(autoincrement())
+  name          String
+  description   String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @default(now()) @map("updated_at")
+  importBatches ImportBatch[]
+  skuCategories SkuCategory[]
+  alerts        Alert[]
+  products      Product[]
+
+  @@map("MonitorProduct")
+}
+
+model ImportBatch {
+  id                Int      @id @default(autoincrement())
+  monitorProductId  Int      @map("monitor_product_id")
+  fileName          String   @map("file_name")
+  importTime        DateTime @default(now()) @map("import_time")
+  totalCount        Int      @default(0) @map("total_count")
+  adCount           Int      @default(0) @map("ad_count")
+  validCount        Int      @default(0) @map("valid_count")
+  importedBy        Int?     @map("imported_by")
+  monitorProduct    MonitorProduct @relation(fields: [monitorProductId], references: [id])
+  products          Product[]
+
+  @@map("ImportBatch")
+}
+
+model SkuCategory {
+  id                Int      @id @default(autoincrement())
+  monitorProductId  Int      @map("monitor_product_id")
+  name              String
+  unit              String   @default("")
+  conversionFactor  Float    @default(1.0) @map("conversion_factor")
+  createdAt         DateTime @default(now()) @map("created_at")
+  monitorProduct    MonitorProduct @relation(fields: [monitorProductId], references: [id])
+  productSkus       ProductSku[]
+
+  @@map("SkuCategory")
+}

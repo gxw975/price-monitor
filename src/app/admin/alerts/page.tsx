@@ -41,9 +41,10 @@ export default function AlertsPage() {
   const [unreadCount, setUnreadCount] = useState(0)
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
+  const [monitorProducts, setMonitorProducts] = useState<{id:number;name:string}[]>([])
   const [filter, setFilter] = useState<{
-    type: string; keyword: string; read: string; status: string
-  }>({ type: '', keyword: '', read: '', status: '' })
+    type: string; keyword: string; read: string; status: string; mp_id: string; handled: string
+  }>({ type: '', keyword: '', read: '', status: '', mp_id: '', handled: '' })
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const fetchAlerts = useCallback(async () => {
@@ -57,6 +58,9 @@ export default function AlertsPage() {
       if (filter.read === 'read') params.set('is_read', 'true')
       if (filter.status) params.set('status', filter.status)
       if (filter.keyword) params.set('keyword', filter.keyword)
+      if (filter.mp_id) params.set('monitor_product_id', filter.mp_id)
+      if (filter.handled === 'unhandled') params.set('is_handled', 'false')
+      if (filter.handled === 'handled') params.set('is_handled', 'true')
 
       const data: AlertsResponse = await apiFetch(`/api/alerts/list?${params}`)
       setAlerts(data.items)
@@ -80,6 +84,7 @@ export default function AlertsPage() {
 
   useEffect(() => { fetchAlerts() }, [fetchAlerts])
   useEffect(() => { fetchStats() }, [fetchStats])
+  useEffect(() => { apiFetch('/api/monitor-products/').then(r => setMonitorProducts(r.items||[])).catch(()=>{}) }, [])
 
   const batchAction = async (action: string, ids: number[]) => {
     if (!ids.length) return
@@ -161,6 +166,19 @@ export default function AlertsPage() {
             <option value="unprocessed">未处理</option>
             <option value="processed">已处理</option>
           </select>
+          <select className="rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
+            value={filter.mp_id}
+            onChange={(e) => { setFilter((f) => ({ ...f, mp_id: e.target.value })); setPage(1) }}>
+            <option value="">全部商品</option>
+            {monitorProducts.map(mp => <option key={mp.id} value={mp.id}>{mp.name}</option>)}
+          </select>
+          <select className="rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
+            value={filter.handled}
+            onChange={(e) => { setFilter((f) => ({ ...f, handled: e.target.value })); setPage(1) }}>
+            <option value="">全部处理状态</option>
+            <option value="unhandled">未处理</option>
+            <option value="handled">已处理</option>
+          </select>
           <input type="text" placeholder="搜索商品/消息..."
             className="rounded-md border border-gray-300 px-3 py-2 text-sm flex-1 min-w-[200px]"
             value={filter.keyword}
@@ -175,7 +193,11 @@ export default function AlertsPage() {
                 </button>
                 <button onClick={() => batchAction('mark-processed', Array.from(selectedIds))}
                   className="rounded-md bg-green-600 px-3 py-2 text-xs text-white hover:bg-green-700">
-                  已处理 ({selectedIds.size})
+                  处理 ({selectedIds.size})
+                </button>
+                <button onClick={() => batchAction('batch-handle', Array.from(selectedIds))}
+                  className="rounded-md bg-purple-600 px-3 py-2 text-xs text-white hover:bg-purple-700">
+                  标记已处理 ({selectedIds.size})
                 </button>
                 <button onClick={() => { if (confirm(`确定删除 ${selectedIds.size} 条预警？`)) batchAction('batch-delete', Array.from(selectedIds)) }}
                   className="rounded-md bg-red-600 px-3 py-2 text-xs text-white hover:bg-red-700">

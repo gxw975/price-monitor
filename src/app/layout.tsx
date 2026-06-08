@@ -161,6 +161,9 @@ function TopBar() {
   }
 
   const navItems = [
+    { label: '监控商品', href: '/admin/monitor-products' },
+    { label: '商品管理', href: '/admin/products' },
+    { label: '价格分析', href: '/admin/analysis' },
     { label: '预警管理', href: '/admin/alerts' },
     { label: '关键词监控', href: '/admin/keywords' },
     { label: '商品关联', href: '/admin/product-keywords' },

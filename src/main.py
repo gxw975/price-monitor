@@ -25,6 +25,7 @@ from api.import_export import router as import_export_router
 from api.keywords import router as keywords_router
 from api.logs import router as logs_router
 from api.messages import router as messages_router
+from api.monitor_products import router as monitor_products_router
 from api.notifications import router as notifications_router
 from api.product_keywords import router as product_keywords_router
 from api.products import router as products_router
@@ -169,6 +170,7 @@ app.include_router(import_export_router)
 app.include_router(keywords_router)
 app.include_router(logs_router)
 app.include_router(messages_router)
+app.include_router(monitor_products_router)
 app.include_router(notifications_router)
 app.include_router(product_keywords_router)
 app.include_router(products_router)

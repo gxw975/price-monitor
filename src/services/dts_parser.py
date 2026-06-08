@@ -58,6 +58,19 @@ COLUMN_PATTERNS: dict[str, list[str]] = {
     "tags": [
         "标签", "商品标签", "tags",
     ],
+    "placeholder_type": [
+        "占位类型", "广告位类型", "展位类型", "推广位类型",
+    ],
+    "seller_name": [
+        "掌柜名", "掌柜", "卖家昵称", "seller",
+    ],
+    "daily_sales": [
+        "日均付款人数", "日均销量", "日均付款", "日销量",
+    ],
+    "image_url": [
+        "图片", "主图", "商品图片", "宝贝图片", "image",
+        "图片链接", "主图链接",
+    ],
 }
 
 
@@ -287,6 +300,64 @@ class DtsDataParser:
                 "url": p.get("url", p.get("商品链接", "")),
             })
         return result
+
+
+    def filter_natural_products(self, raw_products: list[dict]) -> list[dict]:
+        """过滤只保留'自然位'数据，清除广告位。
+
+        根据DTS占位类型字段过滤：
+        - "自然位"：正常搜索结果，保留
+        - 其他（广告位、推广位等）：过滤掉
+
+        Returns:
+            仅含自然位的商品列表
+        """
+        natural = []
+        for p in raw_products:
+            pt = p.get("placeholder_type", "")
+            if not pt or pt == "自然位":
+                natural.append(p)
+        ad_count = len(raw_products) - len(natural)
+        logger.info("数据清洗: 总数=%d 自然位=%d 广告=%d",
+                     len(raw_products), len(natural), ad_count)
+        return natural
+
+    def clean_ad_data(self, raw_products: list[dict]) -> tuple[list[dict], int]:
+        """清洗广告数据，返回(有效商品列表, 广告数量)。
+
+        清洗规则:
+        1. 只保留占位类型为"自然位"的记录
+        2. 过滤商品ID为空或格式不正确的记录
+        3. 过滤价格为0或负数的记录
+        4. 自动补全商品链接（添加https:前缀）
+        """
+        # 第一步：只保留自然位
+        natural = self.filter_natural_products(raw_products)
+        ad_count = len(raw_products) - len(natural)
+
+        # 第二步：过滤无效商品ID和价格
+        valid = []
+        for p in natural:
+            pid = p.get("product_id", "")
+            # 过滤空ID或非数字ID
+            if not pid or not re.match(r'^\d{11,15}$', str(pid)):
+                continue
+            # 过滤价格为0或负数
+            price = self._parse_price(str(p.get("price", "0")))
+            if price <= 0:
+                continue
+            # 补全商品链接
+            url = p.get("url", "")
+            if url and not url.startswith("http"):
+                url = "https:" + url
+                p["url"] = url
+            p["price"] = price
+            p["sales"] = self._parse_sales(str(p.get("sales", "0")))
+            valid.append(p)
+
+        logger.info("数据清洗完成: 总数=%d 自然位=%d 广告=%d 有效=%d",
+                     len(raw_products), len(natural), ad_count, len(valid))
+        return valid, ad_count
 
 
 # ── 便捷函数 ──────────────────────────────────────────────
