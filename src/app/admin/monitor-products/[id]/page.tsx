@@ -59,7 +59,14 @@ export default function MonitorProductDetail() {
 
   const saveEdit = async () => {
     try {
-      await apiFetch(`/api/monitor-products/${id}`, { method: 'PUT', body: JSON.stringify(editData) })
+      const clean: Record<string, any> = {}
+      for (const [k, v] of Object.entries(editData)) {
+        if (v === '' || v === undefined || v === null) { clean[k] = null; continue }
+        if (['price_threshold_bag','price_threshold_can','price_threshold_mix','sales_threshold'].includes(k)) {
+          clean[k] = parseFloat(v as string) || null
+        } else { clean[k] = v }
+      }
+      await apiFetch(`/api/monitor-products/${id}`, { method: 'PUT', body: JSON.stringify(clean) })
       setEditing(false); fetchMp()
     } catch { /**/ }
   }

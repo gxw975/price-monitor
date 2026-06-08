@@ -1,0 +1,23 @@
+{
+  "timestamp": "2026-06-08T12:17:27.423682",
+  "method": "xwd_screenshot_precise_v2",
+  "captcha_type": "taobao_slider_with_chevron",
+  "features": {
+    "hint_text": "请按住滑块，拖动到最右边",
+    "slider_marker": ">>",
+    "track_screenshot_y": 448,
+    "track_screenshot_x_range": [
+      445,
+      730
+    ],
+    "track_width_px": 285,
+    "slider_button_color": "same_as_track_gray",
+    "window_title": "淘宝搜索 - Google Chrome"
+  },
+  "operation_coords_screen": {
+    "start_x": 525,
+    "start_y": 485,
+    "distance": 270
+  },
+  "result_title": ""
+}

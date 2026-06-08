@@ -32,6 +32,14 @@ def _check_write_permission(role: str) -> None:
         raise HTTPException(status_code=403, detail="权限不足，仅管理员和主管可以操作")
 
 
+def require_write_permission(
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """FastAPI 依赖：校验写入权限（admin/manager）"""
+    _check_write_permission(current_user["role"])
+    return current_user
+
+
 def _parse_db_url(url: str) -> tuple[str, str]:
     from urllib.parse import parse_qs, urlparse, urlunparse
     parsed = urlparse(url)
@@ -118,7 +126,7 @@ def list_monitor_products(
         conn.close()
 
 
-@router.post("/", dependencies=[Depends(_check_write_permission)])
+@router.post("/", dependencies=[Depends(require_write_permission)])
 def create_monitor_product(
     body: MonitorProductCreate,
     current_user: dict[str, Any] = Depends(get_current_user),
@@ -145,7 +153,7 @@ def create_monitor_product(
         conn.close()
 
 
-@router.put("/{product_id}", dependencies=[Depends(_check_write_permission)])
+@router.put("/{product_id}", dependencies=[Depends(require_write_permission)])
 def update_monitor_product(
     product_id: int,
     body: MonitorProductUpdate,
@@ -187,7 +195,7 @@ def update_monitor_product(
         conn.close()
 
 
-@router.delete("/{product_id}", dependencies=[Depends(_check_write_permission)])
+@router.delete("/{product_id}", dependencies=[Depends(require_write_permission)])
 def delete_monitor_product(
     product_id: int,
     current_user: dict[str, Any] = Depends(get_current_user),
@@ -238,7 +246,7 @@ def list_sku_categories(
         conn.close()
 
 
-@router.post("/{product_id}/sku-categories", dependencies=[Depends(_check_write_permission)])
+@router.post("/{product_id}/sku-categories", dependencies=[Depends(require_write_permission)])
 def create_sku_category(
     product_id: int,
     body: SkuCategoryCreate,
@@ -265,7 +273,7 @@ def create_sku_category(
         conn.close()
 
 
-@router.delete("/{product_id}/sku-categories/{cat_id}", dependencies=[Depends(_check_write_permission)])
+@router.delete("/{product_id}/sku-categories/{cat_id}", dependencies=[Depends(require_write_permission)])
 def delete_sku_category(
     product_id: int,
     cat_id: int,
@@ -396,7 +404,7 @@ def list_alerts_for_product(
 # Excel 导入（两阶段）
 # ═══════════════════════════════════════════════
 
-@router.post("/{product_id}/import", dependencies=[Depends(_check_write_permission)])
+@router.post("/{product_id}/import", dependencies=[Depends(require_write_permission)])
 async def import_excel_preview(
     product_id: int,
     file: UploadFile = File(...),
@@ -438,7 +446,7 @@ async def import_excel_preview(
             except OSError: pass
 
 
-@router.post("/{product_id}/import/confirm", dependencies=[Depends(_check_write_permission)])
+@router.post("/{product_id}/import/confirm", dependencies=[Depends(require_write_permission)])
 def confirm_import(
     product_id: int,
     data: ConfirmImportRequest,

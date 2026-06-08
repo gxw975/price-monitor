@@ -36,15 +36,23 @@ export default function MonitorProductsPage() {
   const openCreate = () => { setEditId(null); setForm({}); setShowForm(true) }
   const openEdit = (p: MonitorProduct) => { setEditId(p.id); setForm(p as any); setShowForm(true) }
   const save = async () => {
-    if (!form.name?.trim()) return; setSaving(true)
+    if (!form.name?.trim()) { alert('请输入商品名称'); return }
+    setSaving(true)
     try {
-      if (editId) {
-        await apiFetch(`/api/monitor-products/${editId}`, { method: 'PUT', body: JSON.stringify(form) })
-      } else {
-        await apiFetch('/api/monitor-products/', { method: 'POST', body: JSON.stringify(form) })
+      // Clean form data: empty string → null, number fields → float
+      const clean: Record<string, any> = {}
+      for (const [k, v] of Object.entries(form)) {
+        if (v === '' || v === undefined || v === null) { clean[k] = null; continue }
+        if (['price_threshold_bag','price_threshold_can','price_threshold_mix','sales_threshold'].includes(k)) {
+          clean[k] = parseFloat(v as string) || null
+        } else { clean[k] = v }
       }
+      const url = editId ? `/api/monitor-products/${editId}` : '/api/monitor-products/'
+      const method = editId ? 'PUT' : 'POST'
+      const res = await apiFetch(url, { method, body: JSON.stringify(clean) })
+      if (!res.success) { alert('保存失败: ' + (res.detail || JSON.stringify(res))); return }
       setShowForm(false); fetchAll()
-    } catch { /**/ } finally { setSaving(false) }
+    } catch (err: any) { alert('保存失败: ' + (err?.message || err)) } finally { setSaving(false) }
   }
   const deleteMp = async (id: number) => {
     if (!confirm('确定删除？')) return

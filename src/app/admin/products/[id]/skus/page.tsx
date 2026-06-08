@@ -120,7 +120,7 @@ export default function SkuReviewPage() {
                   <td style={tdStyle}><input type="checkbox" checked={selectedIds.has(s.id)}
                     onChange={() => {
                       const next = new Set(selectedIds)
-                      if (next.has(s.id)) next.delete(s.id) else next.add(s.id)
+                      if (next.has(s.id)) { next.delete(s.id) } else { next.add(s.id) }
                       setSelectedIds(next)
                     }} /></td>
                   <td style={tdStyle}>{s.sku_name}</td>
