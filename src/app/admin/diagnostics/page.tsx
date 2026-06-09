@@ -258,6 +258,19 @@ export default function DiagnosticsPage() {
               >
                 刷新
               </button>
+              <button
+                onClick={() => {
+                  const text = logLines.join('\n')
+                  navigator.clipboard.writeText(text).then(() => {
+                    setMsg({ type: 'success', text: '日志已复制到剪贴板' })
+                  }).catch(() => {
+                    setMsg({ type: 'error', text: '复制失败，请手动选择复制' })
+                  })
+                }}
+                className="ml-3 text-gray-500 hover:text-gray-700"
+              >
+                复制
+              </button>
             </div>
             <div className="max-h-[500px] overflow-y-auto p-4 bg-gray-900 text-green-400 font-mono text-xs leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
               {logLoading ? (
