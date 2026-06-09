@@ -102,8 +102,12 @@ def _read_config(conn: Any) -> dict[str, Any]:
 def _get_approved_products(conn: Any) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            'SELECT product_id, title FROM "Product" '
-            "WHERE is_approved = TRUE AND is_whitelist = FALSE"
+            'SELECT p.product_id, p.title, p.monitor_product_id, p.seller_name, '
+            'mp.price_threshold_bag, mp.price_threshold_can, mp.price_threshold_mix, '
+            'mp.sales_threshold, mp.whitelist_sellers '
+            'FROM "Product" p '
+            'LEFT JOIN "MonitorProduct" mp ON p.monitor_product_id = mp.id '
+            "WHERE p.is_approved = TRUE AND p.is_whitelist = FALSE"
         )
         return cur.fetchall()
 
@@ -153,12 +157,12 @@ def _is_duplicate(conn: Any, product_id: str, alert_type: str) -> bool:
         return count > 0
 
 
-def _insert_alert(conn: Any, product_id: str, alert_type: str, message: str, is_sent: bool = False) -> int:
+def _insert_alert(conn: Any, product_id: str, alert_type: str, message: str, monitor_product_id: int = None, alert_value: float = None, threshold: float = None, is_sent: bool = False) -> int:
     with conn.cursor() as cur:
         cur.execute(
-            'INSERT INTO "Alert" (product_id, alert_type, message, is_sent, sent_at) '
-            "VALUES (%s, %s, %s, %s, %s) RETURNING id",
-            (product_id, alert_type, message, is_sent, datetime.now() if is_sent else None),
+            'INSERT INTO "Alert" (product_id, alert_type, message, monitor_product_id, alert_value, threshold, is_sent, sent_at) '
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (product_id, alert_type, message, monitor_product_id, alert_value, threshold, is_sent, datetime.now() if is_sent else None),
         )
         alert_id = cur.fetchone()[0]
         conn.commit()
@@ -198,6 +202,13 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
         title = product.get("title", product_id)
         result["checked"] += 1
 
+        # Check whitelist sellers
+        whitelist = (product.get("whitelist_sellers") or "").split(",")
+        seller = (product.get("seller_name") or "").strip()
+        if seller and any(w.strip() == seller for w in whitelist if w.strip()):
+            logger.debug("跳过白名单店铺: %s (%s)", product_id, seller)
+            continue
+
         if not force and _is_duplicate(conn, product_id, "price") and _is_duplicate(conn, product_id, "sales"):
             logger.debug("跳过已预警商品: %s", product_id)
             continue
@@ -210,13 +221,20 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
         current_price = float(today["price"])
         today_sales = int(today.get("sales_volume", 0) or 0)
 
-        if current_price <= alert_price:
+        # Use monitor product thresholds, fall back to global
+        mp_alert_price = (
+            product.get("price_threshold_bag") or product.get("price_threshold_can")
+            or product.get("price_threshold_mix") or alert_price
+        )
+        mp_sales_threshold = product.get("sales_threshold") or sales_growth_threshold
+
+        if current_price > 0 and current_price <= mp_alert_price:
             if force or not _is_duplicate(conn, product_id, "price"):
                 message = (
                     f"商品 {title}({product_id}) 当前价格 ¥{current_price:.2f} "
-                    f"低于预警阈值 ¥{alert_price:.2f}"
+                    f"低于预警阈值 ¥{mp_alert_price:.2f}"
                 )
-                alert_id = _insert_alert(conn, product_id, "price", message)
+                alert_id = _insert_alert(conn, product_id, "price", message, product.get("monitor_product_id"), current_price, mp_alert_price)
                 result["price_alerts"] += 1
 
                 try:
@@ -238,7 +256,7 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
                 except Exception:
                     logger.exception("价格预警发送失败: %s", product_id)
 
-                logger.warning("价格预警: %s ¥%.2f (阈值 ¥%.2f)", product_id, current_price, alert_price)
+                logger.warning("价格预警: %s ¥%.2f (阈值 ¥%.2f)", product_id, current_price, mp_alert_price)
 
         yesterday = _get_yesterday_history(conn, product_id, yesterday_str)
         if yesterday:
@@ -246,13 +264,13 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
             if today_sales > 0 and yesterday_sales > 0:
                 growth = today_sales - yesterday_sales
                 growth_pct = (growth / yesterday_sales) * 100
-                if growth_pct >= sales_growth_threshold:
+                if growth_pct >= mp_sales_threshold:
                     if force or not _is_duplicate(conn, product_id, "sales"):
                         message = (
                             f"商品 {title}({product_id}) 今日销量 {today_sales} 单 "
                             f"较昨日 {yesterday_sales} 单增长 {growth_pct:.1f}%"
                         )
-                        alert_id = _insert_alert(conn, product_id, "sales", message)
+                        alert_id = _insert_alert(conn, product_id, "sales", message, product.get("monitor_product_id"), growth_pct, mp_sales_threshold)
                         result["sales_alerts"] += 1
 
                         try:

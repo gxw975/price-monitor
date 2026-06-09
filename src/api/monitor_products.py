@@ -554,7 +554,7 @@ def confirm_import(
                         else:
                             cur.execute(
                                 'INSERT INTO "Product" (product_id, title, main_image_url, shop_name, seller_name, product_url, platform, shop_type, location, price, sales_volume, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) '
-                                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,FALSE,NOW(),NOW())',
+                                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE,NOW(),NOW())',
                                 (pid, title, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, product_id, batch_id))
                             new_count += 1
                         # Record price/sales history
