@@ -36,6 +36,7 @@ export default function MonitorProductDetail() {
   const [prodSort, setProdSort] = useState<string | null>(null); const [prodSortDir, setProdSortDir] = useState<'asc'|'desc'>('asc')
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [jumpPage, setJumpPage] = useState('')
+  const [filters, setFilters] = useState({ minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
 
   const fetchMp = useCallback(async () => {
     try {
@@ -92,8 +93,20 @@ export default function MonitorProductDetail() {
     return prodSortDir === 'asc' ? String(va||'').localeCompare(String(vb||''), 'zh-CN') : String(vb||'').localeCompare(String(va||''), 'zh-CN')
   }
   const sortedProds = [...products].sort(prodSortFn)
-  const prodTotalPages = Math.ceil(sortedProds.length / prodPageSize)
-  const pagedProds = sortedProds.slice((prodPage-1)*prodPageSize, prodPage*prodPageSize)
+  const filteredProds = sortedProds.filter(p => {
+    const f = filters
+    if (f.minPrice && (p.price||0) < parseFloat(f.minPrice)) return false
+    if (f.maxPrice && (p.price||0) > parseFloat(f.maxPrice)) return false
+    if (f.minSales && (p.sales||0) < parseInt(f.minSales)) return false
+    if (f.maxSales && (p.sales||0) > parseInt(f.maxSales)) return false
+    if (f.seller && !(p.seller_name||'').toLowerCase().includes(f.seller.toLowerCase())) return false
+    if (f.shop && !(p.shop_name||'').toLowerCase().includes(f.shop.toLowerCase())) return false
+    if (f.location && !(p.location||'').includes(f.location)) return false
+    return true
+  })
+  const prodTotalPages = Math.ceil(filteredProds.length / prodPageSize)
+  const pagedProds = filteredProds.slice((prodPage-1)*prodPageSize, prodPage*prodPageSize)
+  const setFilter = (k: string, v: string) => { setFilters(prev => ({...prev, [k]: v})); setProdPage(1) }
   const prodSortIndicator = (k: string) => prodSort === k ? (prodSortDir === 'asc' ? ' ▲' : ' ▼') : ''
   const toggleProdSort = (k: string) => {
     if (prodSort === k) setProdSortDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -186,7 +199,26 @@ export default function MonitorProductDetail() {
       {/* Products Tab */}
       {tab === 'products' && (
         <div>
-          <div style={{ maxHeight: 'calc(100vh - 320px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+          {/* Filter bar */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center', padding: 8, background: '#f9fafb', borderRadius: 6, border: '1px solid #e5e7eb' }}>
+            <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>筛选:</span>
+            <input placeholder="现价≥" value={filters.minPrice} onChange={e => setFilter('minPrice', e.target.value)}
+              style={filterInput} type="number" />
+            <input placeholder="现价≤" value={filters.maxPrice} onChange={e => setFilter('maxPrice', e.target.value)}
+              style={filterInput} type="number" />
+            <input placeholder="销量≥" value={filters.minSales} onChange={e => setFilter('minSales', e.target.value)}
+              style={{...filterInput, width: 70}} type="number" />
+            <input placeholder="掌柜" value={filters.seller} onChange={e => setFilter('seller', e.target.value)}
+              style={filterInput} />
+            <input placeholder="店铺" value={filters.shop} onChange={e => setFilter('shop', e.target.value)}
+              style={filterInput} />
+            <input placeholder="地址" value={filters.location} onChange={e => setFilter('location', e.target.value)}
+              style={filterInput} />
+            <button onClick={() => { setFilters({ minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setProdPage(1) }}
+              style={{ ...btnSecondary, fontSize: 12, padding: '3px 10px' }}>清除</button>
+            <span style={{ fontSize: 11, color: '#999', marginLeft: 'auto' }}>筛选后 {filteredProds.length} 条</span>
+          </div>
+          <div style={{ maxHeight: 'calc(100vh - 370px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead><tr style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
                 <th style={{...thStyle,width:40}}>#</th>
@@ -238,7 +270,7 @@ export default function MonitorProductDetail() {
           </div>
           {/* Pagination + count + page size — all at bottom */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-            <span style={{ fontSize: 12, color: '#999' }}>共 {products.length} 条</span>
+            <span style={{ fontSize: 12, color: '#999' }}>共 {filteredProds.length}/{products.length} 条</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <button onClick={()=>setProdPage(1)} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>«</button>
               <button onClick={()=>setProdPage(p=>Math.max(1,p-1))} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>‹</button>
@@ -289,4 +321,5 @@ const thStyle:React.CSSProperties={textAlign:'left',padding:'8px 10px',fontWeigh
 const tdStyle:React.CSSProperties={padding:'8px 10px',color:'#555',fontSize:13}
 const inputStyle:React.CSSProperties={padding:'6px 10px',border:'1px solid #d9d9d9',borderRadius:6,fontSize:14,width:'100%'}
 const labelStyle:React.CSSProperties={display:'block',fontSize:13,fontWeight:500,marginBottom:2,color:'#374151'}
+const filterInput:React.CSSProperties={width:80,padding:'3px 6px',border:'1px solid #d9d9d9',borderRadius:4,fontSize:12,outline:'none'}
 const tableStyle:React.CSSProperties={width:'100%',borderCollapse:'collapse',fontSize:14}
