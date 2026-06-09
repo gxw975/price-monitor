@@ -3,7 +3,7 @@
 import { apiFetch } from '@/lib/utils'
 import { useCallback, useEffect, useState } from 'react'
 
-interface MonitorProduct { id: number; name: string }
+interface MonitorProduct { id: number; name: string; whitelist_sellers?: string }
 interface SkuCategory { id: number; name: string; unit: string; conversion_factor: number }
 interface ProductItem { product_id: string; title: string; shop_name: string; seller_name: string; main_image_url: string; image_url: string; price: number; sales: number; platform: string; shop_type: string; location: string; url?: string; product_url?: string }
 
