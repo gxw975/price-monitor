@@ -38,6 +38,7 @@ export default function MonitorProductDetail() {
   const [jumpPage, setJumpPage] = useState('')
   const [filters, setFilters] = useState({ minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
   const [onlyNew, setOnlyNew] = useState(false)
+  const [excludeWhitelist, setExcludeWhitelist] = useState(false)
   const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
   const [delProduct, setDelProduct] = useState<Product | null>(null)
   const [delLoading, setDelLoading] = useState(false)
@@ -102,10 +103,11 @@ export default function MonitorProductDetail() {
     return prodSortDir === 'asc' ? String(va||'').localeCompare(String(vb||''), 'zh-CN') : String(vb||'').localeCompare(String(va||''), 'zh-CN')
   }
   const sortedProds = [...products].sort(prodSortFn)
+  const whitelistSellers = (mp?.whitelist_sellers || '').split(',').map(s => s.trim()).filter(Boolean)
   const latestBatchId = imports.length > 0 ? imports[0].id : null
   const filteredProds = sortedProds.filter(p => {
     const f = filters
-    // onlyNew: 只显示最新批次的商品
+    if (excludeWhitelist && whitelistSellers.includes(p.seller_name || '')) return false
     if (onlyNew && latestBatchId && (p as any).import_batch_id !== latestBatchId) return false
     if (f.minPrice && (p.price||0) < parseFloat(f.minPrice)) return false
     if (f.maxPrice && (p.price||0) > parseFloat(f.maxPrice)) return false
@@ -263,7 +265,13 @@ export default function MonitorProductDetail() {
               <input type="checkbox" checked={onlyNew} onChange={e => { setOnlyNew(e.target.checked); setProdPage(1) }} />
               仅看新增({products.filter((p:any)=>latestBatchId && p.import_batch_id===latestBatchId).length})
             </label>
-            <button onClick={() => { setFilters({ minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setOnlyNew(false); setProdPage(1) }}
+            {whitelistSellers.length>0 && (
+              <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                <input type="checkbox" checked={excludeWhitelist} onChange={e => { setExcludeWhitelist(e.target.checked); setProdPage(1) }} />
+                🛡️ 去除白名单({whitelistSellers.length})
+              </label>
+            )}
+            <button onClick={() => { setFilters({ minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setOnlyNew(false); setExcludeWhitelist(false); setProdPage(1) }}
               style={{ ...btnSecondary, fontSize: 12, padding: '3px 10px' }}>清除</button>
             <span style={{ fontSize: 11, color: '#999', marginLeft: 'auto' }}>筛选后 {filteredProds.length} 条</span>
           </div>
