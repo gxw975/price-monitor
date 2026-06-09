@@ -24,6 +24,10 @@ export default function MonitorProductsPage() {
   const [form, setForm] = useState<Record<string, any>>({})
   const [saving, setSaving] = useState(false)
   const [expandedId, setExpandedId] = useState<number | null>(null)
+  const [catLoading, setCatLoading] = useState(false)
+  const [catName, setCatName] = useState('')
+  const [catUnit, setCatUnit] = useState('')
+  const [catFactor, setCatFactor] = useState('1.0')
   const [categories, setCategories] = useState<SkuCategory[]>([])
   const [catData, setCatData] = useState({ name: '', unit: '', factor: '1.0' })
 
@@ -153,10 +157,10 @@ export default function MonitorProductsPage() {
                          </span>)}
                        </div>}
                       {canWrite && <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <input value={catName} onChange={e => setCatName(e.target.value)} placeholder="分类名" style={{ ...inputStyle, width: 100 }} />
-                        <input value={catUnit} onChange={e => setCatUnit(e.target.value)} placeholder="单位" style={{ ...inputStyle, width: 70 }} />
-                        <input value={catFactor} onChange={e => setCatFactor(e.target.value)} placeholder="系数" style={{ ...inputStyle, width: 60 }} type="number" step="0.1" />
-                        <button onClick={addCat} style={{ ...btnPrimary, fontSize: 12, padding: '4px 10px' }}>添加</button>
+                        <input value={catName} onChange={e => setCatName(e.target.value)} placeholder="分类名" style={{ padding: '6px 10px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, width: 100 }} />
+                        <input value={catUnit} onChange={e => setCatUnit(e.target.value)} placeholder="单位" style={{ padding: '6px 10px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, width: 70 }} />
+                        <input value={catFactor} onChange={e => setCatFactor(e.target.value)} placeholder="系数" style={{ padding: '6px 10px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, width: 60 }} type="number" step="0.1" />
+                        <button onClick={addCat} style={{ padding: '8px 16px', background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12 }}>添加</button>
                       </div>}
                     </div>
                   </td></tr>
