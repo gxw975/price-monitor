@@ -294,19 +294,85 @@ export default function MonitorProductDetail() {
 
       {/* SKUs Tab */}
       {tab === 'skus' && (
-        <div><h3 style={{fontSize:16,fontWeight:600,marginBottom:12}}>SKU 规格分类</h3>
-          <div style={{display:'flex',flexWrap:'wrap',gap:8}}>{categories.map(c=><span key={c.id} style={{padding:'4px 12px',background:'#e0e7ff',color:'#3730a3',borderRadius:16,fontSize:13}}>{c.name} ({c.unit||'—'}, ×{c.conversion_factor})</span>)}</div>
-          <p style={{color:'#6b7280',fontSize:13,marginTop:16}}>SKU 分类在监控商品列表页的「SKU分类」展开面板中管理</p>
+        <div style={{ maxWidth: 700 }}>
+          <h3 style={{fontSize:16,fontWeight:600,marginBottom:12}}>SKU 规格分类</h3>
+          <p style={{fontSize:13,color:'#6b7280',marginBottom:16}}>
+            为监控商品定义规格分类（如袋装、罐装），系统会在导入商品时自动将SKU归类并计算单单位价格。
+          </p>
+          {categories.length === 0 ? (
+            <div style={{textAlign:'center',padding:40,color:'#999',border:'1px dashed #d9d9d9',borderRadius:8}}>
+              <p>暂无规格分类</p>
+              <p style={{fontSize:12}}>在下方或监控商品列表页添加</p>
+            </div>
+          ) : (
+            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:16}}>
+              {categories.map(c => (
+                <span key={c.id} style={{padding:'6px 14px',background:'#e0e7ff',color:'#3730a3',borderRadius:16,fontSize:13,border:'1px solid #c7d2fe'}}>
+                  {c.name}（{c.unit||'单位未设'}，折算系数 ×{c.conversion_factor}）
+                </span>
+              ))}
+            </div>
+          )}
+          {canWrite && (
+            <div style={{marginTop:20,padding:16,border:'1px solid #e5e7eb',borderRadius:8}}>
+              <h4 style={{fontSize:14,fontWeight:600,marginBottom:12}}>添加分类</h4>
+              <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                <input id="catName" placeholder="分类名(如袋装)" style={filterInput} />
+                <input id="catUnit" placeholder="单位(如袋)" style={{...filterInput,width:80}} />
+                <input id="catFactor" placeholder="系数" style={{...filterInput,width:60}} defaultValue="1.0" />
+                <button onClick={async () => {
+                  const n = (document.getElementById('catName') as HTMLInputElement)?.value
+                  const u = (document.getElementById('catUnit') as HTMLInputElement)?.value
+                  const f = (document.getElementById('catFactor') as HTMLInputElement)?.value
+                  if (!n) return
+                  try { await apiFetch(`/api/monitor-products/${id}/sku-categories`, { method: 'POST', body: JSON.stringify({ name: n, unit: u||'', conversion_factor: parseFloat(f)||1 }) }); const r = await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r.items||[]); (document.getElementById('catName') as HTMLInputElement).value=''; (document.getElementById('catUnit') as HTMLInputElement).value=''; (document.getElementById('catFactor') as HTMLInputElement).value='1.0' } catch { /**/ }
+                }} style={btnPrimary}>添加</button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
       {/* Alerts Tab */}
       {tab === 'alerts' && (
         <div>
-          {canWrite && alerts.some(a=>!a.is_handled) && <button onClick={()=>handleAlert(alerts.filter(a=>!a.is_handled).map(a=>a.id))} style={{...btnPrimary,marginBottom:12,background:'#16a34a'}}>全部标记已处理</button>}
-          <table style={tableStyle}><thead><tr style={{background:'#fafafa'}}><th style={thStyle}>时间</th><th style={thStyle}>商品</th><th style={thStyle}>类型</th><th style={thStyle}>消息</th><th style={thStyle}>状态</th></tr></thead>
-            <tbody>{alerts.map(a=><tr key={a.id} style={{borderBottom:'1px solid #f0f0f0'}}><td style={tdStyle}>{a.created_at?new Date(a.created_at).toLocaleString('zh-CN'):'-'}</td><td style={tdStyle}>{a.product_title||a.product_id}</td><td style={tdStyle}>{a.alert_type==='price'?'💰价格':'📈销量'}</td><td style={tdStyle}>{a.message}</td><td style={tdStyle}>{a.is_handled?<span style={{color:'#16a34a'}}>已处理</span>:<span style={{color:'#fa8c16'}}>待处理</span>}</td></tr>)}</tbody>
-          </table>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+            <span style={{fontSize:14,color:'#6b7280'}}>
+              该商品的预警记录
+              {mp.price_threshold_bag && ` · 袋装红线: ¥${mp.price_threshold_bag}`}
+              {mp.price_threshold_can && ` · 罐装红线: ¥${mp.price_threshold_can}`}
+              {mp.sales_threshold && ` · 销量红线: ${mp.sales_threshold}/天`}
+            </span>
+            {canWrite && alerts.some(a=>!a.is_handled) && (
+              <button onClick={()=>handleAlert(alerts.filter(a=>!a.is_handled).map(a=>a.id))} style={{...btnPrimary,background:'#16a34a'}}>全部标记已处理</button>
+            )}
+          </div>
+          {alerts.length === 0 ? (
+            <div style={{textAlign:'center',padding:60,color:'#999',border:'1px dashed #d9d9d9',borderRadius:8}}>
+              <p style={{fontSize:16,marginBottom:8}}>📭 暂无预警</p>
+              <p style={{fontSize:13}}>导入商品并设置监控阈值后，系统会自动检测价格和销量异常</p>
+              <p style={{fontSize:12,marginTop:8}}>
+                {!mp.price_threshold_bag && !mp.price_threshold_can && !mp.sales_threshold
+                  ? '💡 提示：请先在「基本信息」标签中设置价格红线和销量红线'
+                  : '系统将在下次导入或定时检测时自动触发预警'}
+              </p>
+            </div>
+          ) : (
+            <div style={{overflow:'auto'}}>
+              <table style={tableStyle}><thead><tr style={{background:'#fafafa'}}><th style={thStyle}>时间</th><th style={thStyle}>商品ID</th><th style={thStyle}>商品名称</th><th style={thStyle}>类型</th><th style={thStyle}>预警值</th><th style={thStyle}>阈值</th><th style={thStyle}>消息</th><th style={thStyle}>状态</th></tr></thead>
+                <tbody>{alerts.map(a=><tr key={a.id} style={{borderBottom:'1px solid #f0f0f0'}}>
+                  <td style={tdStyle}>{a.created_at?new Date(a.created_at).toLocaleString('zh-CN'):'-'}</td>
+                  <td style={{...tdStyle,fontFamily:'monospace',fontSize:12}}>{a.product_id}</td>
+                  <td style={tdStyle}>{a.product_title||'-'}</td>
+                  <td style={tdStyle}>{a.alert_type==='price'?'💰价格':'📈销量'}</td>
+                  <td style={tdStyle}>{(a as any).alert_value||'-'}</td>
+                  <td style={tdStyle}>{(a as any).threshold||'-'}</td>
+                  <td style={{...tdStyle,fontSize:12}}>{a.message}</td>
+                  <td style={tdStyle}>{a.is_handled?<span style={{color:'#16a34a'}}>✓ 已处理</span>:<span style={{color:'#fa8c16'}}>待处理</span>}</td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+          )}
         </div>
       )}
     </div>
