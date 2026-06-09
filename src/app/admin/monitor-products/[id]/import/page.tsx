@@ -23,7 +23,7 @@ export default function ImportPage() {
     setUploading(true); setResult(null)
     const fd = new FormData(); fd.append('file', file)
     try {
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('auth_token')
       const res = await fetch(`/api/monitor-products/${mpId}/import`, {
         method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
       })
@@ -51,7 +51,7 @@ export default function ImportPage() {
 
     // Check login status
     try {
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('auth_token')
       const statusRes = await fetch('/api/taobao/status', { headers: { Authorization: `Bearer ${token}` } })
       const statusJson = await statusRes.json()
       if (!statusJson.logged_in) {
@@ -66,7 +66,7 @@ export default function ImportPage() {
 
     // Confirm import
     try {
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('auth_token')
       const res = await fetch(`/api/monitor-products/${mpId}/import/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
@@ -81,7 +81,7 @@ export default function ImportPage() {
 
   const checkLogin = async () => {
     try {
-      const token = localStorage.getItem('token')
+      const token = localStorage.getItem('auth_token')
       const res = await fetch('/api/taobao/status', { headers: { Authorization: `Bearer ${token}` } })
       const json = await res.json()
       if (json.logged_in) { setStep('preview'); alert('登录成功！请点击确认导入') }
