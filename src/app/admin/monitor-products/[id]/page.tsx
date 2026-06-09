@@ -41,6 +41,11 @@ export default function MonitorProductDetail() {
   const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
   const [delProduct, setDelProduct] = useState<Product | null>(null)
   const [delLoading, setDelLoading] = useState(false)
+  const [chartPid, setChartPid] = useState<string | null>(null)
+  const [chartData, setChartData] = useState<any[]>([])
+  const [chartLoading, setChartLoading] = useState(false)
+  const fetchChart = async (pid: string) => { setChartPid(pid); setChartLoading(true)
+    try { const r = await apiFetch(`/api/products/${pid}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) } }
 
   const fetchMp = useCallback(async () => {
     try {
@@ -308,7 +313,7 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.seller_name||'-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
-                    {canWrite && <td style={tdStyle}><button onClick={() => setDelProduct(p)} style={{padding:'2px 8px',fontSize:12,color:'#dc2626',border:'1px solid #fecaca',borderRadius:4,background:'#fff',cursor:'pointer'}}>删除</button></td>}
+                    {canWrite && <td style={tdStyle}><div style={{display:'flex',gap:4}}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button><button onClick={() => setDelProduct(p)} style={{padding:'2px 6px',fontSize:11,color:'#dc2626',border:'1px solid #fecaca',borderRadius:4,background:'#fff',cursor:'pointer'}}>删除</button></div></td>}
                   </tr>
                 ))}
               </tbody>
@@ -421,6 +426,23 @@ export default function MonitorProductDetail() {
           )}
         </div>
       )}
+      {/* History chart modal */}
+      {chartPid && (
+        <div style={modalOverlay}>
+          <div style={{...modalContent,width:700}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <h3 style={{fontSize:16,fontWeight:600}}>历史趋势 — {chartPid}</h3>
+              <button onClick={() => setChartPid(null)} style={btnSecondary}>关闭</button>
+            </div>
+            {chartLoading ? <p style={{color:'#999',textAlign:'center',padding:40}}>加载中...</p> :
+            chartData.length === 0 ? <p style={{color:'#999',textAlign:'center',padding:40}}>暂无历史数据</p> :
+            <div style={{background:'#f9fafb',borderRadius:8,padding:16}}>
+              <HistoryChart data={chartData} />
+            </div>}
+          </div>
+        </div>
+      )}
+
       {/* Product delete modal */}
       {delProduct && (
         <div style={modalOverlay}>
@@ -486,5 +508,30 @@ const inputStyle:React.CSSProperties={padding:'6px 10px',border:'1px solid #d9d9
 const labelStyle:React.CSSProperties={display:'block',fontSize:13,fontWeight:500,marginBottom:2,color:'#374151'}
 const modalOverlay:React.CSSProperties={position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.45)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1000}
 const modalContent:React.CSSProperties={background:'#fff',borderRadius:8,padding:24,maxHeight:'85vh',overflow:'auto'}
+function HistoryChart({ data }: { data: any[] }) {
+  if (!data.length) return null
+  const W=620, H=200, pad=40, prices=data.map((d:any)=>d.avg_price||d.min_price||0).reverse()
+  const sales=data.map((d:any)=>d.entries||0).reverse()
+  const labels=data.map((d:any)=>d.date?.slice(5)||'').reverse()
+  const maxP=Math.max(...prices,1), minP=Math.min(...prices.filter((p:number)=>p>0),maxP)
+  const maxS=Math.max(...sales,1)
+  const px=(i:number)=>pad+(i/(prices.length-1||1))*(W-2*pad)
+  const pyP=(v:number)=>H-pad-((v-minP)/(maxP-minP||1))*(H-2*pad)
+  const pyS=(v:number)=>H-pad-((v/maxS)*(H-2*pad))
+  const line=(vals:number[],fn:(v:number)=>number)=>vals.map((v,i)=>`${i===0?'M':'L'}${px(i)},${fn(v)}`).join(' ')
+  return <svg width={W} height={H+30} style={{fontSize:10}}>
+    <text x={W/2} y={14} textAnchor="middle" fill="#374151" fontWeight={600}>📈 30天价格与销量趋势</text>
+    {[0,0.25,0.5,0.75,1].map(r=><text key={r} x={4} y={pyP(minP+(maxP-minP)*r)+3} fill="#999" fontSize={9}>¥{Math.round(minP+(maxP-minP)*r)}</text>)}
+    <path d={line(prices,pyP)} fill="none" stroke="#dc2626" strokeWidth={2}/>
+    {prices.map((v,i)=><circle key={'p'+i} cx={px(i)} cy={pyP(v)} r={2.5} fill="#dc2626"/>)}
+    <path d={line(sales,pyS)} fill="none" stroke="#1677ff" strokeWidth={2} strokeDasharray="4,3"/>
+    {sales.map((v,i)=><circle key={'s'+i} cx={px(i)} cy={pyS(v)} r={2} fill="#1677ff"/>)}
+    {labels.filter((_:any,i:number)=>i%Math.ceil(labels.length/8)===0).map((l:string,i:number)=><text key={l} x={px(i*Math.ceil(labels.length/8))} y={H+20} fill="#999" fontSize={9} textAnchor="middle">{l}</text>)}
+    <line x1={pad} y1={pad} x2={pad} y2={H-pad} stroke="#e5e7eb"/><line x1={pad} y1={H-pad} x2={W-pad} y2={H-pad} stroke="#e5e7eb"/>
+    <text x={W-60} y={20} fill="#dc2626" fontSize={9}>—— 价格</text>
+    <text x={W-60} y={34} fill="#1677ff" fontSize={9}>- - 销量</text>
+  </svg>
+}
+
 const filterInput:React.CSSProperties={width:80,padding:'3px 6px',border:'1px solid #d9d9d9',borderRadius:4,fontSize:12,outline:'none'}
 const tableStyle:React.CSSProperties={width:'100%',borderCollapse:'collapse',fontSize:14}
