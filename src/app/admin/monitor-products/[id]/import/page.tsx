@@ -118,18 +118,23 @@ export default function ImportPage() {
               <thead>
                 <tr style={{ background: '#fafafa', position: 'sticky', top: 0 }}>
                   <th style={thStyle}><input type="checkbox" checked={selectedIds.size === preview.preview_data.length} onChange={toggleAll} /></th>
-                  <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={thStyle}>价格</th><th style={thStyle}>销量</th><th style={thStyle}>店铺</th>
+                  <th style={thStyle}>图片</th><th style={thStyle}>商品ID</th><th style={thStyle}>标题</th><th style={thStyle}>价格</th><th style={thStyle}>销量</th><th style={thStyle}>掌柜</th><th style={thStyle}>店铺</th><th style={thStyle}>地址</th>
                 </tr>
               </thead>
               <tbody>
                 {preview.preview_data.map((p: any) => (
                   <tr key={p.product_id} style={{ borderBottom: '1px solid #f0f0f0' }}>
                     <td style={tdStyle}><input type="checkbox" checked={selectedIds.has(p.product_id)} onChange={() => toggleOne(p.product_id)} /></td>
-                    <td style={tdStyle}>{p.main_image_url ? <img src={p.main_image_url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ width: 40, height: 40, background: '#f5f5f5' }} />}</td>
-                    <td style={{ ...tdStyle, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.title}</td>
-                    <td style={{ ...tdStyle, color: '#dc2626' }}>¥{(p.price || 0).toFixed(2)}</td>
+                    <td style={tdStyle}>{(p.image_url || p.main_image_url) ? <img src={p.image_url || p.main_image_url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <div style={{ width: 40, height: 40, background: '#f5f5f5' }} />}</td>
+                    <td style={tdStyle}><span style={{ fontSize: 12, color: '#999' }}>{p.product_id}</span></td>
+                    <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {p.url ? <a href={p.url.startsWith('http') ? p.url : 'https:' + p.url} target="_blank" rel="noreferrer" style={{ color: '#1677ff' }}>{p.title}</a> : p.title}
+                    </td>
+                    <td style={{ ...tdStyle, color: '#dc2626', fontWeight: 600 }}>¥{(p.price || 0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString() || '-'}</td>
+                    <td style={tdStyle}>{p.seller_name || '-'}</td>
                     <td style={tdStyle}>{p.shop_name || p.shop || '-'}</td>
+                    <td style={{ ...tdStyle, fontSize: 11, color: '#999' }}>{p.location || '-'}</td>
                   </tr>
                 ))}
               </tbody>

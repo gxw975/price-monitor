@@ -4,14 +4,14 @@
   "/admin/analysis/page": "app/admin/analysis/page.js",
   "/admin/diagnostics/page": "app/admin/diagnostics/page.js",
   "/admin/logs/page": "app/admin/logs/page.js",
-  "/admin/monitor-products/[id]/import/page": "app/admin/monitor-products/[id]/import/page.js",
   "/admin/monitor-products/[id]/page": "app/admin/monitor-products/[id]/page.js",
+  "/admin/monitor-products/[id]/import/page": "app/admin/monitor-products/[id]/import/page.js",
   "/admin/monitor-products/page": "app/admin/monitor-products/page.js",
   "/admin/products/[id]/page": "app/admin/products/[id]/page.js",
   "/admin/products/[id]/skus/page": "app/admin/products/[id]/skus/page.js",
   "/admin/products/page": "app/admin/products/page.js",
-  "/admin/settings/page": "app/admin/settings/page.js",
   "/admin/users/page": "app/admin/users/page.js",
+  "/admin/settings/page": "app/admin/settings/page.js",
   "/login/page": "app/login/page.js",
   "/page": "app/page.js"
 }
