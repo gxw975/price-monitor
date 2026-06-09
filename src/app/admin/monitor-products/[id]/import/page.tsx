@@ -86,30 +86,25 @@ export default function ImportPage() {
 
       {step === 'preview' && preview && (
         <>
-          {/* Stats bar */}
-          <div style={{ display: 'flex', gap: 20, marginBottom: 8, fontSize: 14, flexWrap: 'wrap', alignItems: 'center' }}>
-            <span>📄 {preview.file_name}</span>
-            <span>总计 <b>{preview.total_count}</b></span>
-            <span style={{ color: '#fa8c16' }}>广告 <b>{preview.ad_count}</b></span>
-            <span style={{ color: '#16a34a' }}>有效 <b>{preview.valid_count}</b></span>
-            <span style={{ color: '#1677ff' }}>已选 <b>{selectedIds.size}</b></span>
-          </div>
-
-          {/* Page size selector */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <span style={{ fontSize: 12, color: '#999' }}>共 {totalItems} 条记录</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
-              <span style={{ color: '#666' }}>每页</span>
-              <select value={pageSize} onChange={e => { setPageSize(parseInt(e.target.value)); setPage(1) }}
-                style={{ padding: '2px 6px', border: '1px solid #d9d9d9', borderRadius: 4 }}>
-                {[20, 50, 100, 99999].map(s => <option key={s} value={s}>{s >= 99999 ? '全部' : s}</option>)}
-              </select>
-              <span style={{ color: '#666' }}>条</span>
+          {/* Stats bar + action buttons in top right */}
+          <div style={{ display: 'flex', gap: 20, marginBottom: 8, fontSize: 14, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span>📄 {preview.file_name}</span>
+              <span>总计 <b>{preview.total_count}</b></span>
+              <span style={{ color: '#fa8c16' }}>广告 <b>{preview.ad_count}</b></span>
+              <span style={{ color: '#16a34a' }}>有效 <b>{preview.valid_count}</b></span>
+              <span style={{ color: '#1677ff' }}>已选 <b>{selectedIds.size}</b></span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => { setPreview(null); setStep('upload') }} style={btnSecondary}>重新选择</button>
+              <button onClick={confirmImport} disabled={confirming || selectedIds.size === 0} style={btnPrimary}>
+                {confirming ? '导入中...' : `确认导入 (${selectedIds.size}条)`}
+              </button>
             </div>
           </div>
 
           {/* Table */}
-          <div style={{ maxHeight: 'calc(100vh - 280px)', overflow: 'auto', marginBottom: 8, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+          <div style={{ maxHeight: 'calc(100vh - 260px)', overflow: 'auto', marginBottom: 8, border: '1px solid #e5e7eb', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
                 <tr style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
@@ -117,12 +112,14 @@ export default function ImportPage() {
                   <th style={{ ...thStyle, width: 40 }}>#</th>
                   <th style={{ ...thStyle, width: 90 }}>图片</th>
                   <th style={{ ...thStyle, width: 120 }}>商品ID</th>
-                  <th style={{ ...thStyle, minWidth: 180 }}>标题</th>
-                  <th style={{ ...thStyle, width: 90 }}>价格</th>
+                  <th style={{ ...thStyle, minWidth: 200 }}>标题</th>
+                  <th style={{ ...thStyle, width: 80 }}>现价</th>
                   <th style={{ ...thStyle, width: 70 }}>销量</th>
-                  <th style={{ ...thStyle, width: 100 }}>掌柜</th>
-                  <th style={{ ...thStyle, width: 120 }}>店铺</th>
-                  <th style={{ ...thStyle, width: 90 }}>地址</th>
+                  <th style={{ ...thStyle, width: 70 }}>平台</th>
+                  <th style={{ ...thStyle, width: 80 }}>店铺类型</th>
+                  <th style={{ ...thStyle, width: 90 }}>掌柜</th>
+                  <th style={{ ...thStyle, width: 110 }}>店铺</th>
+                  <th style={{ ...thStyle, width: 80 }}>地址</th>
                 </tr>
               </thead>
               <tbody>
@@ -132,17 +129,38 @@ export default function ImportPage() {
                     <td style={{ ...tdStyle, color: '#999', fontSize: 12 }}>{(page - 1) * pageSize + i + 1}</td>
                     <td style={tdStyle}>
                       {(p.image_url || p.main_image_url) ? (
-                        <img src={p.image_url || p.main_image_url} alt=""
-                          style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0' }}
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                      ) : <div style={{ width: 80, height: 80, background: '#f5f5f5', borderRadius: 6 }} />}
+                        <div style={{ position: 'relative', display: 'inline-block' }} className="img-preview-group">
+                          <img src={p.image_url || p.main_image_url} alt=""
+                            style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0', cursor: 'pointer' }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            onMouseEnter={(e) => {
+                              const overlay = (e.target as HTMLElement).nextElementSibling as HTMLElement
+                              if (overlay) overlay.style.display = 'block'
+                            }}
+                            onMouseLeave={(e) => {
+                              const overlay = (e.target as HTMLElement).nextElementSibling as HTMLElement
+                              if (overlay) overlay.style.display = 'none'
+                            }} />
+                          <div style={{
+                            display: 'none', position: 'absolute', left: 80, top: -40, zIndex: 100,
+                            border: '2px solid #e5e7eb', borderRadius: 8, background: '#fff',
+                            boxShadow: '0 4px 16px rgba(0,0,0,0.15)', padding: 4,
+                          }}>
+                            <img src={p.image_url || p.main_image_url} alt=""
+                              style={{ width: 240, height: 240, objectFit: 'contain', borderRadius: 4 }}
+                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                          </div>
+                        </div>
+                      ) : <div style={{ width: 72, height: 72, background: '#f5f5f5', borderRadius: 6 }} />}
                     </td>
                     <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{p.product_id}</td>
-                    <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td style={tdStyle}>
                       {p.url ? <a href={p.url.startsWith('http') ? p.url : 'https:' + p.url} target="_blank" rel="noreferrer" style={{ color: '#1677ff' }}>{p.title}</a> : p.title}
                     </td>
                     <td style={{ ...tdStyle, color: '#dc2626', fontWeight: 600 }}>¥{(p.price || 0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString() || '-'}</td>
+                    <td style={tdStyle}>{p.platform || '-'}</td>
+                    <td style={tdStyle}>{p.shop_type || '-'}</td>
                     <td style={tdStyle}>{p.seller_name || '-'}</td>
                     <td style={{ ...tdStyle, fontSize: 12 }}>{p.shop_name || p.shop || '-'}</td>
                     <td style={{ ...tdStyle, fontSize: 11, color: '#999' }}>{p.location || '-'}</td>
@@ -152,38 +170,41 @@ export default function ImportPage() {
             </table>
           </div>
 
-          {/* Pagination */}
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ display: 'flex', gap: 4 }}>
-              <button onClick={() => setPage(1)} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>«</button>
-              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>‹</button>
-              {(() => {
-                const btns = []
-                let start = Math.max(1, page - 2)
-                let end = Math.min(totalPages, page + 2)
-                if (start > 1) { btns.push(<span key="s" style={{ padding: '0 4px', color: '#999' }}>...</span>) }
-                for (let i = start; i <= end; i++) {
-                  btns.push(
-                    <button key={i} onClick={() => setPage(i)}
-                      style={i === page ? { ...pageBtnStyle(false), background: '#1677ff', color: '#fff', borderColor: '#1677ff' } : pageBtnStyle(false)}>
-                      {i}
-                    </button>
-                  )
-                }
-                if (end < totalPages) { btns.push(<span key="e" style={{ padding: '0 4px', color: '#999' }}>...</span>) }
-                return btns
-              })()}
-              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>›</button>
-              <button onClick={() => setPage(totalPages)} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>»</button>
+          {/* Pagination + page size at bottom */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={() => setPage(1)} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>«</button>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>‹</button>
+                {(() => {
+                  const btns = []
+                  const start = Math.max(1, page - 2)
+                  const end = Math.min(totalPages, page + 2)
+                  if (start > 1) { btns.push(<span key="s" style={{ padding: '0 2px', color: '#999' }}>…</span>) }
+                  for (let i = start; i <= end; i++) {
+                    btns.push(
+                      <button key={i} onClick={() => setPage(i)}
+                        style={i === page ? { ...pageBtnStyle(false), background: '#1677ff', color: '#fff', borderColor: '#1677ff' } : pageBtnStyle(false)}>
+                        {i}
+                      </button>
+                    )
+                  }
+                  if (end < totalPages) { btns.push(<span key="e" style={{ padding: '0 2px', color: '#999' }}>…</span>) }
+                  return btns
+                })()}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>›</button>
+                <button onClick={() => setPage(totalPages)} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>»</button>
+              </div>
+              <span style={{ fontSize: 12, color: '#999' }}>第 {page}/{totalPages || 1} 页 · 共 {totalItems} 条</span>
             </div>
-            <span style={{ fontSize: 12, color: '#999' }}>第 {page}/{totalPages || 1} 页</span>
-          </div>
-
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button onClick={() => { setPreview(null); setStep('upload') }} style={btnSecondary}>重新选择</button>
-            <button onClick={confirmImport} disabled={confirming || selectedIds.size === 0} style={btnPrimary}>
-              {confirming ? '导入中...' : `确认导入 (${selectedIds.size}条)`}
-            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <span style={{ color: '#666' }}>每页</span>
+              <select value={pageSize} onChange={e => { setPageSize(parseInt(e.target.value)); setPage(1) }}
+                style={{ padding: '3px 6px', border: '1px solid #d9d9d9', borderRadius: 4, fontSize: 13 }}>
+                {[20, 50, 100, 99999].map(s => <option key={s} value={s}>{s >= 99999 ? '全部' : s}</option>)}
+              </select>
+              <span style={{ color: '#666' }}>条</span>
+            </div>
           </div>
         </>
       )}

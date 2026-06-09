@@ -50,6 +50,12 @@ COLUMN_PATTERNS: dict[str, list[str]] = {
     "category": [
         "类目", "商品类目", "category", "分类",
     ],
+    "platform": [
+        "平台", "platform",
+    ],
+    "shop_type": [
+        "店铺类型", "shop_type", "卖家类型",
+    ],
     "is_tmall": [
         "是否天猫", "天猫", "is_tmall",
     ],
