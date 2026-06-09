@@ -132,8 +132,9 @@ class DtsDataParser:
         mapping = self._find_column_mapping(raw_headers)
         logger.info("列映射: %s", {k: v for k, v in mapping.items()})
 
-        # 解析数据行（两遍：第一遍全解析，第二遍按自然位优先去重）
+        # 解析数据行
         all_rows = []
+        total_ad_count = 0
         for row_num, row in enumerate(rows[1:], 2):
             record = {}
             for std_field, col_name in mapping.items():
@@ -149,18 +150,22 @@ class DtsDataParser:
                 logger.debug("行%d: 无法提取商品ID，跳过", row_num)
                 continue
             record["product_id"] = pid
+            # 格式化
+            record["price"] = self._parse_price(record.get("price", "0"))
+            record["sales"] = self._parse_sales(record.get("sales", "0"))
+            # 统计原始广告数
+            if record.get("placeholder_type") == "广告位":
+                total_ad_count += 1
             all_rows.append(record)
 
         # 去重：每个product_id只保留一条，优先保留"自然位"
         products = []
-        seen_ids: dict[str, int] = {}  # pid -> index in products
+        seen_ids: dict[str, int] = {}
+        dup_count = 0
         for record in all_rows:
             pid = record["product_id"]
-            # 格式化数据
-            record["price"] = self._parse_price(record.get("price", "0"))
-            record["sales"] = self._parse_sales(record.get("sales", "0"))
             if pid in seen_ids:
-                # 已存在：如果新记录是自然位且旧记录不是，替换
+                dup_count += 1
                 existing_idx = seen_ids[pid]
                 existing = products[existing_idx]
                 if record.get("placeholder_type") == "自然位" and existing.get("placeholder_type") != "自然位":
@@ -169,7 +174,13 @@ class DtsDataParser:
                 seen_ids[pid] = len(products)
                 products.append(record)
 
-        logger.info("解析完成: %d 个商品 (共%d行数据)", len(products), len(rows) - 1)
+        # 存储解析统计供 clean_ad_data 使用
+        self._parse_stats = {
+            "total_rows": len(rows) - 1,
+            "total_ad_count": total_ad_count,
+            "total_dup_count": dup_count,
+        }
+        logger.info("解析完成: %d 个商品 (共%d行, 广告%d, 去重%d)", len(products), len(rows)-1, total_ad_count, dup_count)
 
         # 复制文件到 data/downloads
         self._archive_file(filepath)
@@ -335,25 +346,17 @@ class DtsDataParser:
                      len(raw_products), len(natural), ad_count)
         return natural
 
-    def clean_ad_data(self, raw_products: list[dict]) -> tuple[list[dict], int, int]:
-        """清洗广告数据，返回(有效商品列表, 广告数量, 去重数量)。
+    def clean_ad_data(self, raw_products: list[dict]) -> tuple[list[dict], int, int, int]:
+        """清洗广告数据，返回(有效商品列表, 原始总行数, 广告数, 去重数)。
 
-        清洗规则:
-        1. 只保留占位类型为"自然位"的记录
-        2. 过滤商品ID为空或格式不正确的记录
-        3. 自动补全商品链接（添加https:前缀）
+        使用 parse() 执行时存储的统计信息。
         """
-        # 统计原始广告数（去重前）
-        raw_ad_count = sum(1 for p in raw_products if p.get("placeholder_type") == "广告位")
-        raw_natural_count = len(raw_products) - raw_ad_count
+        stats = getattr(self, '_parse_stats', {"total_rows": len(raw_products), "total_ad_count": 0, "total_dup_count": 0})
 
-        # 第一步：只保留自然位
+        # 只保留自然位
         natural = self.filter_natural_products(raw_products)
 
-        # 去重前自然位数 - 去重后自然位数 = 被去重数
-        dup_count = raw_natural_count - len(natural)
-
-        # 第二步：过滤无效商品ID
+        # 过滤无效商品ID
         valid = []
         for p in natural:
             pid = p.get("product_id", "")
@@ -363,13 +366,11 @@ class DtsDataParser:
             if url and not url.startswith("http"):
                 url = "https:" + url
                 p["url"] = url
-            p["price"] = self._parse_price(str(p.get("price", "0")))
-            p["sales"] = self._parse_sales(str(p.get("sales", "0")))
             valid.append(p)
 
-        logger.info("数据清洗: 总数=%d 广告=%d 去重=%d 有效=%d",
-                     len(raw_products), raw_ad_count, dup_count, len(valid))
-        return valid, raw_ad_count, dup_count
+        logger.info("数据清洗: 总计=%d 广告=%d 去重=%d 有效=%d",
+                     stats["total_rows"], stats["total_ad_count"], stats["total_dup_count"], len(valid))
+        return valid, stats["total_rows"], stats["total_ad_count"], stats["total_dup_count"]
 
 
 # ── 便捷函数 ──────────────────────────────────────────────

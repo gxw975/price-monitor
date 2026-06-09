@@ -432,10 +432,10 @@ async def import_excel_preview(
         parsed = parser.parse(temp_path)
         if not parsed:
             raise HTTPException(status_code=400, detail="Excel解析失败")
-        valid, ad_count, dup_count = parser.clean_ad_data(parsed)
+        valid, total_count, ad_count, dup_count = parser.clean_ad_data(parsed)
 
         return {"code": 200, "msg": "解析成功", "data": {
-            "file_name": file.filename, "total_count": len(parsed) + dup_count + ad_count,
+            "file_name": file.filename, "total_count": total_count,
             "ad_count": ad_count, "dup_count": dup_count, "valid_count": len(valid), "preview_data": valid,
         }}
     except HTTPException: raise

@@ -21,6 +21,8 @@ export default function ImportPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
   const [hoverImg, setHoverImg] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   const handleUpload = async (file: File) => {
     setUploading(true); setResult(null)
@@ -65,10 +67,22 @@ export default function ImportPage() {
     } catch (err: any) { alert(err.message) } finally { setConfirming(false) }
   }
 
-  // Pagination
-  const totalItems = preview?.preview_data.length || 0
+  // Sort & Pagination
+  const handleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const sortIndicator = (key: string) => sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  const sortedData = preview ? [...preview.preview_data].sort((a: any, b: any) => {
+    if (!sortKey) return 0
+    const va = a[sortKey]; const vb = b[sortKey]
+    if (typeof va === 'number' && typeof vb === 'number') return sortDir === 'asc' ? va - vb : vb - va
+    const sa = String(va || ''); const sb = String(vb || '')
+    return sortDir === 'asc' ? sa.localeCompare(sb, 'zh-CN') : sb.localeCompare(sa, 'zh-CN')
+  }) : []
+  const totalItems = sortedData.length
   const totalPages = Math.ceil(totalItems / pageSize)
-  const pagedData = preview?.preview_data.slice((page - 1) * pageSize, page * pageSize) || []
+  const pagedData = sortedData.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <div style={{ padding: 24 }}>
@@ -115,13 +129,13 @@ export default function ImportPage() {
                   <th style={{ ...thStyle, width: 90 }}>图片</th>
                   <th style={{ ...thStyle, width: 120 }}>商品ID</th>
                   <th style={{ ...thStyle, minWidth: 200 }}>标题</th>
-                  <th style={{ ...thStyle, width: 80 }}>现价</th>
-                  <th style={{ ...thStyle, width: 70 }}>销量</th>
-                  <th style={{ ...thStyle, width: 60 }}>平台</th>
-                  <th style={{ ...thStyle, width: 90 }}>店铺类型</th>
-                  <th style={{ ...thStyle, width: 110 }}>掌柜</th>
-                  <th style={{ ...thStyle, width: 150 }}>店铺</th>
-                  <th style={{ ...thStyle, width: 100 }}>地址</th>
+                  <th style={{ ...thStyle, width: 80, cursor: 'pointer' }} onClick={() => handleSort('price')}>现价{sortIndicator('price')}</th>
+                  <th style={{ ...thStyle, width: 70, cursor: 'pointer' }} onClick={() => handleSort('sales')}>销量{sortIndicator('sales')}</th>
+                  <th style={{ ...thStyle, width: 60, cursor: 'pointer' }} onClick={() => handleSort('platform')}>平台{sortIndicator('platform')}</th>
+                  <th style={{ ...thStyle, width: 90, cursor: 'pointer' }} onClick={() => handleSort('shop_type')}>店铺类型{sortIndicator('shop_type')}</th>
+                  <th style={{ ...thStyle, width: 110, cursor: 'pointer' }} onClick={() => handleSort('seller_name')}>掌柜{sortIndicator('seller_name')}</th>
+                  <th style={{ ...thStyle, width: 150, cursor: 'pointer' }} onClick={() => handleSort('shop_name')}>店铺{sortIndicator('shop_name')}</th>
+                  <th style={{ ...thStyle, width: 100, cursor: 'pointer' }} onClick={() => handleSort('location')}>地址{sortIndicator('location')}</th>
                 </tr>
               </thead>
               <tbody>
