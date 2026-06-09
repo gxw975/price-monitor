@@ -5,7 +5,7 @@ import { useAuth } from '@/lib/auth-context'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
 
-interface PreviewData { file_name: string; total_count: number; ad_count: number; valid_count: number; preview_data: any[] }
+interface PreviewData { file_name: string; total_count: number; ad_count: number; dup_count: number; valid_count: number; preview_data: any[] }
 
 export default function ImportPage() {
   const params = useParams(); const router = useRouter()
@@ -20,6 +20,7 @@ export default function ImportPage() {
   const [step, setStep] = useState<'upload' | 'preview' | 'login' | 'done'>('upload')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(20)
+  const [hoverImg, setHoverImg] = useState<string | null>(null)
 
   const handleUpload = async (file: File) => {
     setUploading(true); setResult(null)
@@ -92,6 +93,7 @@ export default function ImportPage() {
               <span>📄 {preview.file_name}</span>
               <span>总计 <b>{preview.total_count}</b></span>
               <span style={{ color: '#fa8c16' }}>广告 <b>{preview.ad_count}</b></span>
+              <span style={{ color: '#8b5cf6' }}>去重 <b>{preview.dup_count || 0}</b></span>
               <span style={{ color: '#16a34a' }}>有效 <b>{preview.valid_count}</b></span>
               <span style={{ color: '#1677ff' }}>已选 <b>{selectedIds.size}</b></span>
             </div>
@@ -115,11 +117,11 @@ export default function ImportPage() {
                   <th style={{ ...thStyle, minWidth: 200 }}>标题</th>
                   <th style={{ ...thStyle, width: 80 }}>现价</th>
                   <th style={{ ...thStyle, width: 70 }}>销量</th>
-                  <th style={{ ...thStyle, width: 70 }}>平台</th>
-                  <th style={{ ...thStyle, width: 80 }}>店铺类型</th>
-                  <th style={{ ...thStyle, width: 90 }}>掌柜</th>
-                  <th style={{ ...thStyle, width: 110 }}>店铺</th>
-                  <th style={{ ...thStyle, width: 80 }}>地址</th>
+                  <th style={{ ...thStyle, width: 60 }}>平台</th>
+                  <th style={{ ...thStyle, width: 90 }}>店铺类型</th>
+                  <th style={{ ...thStyle, width: 110 }}>掌柜</th>
+                  <th style={{ ...thStyle, width: 150 }}>店铺</th>
+                  <th style={{ ...thStyle, width: 100 }}>地址</th>
                 </tr>
               </thead>
               <tbody>
@@ -129,27 +131,23 @@ export default function ImportPage() {
                     <td style={{ ...tdStyle, color: '#999', fontSize: 12 }}>{(page - 1) * pageSize + i + 1}</td>
                     <td style={tdStyle}>
                       {(p.image_url || p.main_image_url) ? (
-                        <div style={{ position: 'relative', display: 'inline-block' }} className="img-preview-group">
+                        <div style={{ position: 'relative' }}>
                           <img src={p.image_url || p.main_image_url} alt=""
                             style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0', cursor: 'pointer' }}
                             onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                            onMouseEnter={(e) => {
-                              const overlay = (e.target as HTMLElement).nextElementSibling as HTMLElement
-                              if (overlay) overlay.style.display = 'block'
-                            }}
-                            onMouseLeave={(e) => {
-                              const overlay = (e.target as HTMLElement).nextElementSibling as HTMLElement
-                              if (overlay) overlay.style.display = 'none'
-                            }} />
-                          <div style={{
-                            display: 'none', position: 'absolute', left: 80, top: -40, zIndex: 100,
-                            border: '2px solid #e5e7eb', borderRadius: 8, background: '#fff',
-                            boxShadow: '0 4px 16px rgba(0,0,0,0.15)', padding: 4,
-                          }}>
-                            <img src={p.image_url || p.main_image_url} alt=""
-                              style={{ width: 240, height: 240, objectFit: 'contain', borderRadius: 4 }}
-                              onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                          </div>
+                            onMouseEnter={() => setHoverImg(p.image_url || p.main_image_url)}
+                            onMouseLeave={() => setHoverImg(null)} />
+                          {hoverImg === (p.image_url || p.main_image_url) && (
+                            <div style={{
+                              position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 2000,
+                              border: '2px solid #e5e7eb', borderRadius: 8, background: '#fff',
+                              boxShadow: '0 4px 24px rgba(0,0,0,0.2)', padding: 8,
+                            }}>
+                              <img src={p.image_url || p.main_image_url} alt=""
+                                style={{ width: 300, height: 300, objectFit: 'contain', borderRadius: 4 }}
+                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                            </div>
+                          )}
                         </div>
                       ) : <div style={{ width: 72, height: 72, background: '#f5f5f5', borderRadius: 6 }} />}
                     </td>

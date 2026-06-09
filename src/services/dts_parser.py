@@ -335,27 +335,30 @@ class DtsDataParser:
                      len(raw_products), len(natural), ad_count)
         return natural
 
-    def clean_ad_data(self, raw_products: list[dict]) -> tuple[list[dict], int]:
-        """清洗广告数据，返回(有效商品列表, 广告数量)。
+    def clean_ad_data(self, raw_products: list[dict]) -> tuple[list[dict], int, int]:
+        """清洗广告数据，返回(有效商品列表, 广告数量, 去重数量)。
 
         清洗规则:
         1. 只保留占位类型为"自然位"的记录
         2. 过滤商品ID为空或格式不正确的记录
-        3. 过滤价格为0或负数的记录
-        4. 自动补全商品链接（添加https:前缀）
+        3. 自动补全商品链接（添加https:前缀）
         """
+        # 统计原始广告数（去重前）
+        raw_ad_count = sum(1 for p in raw_products if p.get("placeholder_type") == "广告位")
+        raw_natural_count = len(raw_products) - raw_ad_count
+
         # 第一步：只保留自然位
         natural = self.filter_natural_products(raw_products)
-        ad_count = len(raw_products) - len(natural)
+
+        # 去重前自然位数 - 去重后自然位数 = 被去重数
+        dup_count = raw_natural_count - len(natural)
 
         # 第二步：过滤无效商品ID
         valid = []
         for p in natural:
             pid = p.get("product_id", "")
-            # 过滤空ID或非数字ID
             if not pid or not re.match(r'^\d{8,20}$', str(pid)):
                 continue
-            # 补全商品链接
             url = p.get("url", "")
             if url and not url.startswith("http"):
                 url = "https:" + url
@@ -364,9 +367,9 @@ class DtsDataParser:
             p["sales"] = self._parse_sales(str(p.get("sales", "0")))
             valid.append(p)
 
-        logger.info("数据清洗完成: 总数=%d 自然位=%d 广告=%d 有效=%d",
-                     len(raw_products), len(natural), ad_count, len(valid))
-        return valid, ad_count
+        logger.info("数据清洗: 总数=%d 广告=%d 去重=%d 有效=%d",
+                     len(raw_products), raw_ad_count, dup_count, len(valid))
+        return valid, raw_ad_count, dup_count
 
 
 # ── 便捷函数 ──────────────────────────────────────────────
