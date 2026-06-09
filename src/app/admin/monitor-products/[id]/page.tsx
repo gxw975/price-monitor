@@ -37,6 +37,8 @@ export default function MonitorProductDetail() {
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [jumpPage, setJumpPage] = useState('')
   const [filters, setFilters] = useState({ minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
+  const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
+  const [delLoading, setDelLoading] = useState(false)
 
   const fetchMp = useCallback(async () => {
     try {
@@ -218,14 +220,7 @@ export default function MonitorProductDetail() {
                         try { const r = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(r.items||[]); setTab('products') } catch { /**/ }
                       }} style={btnSecondary}>查看商品</button>
                       {canWrite && (
-                        <button onClick={async () => {
-                          if (!confirm(`确定删除批次「${i.file_name}」的所有导入数据？`)) return
-                          try {
-                            // Delete products from this batch
-                            await apiFetch(`/api/monitor-products/${id}/imports/${i.id}`, { method: 'DELETE' })
-                            const r = await apiFetch(`/api/monitor-products/${id}/imports`); setImports(r.items||[]); fetchMp()
-                          } catch { /**/ }
-                        }} style={{...btnSecondary,color:'#dc2626',borderColor:'#fecaca'}}>删除</button>
+                        <button onClick={() => setDelBatch(i)} style={{...btnSecondary,color:'#dc2626',borderColor:'#fecaca'}}>删除</button>
                       )}
                     </div>
                   </div>
@@ -415,6 +410,33 @@ export default function MonitorProductDetail() {
           )}
         </div>
       )}
+      {/* Delete confirmation modal */}
+      {delBatch && (
+        <div style={modalOverlay}>
+          <div style={{...modalContent,width:440}}>
+            <h3 style={{fontSize:16,fontWeight:600,marginBottom:8}}>确认删除</h3>
+            <p style={{fontSize:14,color:'#6b7280',marginBottom:4}}>确定要删除以下批次的所有导入数据？</p>
+            <p style={{fontSize:13,color:'#374151',marginBottom:12,background:'#fef2f2',padding:8,borderRadius:6}}>
+              📄 {delBatch.file_name}<br/>
+              总计 {delBatch.total_count} 条 · 有效 {delBatch.valid_count} 条<br/>
+              <span style={{color:'#dc2626',fontSize:12}}>⚠ 将同时删除关联的商品、价格历史和预警记录</span>
+            </p>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={() => setDelBatch(null)} style={btnSecondary} disabled={delLoading}>取消</button>
+              <button onClick={async () => {
+                setDelLoading(true)
+                try {
+                  await apiFetch(`/api/monitor-products/${id}/imports/${delBatch.id}`, { method: 'DELETE' })
+                  setDelBatch(null)
+                  const r = await apiFetch(`/api/monitor-products/${id}/imports`); setImports(r.items||[]); fetchMp()
+                } catch { /**/ } finally { setDelLoading(false) }
+              }} style={{...btnPrimary,background:'#dc2626'}} disabled={delLoading}>
+                {delLoading ? '删除中...' : '确认删除'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -427,5 +449,7 @@ const thStyle:React.CSSProperties={textAlign:'left',padding:'8px 10px',fontWeigh
 const tdStyle:React.CSSProperties={padding:'8px 10px',color:'#555',fontSize:13}
 const inputStyle:React.CSSProperties={padding:'6px 10px',border:'1px solid #d9d9d9',borderRadius:6,fontSize:14,width:'100%'}
 const labelStyle:React.CSSProperties={display:'block',fontSize:13,fontWeight:500,marginBottom:2,color:'#374151'}
+const modalOverlay:React.CSSProperties={position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.45)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1000}
+const modalContent:React.CSSProperties={background:'#fff',borderRadius:8,padding:24,maxHeight:'85vh',overflow:'auto'}
 const filterInput:React.CSSProperties={width:80,padding:'3px 6px',border:'1px solid #d9d9d9',borderRadius:4,fontSize:12,outline:'none'}
 const tableStyle:React.CSSProperties={width:'100%',borderCollapse:'collapse',fontSize:14}
