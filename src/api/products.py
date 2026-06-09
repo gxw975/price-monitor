@@ -36,6 +36,14 @@ def _check_write_permission(role: str) -> None:
         raise HTTPException(status_code=403, detail="权限不足，仅管理员和主管可以操作")
 
 
+def require_write_permission(
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """FastAPI 依赖：校验写入权限"""
+    _check_write_permission(current_user["role"])
+    return current_user
+
+
 def _parse_db_url(url: str) -> tuple[str, str]:
     from urllib.parse import parse_qs, urlparse, urlunparse
 
@@ -143,4 +151,30 @@ def get_product_detail(
         raise HTTPException(status_code=500, detail="查询商品详情失败")
     finally:
         conn.close()
+
+
+@router.delete("/{product_id}")
+def delete_product(
+    product_id: str,
+    _auth: dict[str, Any] = Depends(require_write_permission),
+) -> dict[str, Any]:
+    """删除单个商品及其关联数据。权限：admin/manager"""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('DELETE FROM "ProductHistory" WHERE product_id=%s', (product_id,))
+            cur.execute('DELETE FROM "ProductSku" WHERE product_id=%s', (product_id,))
+            cur.execute('DELETE FROM "ProductKeyword" WHERE product_id=%s', (product_id,))
+            cur.execute('DELETE FROM "Alert" WHERE product_id=%s', (product_id,))
+            cur.execute('DELETE FROM "Product" WHERE product_id=%s', (product_id,))
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="商品不存在")
+            conn.commit()
+        logger.info("删除商品: %s", product_id)
+        return {"success": True}
+    except HTTPException: raise
+    except Exception:
+        logger.exception("删除商品失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="删除失败")
 

@@ -352,17 +352,19 @@ def delete_import_batch(
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
-            # 先删除ProductHistory (否则外键约束阻止删除Product)
+            # 先删除所有子表记录 (否则外键约束阻止删除Product)
             cur.execute(
                 'DELETE FROM "ProductHistory" WHERE product_id IN (SELECT product_id FROM "Product" WHERE import_batch_id=%s AND monitor_product_id=%s)',
                 (batch_id, product_id),
             )
-            # 删除ProductKeyword
+            cur.execute(
+                'DELETE FROM "ProductSku" WHERE product_id IN (SELECT product_id FROM "Product" WHERE import_batch_id=%s AND monitor_product_id=%s)',
+                (batch_id, product_id),
+            )
             cur.execute(
                 'DELETE FROM "ProductKeyword" WHERE product_id IN (SELECT product_id FROM "Product" WHERE import_batch_id=%s AND monitor_product_id=%s)',
                 (batch_id, product_id),
             )
-            # 删除Alert
             cur.execute(
                 'DELETE FROM "Alert" WHERE product_id IN (SELECT product_id FROM "Product" WHERE import_batch_id=%s AND monitor_product_id=%s)',
                 (batch_id, product_id),

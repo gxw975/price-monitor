@@ -38,6 +38,7 @@ export default function MonitorProductDetail() {
   const [jumpPage, setJumpPage] = useState('')
   const [filters, setFilters] = useState({ minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
   const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
+  const [delProduct, setDelProduct] = useState<Product | null>(null)
   const [delLoading, setDelLoading] = useState(false)
 
   const fetchMp = useCallback(async () => {
@@ -267,6 +268,7 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:110,cursor:'pointer'}} onClick={()=>toggleProdSort('seller_name')}>掌柜{prodSortIndicator('seller_name')}</th>
                 <th style={{...thStyle,width:150,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺{prodSortIndicator('shop_name')}</th>
                 <th style={{...thStyle,width:100,cursor:'pointer'}} onClick={()=>toggleProdSort('location')}>地址{prodSortIndicator('location')}</th>
+                {canWrite && <th style={{...thStyle,width:50}}>操作</th>}
               </tr></thead>
               <tbody>
                 {pagedProds.map((p, i) => (
@@ -298,6 +300,7 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.seller_name||'-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
+                    {canWrite && <td style={tdStyle}><button onClick={() => setDelProduct(p)} style={{padding:'2px 8px',fontSize:12,color:'#dc2626',border:'1px solid #fecaca',borderRadius:4,background:'#fff',cursor:'pointer'}}>删除</button></td>}
                   </tr>
                 ))}
               </tbody>
@@ -410,7 +413,31 @@ export default function MonitorProductDetail() {
           )}
         </div>
       )}
-      {/* Delete confirmation modal */}
+      {/* Product delete modal */}
+      {delProduct && (
+        <div style={modalOverlay}>
+          <div style={{...modalContent,width:440}}>
+            <h3 style={{fontSize:16,fontWeight:600,marginBottom:8}}>确认删除商品</h3>
+            <p style={{fontSize:14,color:'#6b7280',marginBottom:12}}>确定要删除以下商品及其关联数据？</p>
+            <div style={{fontSize:13,marginBottom:12,background:'#fef2f2',padding:8,borderRadius:6}}>
+              <p style={{fontWeight:500}}>{delProduct.title}</p>
+              <p style={{color:'#999',fontSize:12}}>ID: {delProduct.product_id} · 店铺: {delProduct.shop_name||'-'}</p>
+              <span style={{color:'#dc2626',fontSize:11}}>⚠ 将同时删除价格历史和预警记录</span>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={() => setDelProduct(null)} style={btnSecondary}>取消</button>
+              <button onClick={async () => {
+                try {
+                  await apiFetch(`/api/products/${delProduct.product_id}`, { method: 'DELETE' })
+                  setDelProduct(null); const r = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(r.items||[])
+                } catch { /**/ }
+              }} style={{...btnPrimary,background:'#dc2626'}}>确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import batch delete modal */}
       {delBatch && (
         <div style={modalOverlay}>
           <div style={{...modalContent,width:440}}>
