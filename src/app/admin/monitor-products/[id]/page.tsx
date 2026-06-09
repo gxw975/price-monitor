@@ -429,7 +429,7 @@ export default function MonitorProductDetail() {
       {/* History chart modal */}
       {chartPid && (
         <div style={modalOverlay}>
-          <div style={{...modalContent,width:700}}>
+          <div style={{...modalContent,width:960}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
               <h3 style={{fontSize:16,fontWeight:600}}>历史趋势 — {chartPid}</h3>
               <button onClick={() => setChartPid(null)} style={btnSecondary}>关闭</button>
@@ -509,28 +509,50 @@ const labelStyle:React.CSSProperties={display:'block',fontSize:13,fontWeight:500
 const modalOverlay:React.CSSProperties={position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.45)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1000}
 const modalContent:React.CSSProperties={background:'#fff',borderRadius:8,padding:24,maxHeight:'85vh',overflow:'auto'}
 function HistoryChart({ data }: { data: any[] }) {
+  const [hoverX, setHoverX] = useState<number | null>(null)
   if (!data.length) return null
-  const W=620, H=200, pad=40, prices=data.map((d:any)=>d.avg_price||d.min_price||0).reverse()
+  const W=880, H=280, padL=55, padR=30, padT=20, padB=40
+  const chartW=W-padL-padR, chartH=H-padT-padB
+  const prices=data.map((d:any)=>d.avg_price||d.min_price||0).reverse()
   const sales=data.map((d:any)=>d.entries||0).reverse()
-  const labels=data.map((d:any)=>d.date?.slice(5)||'').reverse()
+  const labels=data.map((d:any)=>d.date||'').reverse()
   const maxP=Math.max(...prices,1), minP=Math.min(...prices.filter((p:number)=>p>0),maxP)
-  const maxS=Math.max(...sales,1)
-  const px=(i:number)=>pad+(i/(prices.length-1||1))*(W-2*pad)
-  const pyP=(v:number)=>H-pad-((v-minP)/(maxP-minP||1))*(H-2*pad)
-  const pyS=(v:number)=>H-pad-((v/maxS)*(H-2*pad))
+  const rangeP=maxP-minP||1; const maxS=Math.max(...sales,1)
+  const px=(i:number)=>padL+(i/(prices.length-1||1))*chartW
+  const pyP=(v:number)=>padT+chartH-((v-minP)/rangeP)*chartH
+  const pyS=(v:number)=>padT+chartH-((v/maxS)*chartH)
   const line=(vals:number[],fn:(v:number)=>number)=>vals.map((v,i)=>`${i===0?'M':'L'}${px(i)},${fn(v)}`).join(' ')
-  return <svg width={W} height={H+30} style={{fontSize:10}}>
-    <text x={W/2} y={14} textAnchor="middle" fill="#374151" fontWeight={600}>📈 30天价格与销量趋势</text>
-    {[0,0.25,0.5,0.75,1].map(r=><text key={r} x={4} y={pyP(minP+(maxP-minP)*r)+3} fill="#999" fontSize={9}>¥{Math.round(minP+(maxP-minP)*r)}</text>)}
-    <path d={line(prices,pyP)} fill="none" stroke="#dc2626" strokeWidth={2}/>
-    {prices.map((v,i)=><circle key={'p'+i} cx={px(i)} cy={pyP(v)} r={2.5} fill="#dc2626"/>)}
-    <path d={line(sales,pyS)} fill="none" stroke="#1677ff" strokeWidth={2} strokeDasharray="4,3"/>
-    {sales.map((v,i)=><circle key={'s'+i} cx={px(i)} cy={pyS(v)} r={2} fill="#1677ff"/>)}
-    {labels.filter((_:any,i:number)=>i%Math.ceil(labels.length/8)===0).map((l:string,i:number)=><text key={l} x={px(i*Math.ceil(labels.length/8))} y={H+20} fill="#999" fontSize={9} textAnchor="middle">{l}</text>)}
-    <line x1={pad} y1={pad} x2={pad} y2={H-pad} stroke="#e5e7eb"/><line x1={pad} y1={H-pad} x2={W-pad} y2={H-pad} stroke="#e5e7eb"/>
-    <text x={W-60} y={20} fill="#dc2626" fontSize={9}>—— 价格</text>
-    <text x={W-60} y={34} fill="#1677ff" fontSize={9}>- - 销量</text>
-  </svg>
+  // Find closest data point to hoverX
+  let hoverIdx=-1, hoverPrice=0, hoverSales=0, hoverLabel=''
+  if (hoverX!==null) { hoverIdx=Math.round(((hoverX-padL)/chartW)*(prices.length-1)); hoverIdx=Math.max(0,Math.min(prices.length-1,hoverIdx)); hoverPrice=prices[hoverIdx]; hoverSales=sales[hoverIdx]; hoverLabel=labels[hoverIdx] }
+  return <div style={{position:'relative'}}>
+    <svg width={W} height={H} style={{fontSize:10,cursor:'crosshair'}} onMouseMove={e=>{const r=e.currentTarget.getBoundingClientRect();setHoverX(e.clientX-r.left)}} onMouseLeave={()=>setHoverX(null)}>
+      <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#dc2626" stopOpacity={0.12}/><stop offset="100%" stopColor="#dc2626" stopOpacity={0}/></linearGradient></defs>
+      {/* Grid lines */}
+      {[0,0.25,0.5,0.75,1].map(r=><g key={'g'+r}><line x1={padL} y1={pyP(minP+rangeP*r)} x2={W-padR} y2={pyP(minP+rangeP*r)} stroke="#f0f0f0" strokeWidth={1}/><text x={padL-6} y={pyP(minP+rangeP*r)+3} fill="#999" fontSize={10} textAnchor="end">¥{Math.round(minP+rangeP*r)}</text></g>)}
+      {/* Area fill for price */}
+      <path d={`${line(prices,pyP)} L${px(prices.length-1)},${padT+chartH} L${px(0)},${padT+chartH} Z`} fill="url(#pg)"/>
+      {/* Price line */}
+      <path d={line(prices,pyP)} fill="none" stroke="#dc2626" strokeWidth={2.5}/>
+      {prices.map((v,i)=><circle key={'p'+i} cx={px(i)} cy={pyP(v)} r={3} fill="#fff" stroke="#dc2626" strokeWidth={2}/>)}
+      {/* Sales line */}
+      <path d={line(sales,pyS)} fill="none" stroke="#3b82f6" strokeWidth={2} strokeDasharray="6,3"/>
+      {/* X-axis labels */}
+      {labels.filter((_:any,i:number)=>i%Math.ceil(labels.length/10)===0||i===labels.length-1).map((l:string,i:number)=><text key={l} x={px(i*Math.ceil(labels.length/10))} y={H-6} fill="#999" fontSize={10} textAnchor="middle">{l.slice(5)}</text>)}
+      {/* Axes */}
+      <line x1={padL} y1={padT} x2={padL} y2={padT+chartH} stroke="#e5e7eb"/><line x1={padL} y1={padT+chartH} x2={W-padR} y2={padT+chartH} stroke="#e5e7eb"/>
+      {/* Crosshair */}
+      {hoverIdx>=0 && <><line x1={px(hoverIdx)} y1={padT} x2={px(hoverIdx)} y2={padT+chartH} stroke="#999" strokeWidth={1} strokeDasharray="3,3"/>
+        <circle cx={px(hoverIdx)} cy={pyP(hoverPrice)} r={5} fill="#dc2626" stroke="#fff" strokeWidth={2}/>
+        <circle cx={px(hoverIdx)} cy={pyS(hoverSales)} r={4} fill="#3b82f6" stroke="#fff" strokeWidth={2}/></>}
+    </svg>
+    {/* Tooltip */}
+    {hoverIdx>=0 && <div style={{position:'absolute',top:padT+4,left:px(hoverIdx)>W/2?px(hoverIdx)-140:px(hoverIdx)+16,background:'rgba(0,0,0,0.8)',color:'#fff',fontSize:12,padding:'6px 10px',borderRadius:6,pointerEvents:'none',whiteSpace:'nowrap'}}>
+      <div>{hoverLabel}</div><div style={{color:'#fca5a5'}}>💰 ¥{hoverPrice.toFixed(2)}</div><div style={{color:'#93c5fd'}}>📈 {hoverSales}单</div></div>}
+    {/* Legend */}
+    <div style={{position:'absolute',top:padT,right:padR,display:'flex',gap:12,fontSize:11,background:'#fff',padding:'2px 8px',borderRadius:4}}>
+      <span style={{color:'#dc2626'}}>● 价格</span><span style={{color:'#3b82f6'}}>● 销量</span></div>
+  </div>
 }
 
 const filterInput:React.CSSProperties={width:80,padding:'3px 6px',border:'1px solid #d9d9d9',borderRadius:4,fontSize:12,outline:'none'}
