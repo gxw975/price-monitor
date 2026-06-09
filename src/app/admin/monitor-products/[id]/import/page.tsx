@@ -58,7 +58,7 @@ export default function ImportPage() {
       const res = await fetch(`/api/monitor-products/${mpId}/import/confirm`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ file_name: preview.file_name, selected_product_ids: Array.from(selectedIds) }),
+        body: JSON.stringify({ file_name: preview.file_name, selected_product_ids: Array.from(selectedIds), products_data: preview.preview_data }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.detail || '导入失败')

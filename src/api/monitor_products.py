@@ -80,6 +80,7 @@ class MonitorProductUpdate(BaseModel):
 class ConfirmImportRequest(BaseModel):
     file_name: str
     selected_product_ids: list[str]
+    products_data: list[dict] = []  # full product data from preview
 
 
 class SkuCategoryCreate(BaseModel):
@@ -470,18 +471,43 @@ def confirm_import(
             batch_id = cur.fetchone()[0]
             conn.commit()
 
+        # Build a lookup from product_id to full data
+        products_map = {p.get('product_id', ''): p for p in data.products_data}
+
         inserted = 0
         from services.product_service import _get_conn as svc_conn_fn
         svc = svc_conn_fn()
         try:
             for pid in data.selected_product_ids:
                 try:
+                    pdata = products_map.get(pid, {})
+                    title = (pdata.get('title') or pdata.get('商品名称') or pid)[:200]
+                    image_url = (pdata.get('image_url') or pdata.get('main_image_url') or '')[:500]
+                    shop_name = (pdata.get('shop_name') or pdata.get('shop') or '')[:200]
+                    seller_name = (pdata.get('seller_name') or '')[:100]
+                    price = float(pdata.get('price', 0) or 0)
+                    sales = int(pdata.get('sales', 0) or 0)
+                    url = (pdata.get('url') or '')[:500]
+                    platform = (pdata.get('platform') or '')[:50]
+                    shop_type = (pdata.get('shop_type') or '')[:50]
+                    location = (pdata.get('location') or '')[:100]
+
                     with svc.cursor() as cur:
                         cur.execute('SELECT product_id FROM "Product" WHERE product_id=%s', (pid,))
                         if cur.fetchone():
-                            cur.execute('UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, last_updated_at=NOW() WHERE product_id=%s', (product_id, batch_id, pid))
+                            cur.execute(
+                                'UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, title=%s, main_image_url=%s, shop_name=%s, seller_name=%s, product_url=%s, last_updated_at=NOW() WHERE product_id=%s',
+                                (product_id, batch_id, title, image_url, shop_name, seller_name, url, pid))
                         else:
-                            cur.execute('INSERT INTO "Product" (product_id, title, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) VALUES (%s,%s,%s,%s,FALSE,FALSE,NOW(),NOW())', (pid, pid, product_id, batch_id))
+                            cur.execute(
+                                'INSERT INTO "Product" (product_id, title, main_image_url, shop_name, seller_name, product_url, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) '
+                                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,FALSE,FALSE,NOW(),NOW())',
+                                (pid, title, image_url, shop_name, seller_name, url, product_id, batch_id))
+                        # Record price/sales history
+                        if price > 0:
+                            cur.execute(
+                                'INSERT INTO "ProductHistory" (product_id, price, sales_volume, recorded_at) VALUES (%s,%s,%s,NOW())',
+                                (pid, price, sales))
                         inserted += 1
                     svc.commit()
                 except Exception:
