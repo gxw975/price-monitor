@@ -75,6 +75,7 @@ class MonitorProductUpdate(BaseModel):
     price_threshold_can: float | None = None
     price_threshold_mix: float | None = None
     sales_threshold: float | None = None
+    whitelist_sellers: str | None = None
 
 class ConfirmImportRequest(BaseModel):
     file_name: str
@@ -168,7 +169,8 @@ def update_monitor_product(
             updates = []
             params = []
             for field in ['name', 'brand', 'description', 'price_threshold_bag',
-                          'price_threshold_can', 'price_threshold_mix', 'sales_threshold']:
+                          'price_threshold_can', 'price_threshold_mix', 'sales_threshold',
+                          'whitelist_sellers']:
                 val = getattr(body, field, None)
                 if val is not None:
                     updates.append(f'{field} = %s')
