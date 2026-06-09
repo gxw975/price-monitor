@@ -16,14 +16,6 @@
       "static/chunks/137-4182035b38e72492.js",
       "static/chunks/app/layout-7b92771a7745b027.js"
     ],
-    "/admin/alerts/page": [
-      "static/chunks/webpack-616e068a201ad621.js",
-      "static/chunks/fd9d1056-f8a2d551cbb94c85.js",
-      "static/chunks/117-d0aa9486d6cf1a7a.js",
-      "static/chunks/main-app-7d01c0eae70a6f3c.js",
-      "static/chunks/137-4182035b38e72492.js",
-      "static/chunks/app/admin/alerts/page-ba97fd5705325ff1.js"
-    ],
     "/admin/analysis/page": [
       "static/chunks/webpack-616e068a201ad621.js",
       "static/chunks/fd9d1056-f8a2d551cbb94c85.js",
@@ -40,6 +32,14 @@
       "static/chunks/137-4182035b38e72492.js",
       "static/chunks/app/admin/diagnostics/page-b7ddb2ba99ecd08b.js"
     ],
+    "/admin/alerts/page": [
+      "static/chunks/webpack-616e068a201ad621.js",
+      "static/chunks/fd9d1056-f8a2d551cbb94c85.js",
+      "static/chunks/117-d0aa9486d6cf1a7a.js",
+      "static/chunks/main-app-7d01c0eae70a6f3c.js",
+      "static/chunks/137-4182035b38e72492.js",
+      "static/chunks/app/admin/alerts/page-ba97fd5705325ff1.js"
+    ],
     "/admin/logs/page": [
       "static/chunks/webpack-616e068a201ad621.js",
       "static/chunks/fd9d1056-f8a2d551cbb94c85.js",
@@ -53,7 +53,7 @@
       "static/chunks/fd9d1056-f8a2d551cbb94c85.js",
       "static/chunks/117-d0aa9486d6cf1a7a.js",
       "static/chunks/main-app-7d01c0eae70a6f3c.js",
-      "static/chunks/app/admin/monitor-products/[id]/import/page-04225af466cfbe27.js"
+      "static/chunks/app/admin/monitor-products/[id]/import/page-30cb0d279d935ffb.js"
     ],
     "/admin/monitor-products/[id]/page": [
       "static/chunks/webpack-616e068a201ad621.js",
@@ -61,7 +61,7 @@
       "static/chunks/117-d0aa9486d6cf1a7a.js",
       "static/chunks/main-app-7d01c0eae70a6f3c.js",
       "static/chunks/137-4182035b38e72492.js",
-      "static/chunks/app/admin/monitor-products/[id]/page-bccea71bb948bbdd.js"
+      "static/chunks/app/admin/monitor-products/[id]/page-3bf3205a52a79b29.js"
     ],
     "/admin/monitor-products/page": [
       "static/chunks/webpack-616e068a201ad621.js",

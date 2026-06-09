@@ -11,7 +11,7 @@ interface MonitorProduct { id: number; name: string; brand: string | null; descr
   import_count: number; unhandled_alert_count: number; whitelist_sellers: string | null
 }
 interface ImportBatch { id: number; file_name: string; import_time: string; total_count: number; ad_count: number; valid_count: number; imported_by_name: string }
-interface Product { product_id: string; title: string; shop_name: string; main_image_url: string; image_url: string; price: number; sales: number; seller_name: string; platform: string; shop_type: string; location: string; url?: string; product_url?: string; is_approved: boolean }
+interface Product { product_id: string; title: string; shop_name: string; main_image_url: string; image_url: string; price: number; sales: number; seller_name: string; platform: string; shop_type: string; location: string; url?: string; product_url?: string; is_approved: boolean; import_batch_id?: number }
 interface SkuCategory { id: number; name: string; unit: string; conversion_factor: number }
 interface Alert { id: number; product_id: string; product_title: string; alert_type: string; message: string; is_handled: boolean; created_at: string }
 type Tab = 'info' | 'imports' | 'products' | 'skus' | 'alerts'
@@ -37,6 +37,7 @@ export default function MonitorProductDetail() {
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [jumpPage, setJumpPage] = useState('')
   const [filters, setFilters] = useState({ minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
+  const [onlyNew, setOnlyNew] = useState(false)
   const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
   const [delProduct, setDelProduct] = useState<Product | null>(null)
   const [delLoading, setDelLoading] = useState(false)
@@ -96,8 +97,11 @@ export default function MonitorProductDetail() {
     return prodSortDir === 'asc' ? String(va||'').localeCompare(String(vb||''), 'zh-CN') : String(vb||'').localeCompare(String(va||''), 'zh-CN')
   }
   const sortedProds = [...products].sort(prodSortFn)
+  const latestBatchId = imports.length > 0 ? imports[0].id : null
   const filteredProds = sortedProds.filter(p => {
     const f = filters
+    // onlyNew: 只显示最新批次的商品
+    if (onlyNew && latestBatchId && (p as any).import_batch_id !== latestBatchId) return false
     if (f.minPrice && (p.price||0) < parseFloat(f.minPrice)) return false
     if (f.maxPrice && (p.price||0) > parseFloat(f.maxPrice)) return false
     if (f.minSales && (p.sales||0) < parseInt(f.minSales)) return false
@@ -250,7 +254,11 @@ export default function MonitorProductDetail() {
               style={filterInput} />
             <input placeholder="地址" value={filters.location} onChange={e => setFilter('location', e.target.value)}
               style={filterInput} />
-            <button onClick={() => { setFilters({ minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setProdPage(1) }}
+            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={onlyNew} onChange={e => { setOnlyNew(e.target.checked); setProdPage(1) }} />
+              仅看新增({products.filter((p:any)=>latestBatchId && p.import_batch_id===latestBatchId).length})
+            </label>
+            <button onClick={() => { setFilters({ minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setOnlyNew(false); setProdPage(1) }}
               style={{ ...btnSecondary, fontSize: 12, padding: '3px 10px' }}>清除</button>
             <span style={{ fontSize: 11, color: '#999', marginLeft: 'auto' }}>筛选后 {filteredProds.length} 条</span>
           </div>

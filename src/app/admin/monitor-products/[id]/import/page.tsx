@@ -62,7 +62,7 @@ export default function ImportPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.detail || '导入失败')
-      setResult(`导入完成！成功 ${json.data.import_result.success_count} 条，预警 ${json.data.alert_result.sent} 条`)
+      setResult(`导入完成！成功 ${json.data.import_result.success_count} 条（其中新增 ${json.data.import_result.new_count} 条），预警 ${json.data.alert_result.sent} 条`)
       setStep('done')
     } catch (err: any) { alert(err.message) } finally { setConfirming(false) }
   }

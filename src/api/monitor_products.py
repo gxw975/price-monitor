@@ -527,6 +527,7 @@ def confirm_import(
         products_map = {p.get('product_id', ''): p for p in data.products_data}
 
         inserted = 0
+        new_count = 0
         from services.product_service import _get_conn as svc_conn_fn
         svc = svc_conn_fn()
         try:
@@ -555,6 +556,7 @@ def confirm_import(
                                 'INSERT INTO "Product" (product_id, title, main_image_url, shop_name, seller_name, product_url, platform, shop_type, location, price, sales_volume, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) '
                                 'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,FALSE,NOW(),NOW())',
                                 (pid, title, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, product_id, batch_id))
+                            new_count += 1
                         # Record price/sales history
                         if price > 0:
                             cur.execute(
@@ -576,7 +578,7 @@ def confirm_import(
         ar = run_alerts(test_mode=False, force=False)
 
         return {"code": 200, "msg": "导入成功", "data": {
-            "batch_id": batch_id, "import_result": {"success_count": inserted, "fail_count": len(data.selected_product_ids)-inserted, "total": len(data.selected_product_ids)},
+            "batch_id": batch_id, "import_result": {"success_count": inserted, "new_count": new_count, "fail_count": len(data.selected_product_ids)-inserted, "total": len(data.selected_product_ids)},
             "alert_result": {"checked": ar.get("checked",0), "sent": ar.get("sent",0)},
         }}
     except HTTPException: raise
