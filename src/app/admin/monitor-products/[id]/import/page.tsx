@@ -18,6 +18,8 @@ export default function ImportPage() {
   const [confirming, setConfirming] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [step, setStep] = useState<'upload' | 'preview' | 'login' | 'done'>('upload')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
 
   const handleUpload = async (file: File) => {
     setUploading(true); setResult(null)
@@ -31,7 +33,7 @@ export default function ImportPage() {
       if (!res.ok) throw new Error(json.detail || '解析失败')
       const d = json.data as PreviewData
       setPreview(d); setSelectedIds(new Set(d.preview_data.map(p => p.product_id)))
-      setStep('preview')
+      setStep('preview'); setPage(1)
     } catch (err: any) { alert(err.message) } finally { setUploading(false) }
   }
 
@@ -48,23 +50,6 @@ export default function ImportPage() {
   const confirmImport = async () => {
     if (!preview || selectedIds.size === 0) return
     setConfirming(true)
-
-    // Check login status
-    try {
-      const token = localStorage.getItem('auth_token')
-      const statusRes = await fetch('/api/taobao/status', { headers: { Authorization: `Bearer ${token}` } })
-      const statusJson = await statusRes.json()
-      if (!statusJson.logged_in) {
-        if (confirm('淘宝未登录，是否打开登录页扫码登录？')) {
-          await fetch('/api/taobao/login/start', { method: 'POST', headers: { Authorization: `Bearer ${token}` } })
-          setStep('login')
-        }
-        setConfirming(false)
-        return
-      }
-    } catch { /* continue even if status check fails */ }
-
-    // Confirm import
     try {
       const token = localStorage.getItem('auth_token')
       const res = await fetch(`/api/monitor-products/${mpId}/import/confirm`, {
@@ -79,15 +64,10 @@ export default function ImportPage() {
     } catch (err: any) { alert(err.message) } finally { setConfirming(false) }
   }
 
-  const checkLogin = async () => {
-    try {
-      const token = localStorage.getItem('auth_token')
-      const res = await fetch('/api/taobao/status', { headers: { Authorization: `Bearer ${token}` } })
-      const json = await res.json()
-      if (json.logged_in) { setStep('preview'); alert('登录成功！请点击确认导入') }
-      else alert('尚未登录，请在Chrome窗口中完成扫码')
-    } catch { alert('检查登录状态失败') }
-  }
+  // Pagination
+  const totalItems = preview?.preview_data.length || 0
+  const totalPages = Math.ceil(totalItems / pageSize)
+  const pagedData = preview?.preview_data.slice((page - 1) * pageSize, page * pageSize) || []
 
   return (
     <div style={{ padding: 24 }}>
@@ -106,40 +86,99 @@ export default function ImportPage() {
 
       {step === 'preview' && preview && (
         <>
-          <div style={{ display: 'flex', gap: 20, marginBottom: 12, fontSize: 14, flexWrap: 'wrap' }}>
+          {/* Stats bar */}
+          <div style={{ display: 'flex', gap: 20, marginBottom: 8, fontSize: 14, flexWrap: 'wrap', alignItems: 'center' }}>
             <span>📄 {preview.file_name}</span>
             <span>总计 <b>{preview.total_count}</b></span>
             <span style={{ color: '#fa8c16' }}>广告 <b>{preview.ad_count}</b></span>
             <span style={{ color: '#16a34a' }}>有效 <b>{preview.valid_count}</b></span>
-            <span>已选 <b>{selectedIds.size}</b></span>
+            <span style={{ color: '#1677ff' }}>已选 <b>{selectedIds.size}</b></span>
           </div>
-          <div style={{ maxHeight: 400, overflow: 'auto', marginBottom: 12 }}>
+
+          {/* Page size selector */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <span style={{ fontSize: 12, color: '#999' }}>共 {totalItems} 条记录</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <span style={{ color: '#666' }}>每页</span>
+              <select value={pageSize} onChange={e => { setPageSize(parseInt(e.target.value)); setPage(1) }}
+                style={{ padding: '2px 6px', border: '1px solid #d9d9d9', borderRadius: 4 }}>
+                {[20, 50, 100, 99999].map(s => <option key={s} value={s}>{s >= 99999 ? '全部' : s}</option>)}
+              </select>
+              <span style={{ color: '#666' }}>条</span>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div style={{ maxHeight: 'calc(100vh - 280px)', overflow: 'auto', marginBottom: 8, border: '1px solid #e5e7eb', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead>
-                <tr style={{ background: '#fafafa', position: 'sticky', top: 0 }}>
-                  <th style={thStyle}><input type="checkbox" checked={selectedIds.size === preview.preview_data.length} onChange={toggleAll} /></th>
-                  <th style={thStyle}>图片</th><th style={thStyle}>商品ID</th><th style={thStyle}>标题</th><th style={thStyle}>价格</th><th style={thStyle}>销量</th><th style={thStyle}>掌柜</th><th style={thStyle}>店铺</th><th style={thStyle}>地址</th>
+                <tr style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
+                  <th style={thStyle}><input type="checkbox" checked={preview && selectedIds.size === preview.preview_data.length} onChange={toggleAll} /></th>
+                  <th style={{ ...thStyle, width: 40 }}>#</th>
+                  <th style={{ ...thStyle, width: 90 }}>图片</th>
+                  <th style={{ ...thStyle, width: 120 }}>商品ID</th>
+                  <th style={{ ...thStyle, minWidth: 180 }}>标题</th>
+                  <th style={{ ...thStyle, width: 90 }}>价格</th>
+                  <th style={{ ...thStyle, width: 70 }}>销量</th>
+                  <th style={{ ...thStyle, width: 100 }}>掌柜</th>
+                  <th style={{ ...thStyle, width: 120 }}>店铺</th>
+                  <th style={{ ...thStyle, width: 90 }}>地址</th>
                 </tr>
               </thead>
               <tbody>
-                {preview.preview_data.map((p: any) => (
+                {pagedData.map((p: any, i: number) => (
                   <tr key={p.product_id} style={{ borderBottom: '1px solid #f0f0f0' }}>
                     <td style={tdStyle}><input type="checkbox" checked={selectedIds.has(p.product_id)} onChange={() => toggleOne(p.product_id)} /></td>
-                    <td style={tdStyle}>{(p.image_url || p.main_image_url) ? <img src={p.image_url || p.main_image_url} alt="" style={{ width: 40, height: 40, objectFit: 'cover', borderRadius: 4 }} onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} /> : <div style={{ width: 40, height: 40, background: '#f5f5f5' }} />}</td>
-                    <td style={tdStyle}><span style={{ fontSize: 12, color: '#999' }}>{p.product_id}</span></td>
+                    <td style={{ ...tdStyle, color: '#999', fontSize: 12 }}>{(page - 1) * pageSize + i + 1}</td>
+                    <td style={tdStyle}>
+                      {(p.image_url || p.main_image_url) ? (
+                        <img src={p.image_url || p.main_image_url} alt=""
+                          style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0' }}
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                      ) : <div style={{ width: 80, height: 80, background: '#f5f5f5', borderRadius: 6 }} />}
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{p.product_id}</td>
                     <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {p.url ? <a href={p.url.startsWith('http') ? p.url : 'https:' + p.url} target="_blank" rel="noreferrer" style={{ color: '#1677ff' }}>{p.title}</a> : p.title}
                     </td>
                     <td style={{ ...tdStyle, color: '#dc2626', fontWeight: 600 }}>¥{(p.price || 0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString() || '-'}</td>
                     <td style={tdStyle}>{p.seller_name || '-'}</td>
-                    <td style={tdStyle}>{p.shop_name || p.shop || '-'}</td>
+                    <td style={{ ...tdStyle, fontSize: 12 }}>{p.shop_name || p.shop || '-'}</td>
                     <td style={{ ...tdStyle, fontSize: 11, color: '#999' }}>{p.location || '-'}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+
+          {/* Pagination */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 4 }}>
+              <button onClick={() => setPage(1)} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>«</button>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>‹</button>
+              {(() => {
+                const btns = []
+                let start = Math.max(1, page - 2)
+                let end = Math.min(totalPages, page + 2)
+                if (start > 1) { btns.push(<span key="s" style={{ padding: '0 4px', color: '#999' }}>...</span>) }
+                for (let i = start; i <= end; i++) {
+                  btns.push(
+                    <button key={i} onClick={() => setPage(i)}
+                      style={i === page ? { ...pageBtnStyle(false), background: '#1677ff', color: '#fff', borderColor: '#1677ff' } : pageBtnStyle(false)}>
+                      {i}
+                    </button>
+                  )
+                }
+                if (end < totalPages) { btns.push(<span key="e" style={{ padding: '0 4px', color: '#999' }}>...</span>) }
+                return btns
+              })()}
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>›</button>
+              <button onClick={() => setPage(totalPages)} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>»</button>
+            </div>
+            <span style={{ fontSize: 12, color: '#999' }}>第 {page}/{totalPages || 1} 页</span>
+          </div>
+
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button onClick={() => { setPreview(null); setStep('upload') }} style={btnSecondary}>重新选择</button>
             <button onClick={confirmImport} disabled={confirming || selectedIds.size === 0} style={btnPrimary}>
@@ -147,17 +186,6 @@ export default function ImportPage() {
             </button>
           </div>
         </>
-      )}
-
-      {step === 'login' && (
-        <div style={{ maxWidth: 500, textAlign: 'center' }}>
-          <p style={{ fontSize: 16, marginBottom: 12 }}>请在 Chrome 窗口中完成淘宝扫码登录</p>
-          <p style={{ color: '#666', fontSize: 13, marginBottom: 16 }}>点击下方按钮检查登录状态</p>
-          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
-            <button onClick={checkLogin} style={btnPrimary}>检查登录状态</button>
-            <button onClick={() => setStep('preview')} style={btnSecondary}>跳过</button>
-          </div>
-        </div>
       )}
 
       {step === 'done' && (
@@ -174,7 +202,12 @@ export default function ImportPage() {
   )
 }
 
+const pageBtnStyle = (disabled: boolean): React.CSSProperties => ({
+  padding: '3px 10px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff',
+  cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 13, opacity: disabled ? 0.5 : 1,
+  minWidth: 32, textAlign: 'center',
+})
 const btnPrimary: React.CSSProperties = { padding: '8px 16px', background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }
 const btnSecondary: React.CSSProperties = { padding: '6px 12px', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 6, cursor: 'pointer', fontSize: 13 }
-const thStyle: React.CSSProperties = { textAlign: 'left', padding: '10px 14px', fontWeight: 600, fontSize: 13 }
-const tdStyle: React.CSSProperties = { padding: '10px 14px', color: '#555', fontSize: 13 }
+const thStyle: React.CSSProperties = { textAlign: 'left', padding: '10px 12px', fontWeight: 600, fontSize: 12, color: '#666', whiteSpace: 'nowrap' }
+const tdStyle: React.CSSProperties = { padding: '8px 12px', color: '#555', fontSize: 13 }

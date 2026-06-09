@@ -54,7 +54,7 @@ COLUMN_PATTERNS: dict[str, list[str]] = {
         "是否天猫", "天猫", "is_tmall",
     ],
     "location": [
-        "所在地", "发货地", "location",
+        "所在地", "发货地", "location", "地址",
     ],
     "tags": [
         "标签", "商品标签", "tags",
@@ -126,10 +126,8 @@ class DtsDataParser:
         mapping = self._find_column_mapping(raw_headers)
         logger.info("列映射: %s", {k: v for k, v in mapping.items()})
 
-        # 解析数据行
-        products = []
-        seen_ids = set()
-
+        # 解析数据行（两遍：第一遍全解析，第二遍按自然位优先去重）
+        all_rows = []
         for row_num, row in enumerate(rows[1:], 2):
             record = {}
             for std_field, col_name in mapping.items():
@@ -140,22 +138,30 @@ class DtsDataParser:
                 else:
                     record[std_field] = ""
 
-            # 提取商品ID
             pid = self.extract_product_id(record)
             if not pid:
                 logger.debug("行%d: 无法提取商品ID，跳过", row_num)
                 continue
-            if pid in seen_ids:
-                logger.debug("行%d: 商品ID重复 %s，跳过", row_num, pid)
-                continue
-            seen_ids.add(pid)
             record["product_id"] = pid
+            all_rows.append(record)
 
+        # 去重：每个product_id只保留一条，优先保留"自然位"
+        products = []
+        seen_ids: dict[str, int] = {}  # pid -> index in products
+        for record in all_rows:
+            pid = record["product_id"]
             # 格式化数据
             record["price"] = self._parse_price(record.get("price", "0"))
             record["sales"] = self._parse_sales(record.get("sales", "0"))
-
-            products.append(record)
+            if pid in seen_ids:
+                # 已存在：如果新记录是自然位且旧记录不是，替换
+                existing_idx = seen_ids[pid]
+                existing = products[existing_idx]
+                if record.get("placeholder_type") == "自然位" and existing.get("placeholder_type") != "自然位":
+                    products[existing_idx] = record
+            else:
+                seen_ids[pid] = len(products)
+                products.append(record)
 
         logger.info("解析完成: %d 个商品 (共%d行数据)", len(products), len(rows) - 1)
 
