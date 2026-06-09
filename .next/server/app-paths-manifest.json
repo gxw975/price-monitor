@@ -1,7 +1,7 @@
 {
   "/_not-found/page": "app/_not-found/page.js",
-  "/admin/analysis/page": "app/admin/analysis/page.js",
   "/admin/alerts/page": "app/admin/alerts/page.js",
+  "/admin/analysis/page": "app/admin/analysis/page.js",
   "/admin/diagnostics/page": "app/admin/diagnostics/page.js",
   "/admin/logs/page": "app/admin/logs/page.js",
   "/admin/monitor-products/[id]/import/page": "app/admin/monitor-products/[id]/import/page.js",

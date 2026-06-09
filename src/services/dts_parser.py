@@ -335,23 +335,19 @@ class DtsDataParser:
         natural = self.filter_natural_products(raw_products)
         ad_count = len(raw_products) - len(natural)
 
-        # 第二步：过滤无效商品ID和价格
+        # 第二步：过滤无效商品ID
         valid = []
         for p in natural:
             pid = p.get("product_id", "")
             # 过滤空ID或非数字ID
-            if not pid or not re.match(r'^\d{11,15}$', str(pid)):
-                continue
-            # 过滤价格为0或负数
-            price = self._parse_price(str(p.get("price", "0")))
-            if price <= 0:
+            if not pid or not re.match(r'^\d{8,20}$', str(pid)):
                 continue
             # 补全商品链接
             url = p.get("url", "")
             if url and not url.startswith("http"):
                 url = "https:" + url
                 p["url"] = url
-            p["price"] = price
+            p["price"] = self._parse_price(str(p.get("price", "0")))
             p["sales"] = self._parse_sales(str(p.get("sales", "0")))
             valid.append(p)
 
