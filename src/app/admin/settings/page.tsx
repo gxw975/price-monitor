@@ -4,7 +4,7 @@ import { apiFetch } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
 import { useCallback, useEffect, useState } from 'react'
 
-type Tab = 'push' | 'wechat' | 'maintenance'
+type Tab = 'push' | 'wechat' | 'users' | 'maintenance'
 
 export default function SettingsPage() {
   const { user } = useAuth()
@@ -27,6 +27,34 @@ export default function SettingsPage() {
   const [wechatMasked, setWechatMasked] = useState('')
   const [wechatConfigured, setWechatConfigured] = useState(false)
   const [wechatTesting, setWechatTesting] = useState(false)
+
+  // Users
+  const [users, setUsers] = useState<any[]>([])
+  const [usersLoading, setUsersLoading] = useState(false)
+  const [showUserForm, setShowUserForm] = useState(false)
+  const [editUserId, setEditUserId] = useState<number | null>(null)
+  const [userForm, setUserForm] = useState({ username: '', password: '', role: 'staff' })
+  const isAdmin = user?.role === 'admin'
+
+  const fetchUsers = async () => { setUsersLoading(true)
+    try { const r = await apiFetch('/api/users/list'); setUsers(r.items||[]) } catch { /**/ } finally { setUsersLoading(false) } }
+
+  const saveUser = async () => {
+    if (!userForm.username.trim()) return
+    try {
+      if (editUserId) {
+        await apiFetch(`/api/users/${editUserId}`, { method: 'PUT', body: JSON.stringify({ username: userForm.username, role: userForm.role }) })
+      } else {
+        await apiFetch('/api/users/create', { method: 'POST', body: JSON.stringify(userForm) })
+      }
+      setShowUserForm(false); fetchUsers()
+    } catch { /**/ }
+  }
+
+  const deleteUser = async (uid: number) => {
+    if (!confirm('确定删除该用户？')) return
+    try { await apiFetch(`/api/users/${uid}`, { method: 'DELETE' }); fetchUsers() } catch { /**/ }
+  }
 
   // Maintenance
   const [actionLoading, setActionLoading] = useState('')
@@ -52,6 +80,7 @@ export default function SettingsPage() {
   }, [])
 
   useEffect(() => { fetchSettings() }, [fetchSettings])
+  useEffect(() => { if (tab === 'users') fetchUsers() }, [tab])
 
   const saveSettings = async () => {
     setSaving(true)
@@ -82,7 +111,7 @@ export default function SettingsPage() {
       <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 20 }}>系统设置</h1>
 
       <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 20 }}>
-        {[{ key: 'push' as Tab, label: '推送设置' }, { key: 'wechat' as Tab, label: '微信推送' }, { key: 'maintenance' as Tab, label: '系统维护' }].map(t => (
+        {[{ key: 'push' as Tab, label: '推送设置' }, { key: 'wechat' as Tab, label: '微信推送' }, { key: 'users' as Tab, label: '用户管理' }, { key: 'maintenance' as Tab, label: '系统维护' }].map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
             padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer',
             borderBottom: tab === t.key ? '2px solid #1677ff' : '2px solid transparent',
@@ -221,6 +250,57 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {tab === 'users' && (
+        <div style={{ maxWidth: 700 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 600 }}>用户管理</h3>
+            <button onClick={() => { setEditUserId(null); setUserForm({ username: '', password: '', role: 'staff' }); setShowUserForm(true) }} style={btnPrimary}>新增用户</button>
+          </div>
+          {users.length === 0 ? (
+            <p style={{ color: '#999', textAlign: 'center', padding: 40 }} onClick={fetchUsers}>点击加载用户列表</p>
+          ) : usersLoading ? <p>加载中...</p> : (
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 14 }}>
+              <thead><tr style={{ background: '#fafafa' }}><th style={thStyle}>用户名</th><th style={thStyle}>角色</th><th style={thStyle}>创建时间</th><th style={thStyle}>操作</th></tr></thead>
+              <tbody>
+                {users.map((u: any) => (
+                  <tr key={u.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                    <td style={tdStyle}>{u.username}</td>
+                    <td style={tdStyle}>
+                      <span style={{ padding: '2px 8px', borderRadius: 4, fontSize: 12, background: u.role === 'admin' ? '#fee2e2' : u.role === 'manager' ? '#fef3c7' : '#e0e7ff', color: u.role === 'admin' ? '#dc2626' : u.role === 'manager' ? '#d97706' : '#3730a3' }}>
+                        {u.role === 'admin' ? '管理员' : u.role === 'manager' ? '主管' : '员工'}
+                      </span>
+                    </td>
+                    <td style={tdStyle}>{u.created_at ? new Date(u.created_at).toLocaleDateString('zh-CN') : '-'}</td>
+                    <td style={tdStyle}>
+                      <button onClick={() => { setEditUserId(u.id); setUserForm({ username: u.username, password: '', role: u.role }); setShowUserForm(true) }} style={{ ...btnSecondary, fontSize: 12, padding: '2px 8px', marginRight: 8 }}>编辑</button>
+                      <button onClick={() => deleteUser(u.id)} style={{ fontSize: 12, padding: '2px 8px', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 4, background: '#fff', cursor: 'pointer' }}>删除</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+          {showUserForm && (
+            <div style={modalOverlay}>
+              <div style={{ ...modalContent, width: 400 }}>
+                <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>{editUserId ? '编辑' : '新增'}用户</h3>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <div><label style={labelStyle}>用户名</label><input value={userForm.username} onChange={e => setUserForm({ ...userForm, username: e.target.value })} style={inputStyle} /></div>
+                  {!editUserId && <div><label style={labelStyle}>密码</label><input type="password" value={userForm.password} onChange={e => setUserForm({ ...userForm, password: e.target.value })} style={inputStyle} /></div>}
+                  <div><label style={labelStyle}>角色</label><select value={userForm.role} onChange={e => setUserForm({ ...userForm, role: e.target.value })} style={{ ...inputStyle, width: '100%' }}>
+                    <option value="admin">管理员</option><option value="manager">主管</option><option value="staff">员工</option>
+                  </select></div>
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+                  <button onClick={() => setShowUserForm(false)} style={btnSecondary}>取消</button>
+                  <button onClick={saveUser} style={btnPrimary}>保存</button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {tab === 'maintenance' && (
         <div style={{ maxWidth: 600 }}>
           <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 16 }}>系统维护</h3>
@@ -257,3 +337,7 @@ export default function SettingsPage() {
 const btnPrimary: React.CSSProperties = { padding: '8px 16px', background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }
 const inputStyle: React.CSSProperties = { padding: '6px 10px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, width: '100%' }
 const labelStyle: React.CSSProperties = { display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 4, color: '#374151' }
+const thStyle: React.CSSProperties = { textAlign: 'left', padding: '8px 12px', fontWeight: 600, fontSize: 13 }
+const tdStyle: React.CSSProperties = { padding: '8px 12px', color: '#555', fontSize: 13 }
+const modalOverlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
+const modalContent: React.CSSProperties = { background: '#fff', borderRadius: 8, padding: 24, maxHeight: '85vh', overflow: 'auto' }

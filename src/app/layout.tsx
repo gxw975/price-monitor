@@ -164,9 +164,8 @@ function TopBar() {
     { label: '商品监控', href: '/admin/monitor-products', roles: ['admin','manager','staff'] },
     { label: '预警中心', href: '/admin/alerts', roles: ['admin','manager','staff'] },
     { label: '数据分析', href: '/admin/analysis', roles: ['admin','manager','staff'] },
-    { label: '用户管理', href: '/admin/users', roles: ['admin'] },
     { label: '系统设置', href: '/admin/settings', roles: ['admin','manager'] },
-    { label: '故障排查', href: '/admin/diagnostics', roles: ['admin','manager'] },
+    { label: '故障排查', href: '/admin/diagnostics', roles: ['admin'] },
   ]
 
   return (
