@@ -185,16 +185,7 @@ export default function MonitorProductDetail() {
       {/* Products Tab */}
       {tab === 'products' && (
         <div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8, fontSize: 13, color: '#999' }}>
-            <span>共 {products.length} 条</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>每页</span>
-              <select value={prodPageSize} onChange={e => { setProdPageSize(parseInt(e.target.value)); setProdPage(1) }} style={{ padding: '2px 6px', border: '1px solid #d9d9d9', borderRadius: 4 }}>
-                {[20,50,100,99999].map(s => <option key={s} value={s}>{s>=99999?'全部':s}</option>)}
-              </select><span>条</span>
-            </div>
-          </div>
-          <div style={{ maxHeight: 'calc(100vh - 300px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+          <div style={{ maxHeight: 'calc(100vh - 250px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead><tr style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
                 <th style={{...thStyle,width:40}}>#</th>
@@ -229,7 +220,9 @@ export default function MonitorProductDetail() {
                       ) : <div style={{ width: 72, height: 72, background: '#f5f5f5', borderRadius: 6 }} />}
                     </td>
                     <td style={{...tdStyle,fontFamily:'monospace',fontSize:12}}>{p.product_id}</td>
-                    <td style={tdStyle}>{p.url ? <a href={(p.url||p.product_url||'').startsWith('http')?(p.url||p.product_url):'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> : p.title}</td>
+                    <td style={tdStyle}>
+                      {(p.url || p.product_url) ? <a href={(p.url||p.product_url||'').startsWith('http')?(p.url||p.product_url):'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> : p.title}
+                    </td>
                     <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{(p.price||0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                     <td style={tdStyle}>{p.platform||'-'}</td>
@@ -242,13 +235,22 @@ export default function MonitorProductDetail() {
               </tbody>
             </table>
           </div>
-          {/* Pagination */}
-          <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 4, marginTop: 8 }}>
-            <button onClick={()=>setProdPage(1)} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>«</button>
-            <button onClick={()=>setProdPage(p=>Math.max(1,p-1))} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>‹</button>
-            <span style={{ fontSize: 12, color: '#999', margin: '0 8px' }}>第 {prodPage}/{prodTotalPages||1} 页</span>
-            <button onClick={()=>setProdPage(p=>Math.min(prodTotalPages,p+1))} disabled={prodPage>=prodTotalPages} style={pageBtn(prodPage>=prodTotalPages)}>›</button>
-            <button onClick={()=>setProdPage(prodTotalPages)} disabled={prodPage>=prodTotalPages} style={pageBtn(prodPage>=prodTotalPages)}>»</button>
+          {/* Pagination + count + page size — all at bottom */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+            <span style={{ fontSize: 12, color: '#999' }}>共 {products.length} 条</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <button onClick={()=>setProdPage(1)} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>«</button>
+              <button onClick={()=>setProdPage(p=>Math.max(1,p-1))} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>‹</button>
+              <span style={{ fontSize: 12, color: '#999', margin: '0 4px' }}>第 {prodPage}/{prodTotalPages||1} 页</span>
+              <button onClick={()=>setProdPage(p=>Math.min(prodTotalPages,p+1))} disabled={prodPage>=prodTotalPages} style={pageBtn(prodPage>=prodTotalPages)}>›</button>
+              <button onClick={()=>setProdPage(prodTotalPages)} disabled={prodPage>=prodTotalPages} style={pageBtn(prodPage>=prodTotalPages)}>»</button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#666' }}>每页</span>
+              <select value={prodPageSize} onChange={e => { setProdPageSize(parseInt(e.target.value)); setProdPage(1) }} style={{ padding: '2px 6px', border: '1px solid #d9d9d9', borderRadius: 4, fontSize: 12 }}>
+                {[20,50,100,99999].map(s => <option key={s} value={s}>{s>=99999?'全部':s}</option>)}
+              </select><span style={{ fontSize: 12, color: '#666' }}>条</span>
+            </div>
           </div>
         </div>
       )}
