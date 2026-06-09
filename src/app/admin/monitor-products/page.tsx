@@ -60,21 +60,25 @@ export default function MonitorProductsPage() {
   }
   const toggleExpand = async (id: number) => {
     if (expandedId === id) { setExpandedId(null); return }
-    setExpandedId(id)
-    try { const res = await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(res.items || []) } catch { /**/ }
+    setExpandedId(id); setCatLoading(true)
+    try { const res = await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(res.items || []) }
+    catch { alert('加载分类失败，请检查权限'); setExpandedId(null) }
+    finally { setCatLoading(false) }
   }
   const addCat = async () => {
-    if (!catData.name.trim() || !expandedId) return
+    if (!catData.name.trim() || !expandedId) { alert('请输入分类名称'); return }
     try {
       await apiFetch(`/api/monitor-products/${expandedId}/sku-categories`, {
         method: 'POST', body: JSON.stringify({ name: catData.name, unit: catData.unit, conversion_factor: parseFloat(catData.factor) || 1 }),
       })
-      setCatData({ name: '', unit: '', factor: '1.0' }); toggleExpand(expandedId)
-    } catch { /**/ }
+      setCatData({ name: '', unit: '', factor: '1.0' })
+      const res = await apiFetch(`/api/monitor-products/${expandedId}/sku-categories`); setCategories(res.items || [])
+    } catch { alert('添加分类失败') }
   }
   const delCat = async (catId: number) => {
     if (!expandedId) return
-    try { await apiFetch(`/api/monitor-products/${expandedId}/sku-categories/${catId}`, { method: 'DELETE' }); toggleExpand(expandedId) } catch { /**/ }
+    if (!confirm('确定删除该分类？')) return
+    try { await apiFetch(`/api/monitor-products/${expandedId}/sku-categories/${catId}`, { method: 'DELETE' }); const res = await apiFetch(`/api/monitor-products/${expandedId}/sku-categories`); setCategories(res.items || []) } catch { alert('删除失败') }
   }
 
   const filtered = products.filter(p => {
@@ -111,7 +115,7 @@ export default function MonitorProductsPage() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(p => (
+              {filtered.map(p => (<>{/* Fragment wrapper */}
                 <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
                   <td style={tdStyle}>
                     <a href={`/admin/monitor-products/${p.id}`} style={{ color: '#1677ff', fontWeight: 500 }}>{p.name}</a>
@@ -135,7 +139,29 @@ export default function MonitorProductsPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+                {expandedId === p.id && (
+                  <tr key={'cat-'+p.id}><td colSpan={9} style={{padding:0}}>
+                    <div style={{ padding: '14px 20px', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+                      <h4 style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>📦 SKU 规格分类 — {p.name}</h4>
+                      <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>定义规格（袋装/罐装等），导入时系统自动归类并计算单单位价格</p>
+                      {catLoading ? <span style={{ color: '#999', fontSize: 12 }}>加载中...</span> :
+                       categories.length === 0 ? <span style={{ color: '#999', fontSize: 12 }}>暂无分类</span> :
+                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                         {categories.map(c => <span key={c.id} style={{ padding: '3px 10px', background: '#e0e7ff', color: '#3730a3', borderRadius: 14, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                           {c.name}({c.unit||'—'},×{c.conversion_factor})
+                           {canWrite && <button onClick={() => delCat(c.id)} style={{ marginLeft: 2, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14 }}>×</button>}
+                         </span>)}
+                       </div>}
+                      {canWrite && <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <input value={catName} onChange={e => setCatName(e.target.value)} placeholder="分类名" style={{ ...inputStyle, width: 100 }} />
+                        <input value={catUnit} onChange={e => setCatUnit(e.target.value)} placeholder="单位" style={{ ...inputStyle, width: 70 }} />
+                        <input value={catFactor} onChange={e => setCatFactor(e.target.value)} placeholder="系数" style={{ ...inputStyle, width: 60 }} type="number" step="0.1" />
+                        <button onClick={addCat} style={{ ...btnPrimary, fontSize: 12, padding: '4px 10px' }}>添加</button>
+                      </div>}
+                    </div>
+                  </td></tr>
+                )}
+              </>))}
             </tbody>
           </table>
         </div>
