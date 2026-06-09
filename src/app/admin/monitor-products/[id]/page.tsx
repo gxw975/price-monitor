@@ -229,7 +229,7 @@ export default function MonitorProductDetail() {
                       ) : <div style={{ width: 72, height: 72, background: '#f5f5f5', borderRadius: 6 }} />}
                     </td>
                     <td style={{...tdStyle,fontFamily:'monospace',fontSize:12}}>{p.product_id}</td>
-                    <td style={tdStyle}>{p.url ? <a href={p.url.startsWith('http')?p.url:'https:'+p.url} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> : p.title}</td>
+                    <td style={tdStyle}>{p.url ? <a href={(p.url||p.product_url||'').startsWith('http')?(p.url||p.product_url):'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> : p.title}</td>
                     <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{(p.price||0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                     <td style={tdStyle}>{p.platform||'-'}</td>
