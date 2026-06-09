@@ -56,7 +56,21 @@ def _alert_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "is_sent": row["is_sent"],
         "sent_at": row["sent_at"].isoformat() if row.get("sent_at") else None,
         "is_read": row["is_read"],
+        "is_handled": row.get("is_handled", False),
+        "alert_value": row.get("alert_value"),
+        "threshold": row.get("threshold"),
+        "monitor_product_id": row.get("monitor_product_id"),
         "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        "handled_at": row["handled_at"].isoformat() if row.get("handled_at") else None,
+        "product_title": row.get("product_title"),
+        "price": row.get("price"),
+        "sales_volume": row.get("sales_volume"),
+        "platform": row.get("platform"),
+        "seller_name": row.get("seller_name"),
+        "shop_name": row.get("shop_name"),
+        "product_url": row.get("product_url"),
+        "location": row.get("location"),
+        "main_image_url": row.get("main_image_url"),
     }
 
 
@@ -106,7 +120,9 @@ def list_alerts(
 
             offset = (page - 1) * page_size
             data_sql = (
-                'SELECT a.*, COALESCE(p.title, a.product_id) AS product_title '
+                'SELECT a.*, COALESCE(p.title, a.product_id) AS product_title, '
+                'p.price, p.sales_volume, p.platform, p.seller_name, p.shop_name, '
+                'p.product_url, p.location, p.main_image_url '
                 'FROM "Alert" a '
                 'LEFT JOIN "Product" p ON a.product_id = p.product_id '
                 f"{where} "

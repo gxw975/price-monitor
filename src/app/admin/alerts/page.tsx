@@ -14,7 +14,20 @@ interface AlertItem {
   is_sent: boolean
   sent_at: string | null
   is_read: boolean
+  is_handled: boolean
+  alert_value: number | null
+  threshold: number | null
+  monitor_product_id: number | null
   created_at: string
+  handled_at: string | null
+  price: number | null
+  sales_volume: number | null
+  platform: string | null
+  seller_name: string | null
+  shop_name: string | null
+  product_url: string | null
+  location: string | null
+  main_image_url: string | null
 }
 
 interface AlertsResponse {
@@ -217,53 +230,67 @@ export default function AlertsPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-gray-600">
                 <tr>
-                  <th className="w-10 px-4 py-3">
+                  <th className="w-10 px-3 py-2">
                     <input type="checkbox" checked={selectedIds.size === alerts.length && alerts.length > 0}
                       onChange={handleSelectAll} className="rounded" />
                   </th>
-                  <th className="px-4 py-3 font-medium">类型</th>
-                  <th className="px-4 py-3 font-medium">商品</th>
-                  <th className="px-4 py-3 font-medium">预警消息</th>
-                  <th className="px-4 py-3 font-medium">处理</th>
-                  <th className="px-4 py-3 font-medium">状态</th>
-                  <th className="px-4 py-3 font-medium">时间</th>
-                  <th className="px-4 py-3 font-medium">操作</th>
+                  <th className="px-3 py-2 font-medium text-xs">类型</th>
+                  <th className="px-3 py-2 font-medium text-xs">商品</th>
+                  <th className="px-3 py-2 font-medium text-xs">现价</th>
+                  <th className="px-3 py-2 font-medium text-xs">销量</th>
+                  <th className="px-3 py-2 font-medium text-xs">掌柜</th>
+                  <th className="px-3 py-2 font-medium text-xs">店铺</th>
+                  <th className="px-3 py-2 font-medium text-xs">地址</th>
+                  <th className="px-3 py-2 font-medium text-xs">预警消息</th>
+                  <th className="px-3 py-2 font-medium text-xs">状态</th>
+                  <th className="px-3 py-2 font-medium text-xs">时间</th>
+                  <th className="px-3 py-2 font-medium text-xs">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
-                  <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">加载中...</td></tr>
+                  <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-400">加载中...</td></tr>
                 ) : alerts.length === 0 ? (
-                  <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">暂无预警记录</td></tr>
+                  <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-400">暂无预警记录</td></tr>
                 ) : (
                   alerts.map((alert) => (
                     <tr key={alert.id}
                       className={cn('hover:bg-gray-50 transition-colors', !alert.is_read && 'bg-blue-50/50')}>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2">
                         <input type="checkbox" checked={selectedIds.has(alert.id)}
                           onChange={() => handleToggleSelect(alert.id)} className="rounded" />
                       </td>
-                      <td className="px-4 py-3">
-                        <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold',
+                      <td className="px-3 py-2">
+                        <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
                           alert.alert_type === 'price' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700')}>
-                          {alert.alert_type === 'price' ? '价格' : '销量'}
+                          {alert.alert_type === 'price' ? '💰' : '📈'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 max-w-[200px] truncate" title={alert.product_title}>
-                        <button onClick={() => router.push(`/admin/products/${alert.product_id}`)}
-                          className="text-blue-600 hover:text-blue-800 text-left">
-                          {alert.product_title}
-                        </button>
-                      </td>
-                      <td className="px-4 py-3 max-w-[350px] truncate" title={alert.message}>{alert.message}</td>
-                      <td className="px-4 py-3">
-                        {alert.status === 'processed' ? (
-                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">已处理</span>
+                      <td className="px-3 py-2 max-w-[180px] truncate" title={alert.product_title}>
+                        {alert.product_url ? (
+                          <a href={alert.product_url.startsWith('http') ? alert.product_url : 'https:' + alert.product_url}
+                            target="_blank" rel="noreferrer"
+                            className="text-blue-600 hover:text-blue-800 text-left text-xs">
+                            {alert.product_title}
+                          </a>
                         ) : (
-                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">未处理</span>
+                          <span className="text-xs">{alert.product_title}</span>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-2 text-xs font-medium text-red-600">{alert.price != null ? `¥${Number(alert.price).toFixed(0)}` : '-'}</td>
+                      <td className="px-3 py-2 text-xs">{alert.sales_volume?.toLocaleString() || '-'}</td>
+                      <td className="px-3 py-2 text-xs">{alert.seller_name || '-'}</td>
+                      <td className="px-3 py-2 text-xs">{alert.shop_name || '-'}</td>
+                      <td className="px-3 py-2 text-xs text-gray-400">{alert.location || '-'}</td>
+                      <td className="px-3 py-2 max-w-[250px] truncate text-xs" title={alert.message}>{alert.message}</td>
+                      <td className="px-3 py-2">
+                        {alert.is_handled ? (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">已处理</span>
+                        ) : (
+                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">待处理</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
                         {alert.is_read ? <span className="text-gray-400 text-xs">已读</span> : <span className="text-red-500 text-xs font-medium">● 未读</span>}
                       </td>
                       <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateTime(alert.created_at)}</td>
