@@ -359,12 +359,12 @@ def list_products(
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             if keyword:
                 cur.execute(
-                    'SELECT * FROM "Product" WHERE monitor_product_id=%s AND (title ILIKE %s OR shop_name ILIKE %s OR product_id ILIKE %s) ORDER BY last_updated_at DESC LIMIT %s',
+                    'SELECT *, sales_volume AS sales FROM "Product" WHERE monitor_product_id=%s AND (title ILIKE %s OR shop_name ILIKE %s OR product_id ILIKE %s) ORDER BY last_updated_at DESC LIMIT %s',
                     (product_id, f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", limit),
                 )
             else:
                 cur.execute(
-                    'SELECT * FROM "Product" WHERE monitor_product_id=%s ORDER BY last_updated_at DESC LIMIT %s',
+                    'SELECT *, sales_volume AS sales FROM "Product" WHERE monitor_product_id=%s ORDER BY last_updated_at DESC LIMIT %s',
                     (product_id, limit),
                 )
             items = [dict(r) for r in cur.fetchall()]
@@ -496,13 +496,13 @@ def confirm_import(
                         cur.execute('SELECT product_id FROM "Product" WHERE product_id=%s', (pid,))
                         if cur.fetchone():
                             cur.execute(
-                                'UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, title=%s, main_image_url=%s, shop_name=%s, seller_name=%s, product_url=%s, platform=%s, shop_type=%s, location=%s, last_updated_at=NOW() WHERE product_id=%s',
-                                (product_id, batch_id, title, image_url, shop_name, seller_name, url, platform, shop_type, location, pid))
+                                'UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, title=%s, main_image_url=%s, shop_name=%s, seller_name=%s, product_url=%s, platform=%s, shop_type=%s, location=%s, price=%s, sales_volume=%s, last_updated_at=NOW() WHERE product_id=%s',
+                                (product_id, batch_id, title, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, pid))
                         else:
                             cur.execute(
-                                'INSERT INTO "Product" (product_id, title, main_image_url, shop_name, seller_name, product_url, platform, shop_type, location, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) '
-                                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,FALSE,NOW(),NOW())',
-                                (pid, title, image_url, shop_name, seller_name, url, platform, shop_type, location, product_id, batch_id))
+                                'INSERT INTO "Product" (product_id, title, main_image_url, shop_name, seller_name, product_url, platform, shop_type, location, price, sales_volume, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) '
+                                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,FALSE,NOW(),NOW())',
+                                (pid, title, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, product_id, batch_id))
                         # Record price/sales history
                         if price > 0:
                             cur.execute(
