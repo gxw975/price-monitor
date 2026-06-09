@@ -254,9 +254,9 @@ export default function AlertsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
-                  <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-400">加载中...</td></tr>
+                  <tr><td colSpan={11} className="px-4 py-12 text-center text-gray-400">加载中...</td></tr>
                 ) : alerts.length === 0 ? (
-                  <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-400">暂无预警记录</td></tr>
+                  <tr><td colSpan={11} className="px-4 py-12 text-center text-gray-400">暂无预警记录</td></tr>
                 ) : (
                   alerts.map((alert) => (
                     <tr key={alert.id}
@@ -289,23 +289,23 @@ export default function AlertsPage() {
                       <td className="px-3 py-2 text-xs text-gray-400">{alert.location || '-'}</td>
                       <td className="px-3 py-2 max-w-[250px] truncate text-xs" title={alert.message}>{alert.message}</td>
                       <td className="px-3 py-2">
-                        {alert.is_handled ? (
-                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">已处理</span>
-                        ) : (
-                          <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">待处理</span>
-                        )}
+                        <div style={{display:'flex',flexDirection:'column',gap:2}}>
+                          {alert.is_handled ? (
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-green-100 text-green-700">已处理</span>
+                          ) : (
+                            <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-700">待处理</span>
+                          )}
+                          {!alert.is_read && <span className="text-red-500 text-xs font-medium">● 未读</span>}
+                        </div>
                       </td>
+                      <td className="px-3 py-2 text-gray-500 text-xs whitespace-nowrap">{formatDateTime(alert.created_at)}</td>
                       <td className="px-3 py-2">
-                        {alert.is_read ? <span className="text-gray-400 text-xs">已读</span> : <span className="text-red-500 text-xs font-medium">● 未读</span>}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">{formatDateTime(alert.created_at)}</td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
+                        <div className="flex gap-1 flex-wrap">
                           <button onClick={() => fetchChart(alert.product_id)} className="text-purple-600 hover:text-purple-800 text-xs">历史</button>
                           {!alert.is_read && (
                             <button onClick={() => batchAction('mark-read', [alert.id])} className="text-blue-600 hover:text-blue-800 text-xs">已读</button>
                           )}
-                          {alert.status === 'unprocessed' && (
+                          {!alert.is_handled && (
                             <button onClick={() => batchAction('mark-processed', [alert.id])} className="text-green-600 hover:text-green-800 text-xs">处理</button>
                           )}
                         </div>
