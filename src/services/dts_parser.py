@@ -196,9 +196,9 @@ class DtsDataParser:
         mapping: dict[str, str] = {}
 
         for std_field, patterns in COLUMN_PATTERNS.items():
-            for h in headers:
-                h_lower = h.lower()
-                for pattern in patterns:
+            for pattern in patterns:
+                for h in headers:
+                    h_lower = h.lower()
                     if pattern.lower() in h_lower or h_lower in pattern.lower():
                         mapping[std_field] = h
                         break
