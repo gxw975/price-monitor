@@ -92,6 +92,7 @@ class SkuCategoryCreate(BaseModel):
 # ═══════════════════════════════════════════════
 
 @router.get("/")
+@router.get("", include_in_schema=False)
 def list_monitor_products(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -127,6 +128,7 @@ def list_monitor_products(
 
 
 @router.post("/", dependencies=[Depends(require_write_permission)])
+@router.post("", dependencies=[Depends(require_write_permission)], include_in_schema=False)
 def create_monitor_product(
     body: MonitorProductCreate,
     current_user: dict[str, Any] = Depends(get_current_user),

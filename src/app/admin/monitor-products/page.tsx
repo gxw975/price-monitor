@@ -47,7 +47,7 @@ export default function MonitorProductsPage() {
           clean[k] = parseFloat(v as string) || null
         } else { clean[k] = v }
       }
-      const url = editId ? `/api/monitor-products/${editId}` : '/api/monitor-products/'
+      const url = editId ? `/api/monitor-products/${editId}` : '/api/monitor-products'
       const method = editId ? 'PUT' : 'POST'
       const res = await apiFetch(url, { method, body: JSON.stringify(clean) })
       if (!res.success) { alert('保存失败: ' + (res.detail || JSON.stringify(res))); return }
