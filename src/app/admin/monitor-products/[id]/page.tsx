@@ -35,6 +35,7 @@ export default function MonitorProductDetail() {
   const [prodPage, setProdPage] = useState(1); const [prodPageSize, setProdPageSize] = useState(20)
   const [prodSort, setProdSort] = useState<string | null>(null); const [prodSortDir, setProdSortDir] = useState<'asc'|'desc'>('asc')
   const [hoverImg, setHoverImg] = useState<string | null>(null)
+  const [jumpPage, setJumpPage] = useState('')
 
   const fetchMp = useCallback(async () => {
     try {
@@ -185,7 +186,7 @@ export default function MonitorProductDetail() {
       {/* Products Tab */}
       {tab === 'products' && (
         <div>
-          <div style={{ maxHeight: 'calc(100vh - 250px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+          <div style={{ maxHeight: 'calc(100vh - 320px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead><tr style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
                 <th style={{...thStyle,width:40}}>#</th>
@@ -241,7 +242,11 @@ export default function MonitorProductDetail() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <button onClick={()=>setProdPage(1)} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>«</button>
               <button onClick={()=>setProdPage(p=>Math.max(1,p-1))} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>‹</button>
-              <span style={{ fontSize: 12, color: '#999', margin: '0 4px' }}>第 {prodPage}/{prodTotalPages||1} 页</span>
+              <span style={{ fontSize: 12, color: '#999', margin: '0 4px' }}>第</span>
+              <input value={jumpPage} onChange={e => setJumpPage(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { const n = parseInt(jumpPage); if (n>=1 && n<=prodTotalPages) { setProdPage(n); setJumpPage('') } } }}
+                placeholder={String(prodPage)} style={{ width: 40, padding: '2px 4px', border: '1px solid #d9d9d9', borderRadius: 4, fontSize: 12, textAlign: 'center' }} />
+              <span style={{ fontSize: 12, color: '#999' }}>/ {prodTotalPages||1} 页</span>
               <button onClick={()=>setProdPage(p=>Math.min(prodTotalPages,p+1))} disabled={prodPage>=prodTotalPages} style={pageBtn(prodPage>=prodTotalPages)}>›</button>
               <button onClick={()=>setProdPage(prodTotalPages)} disabled={prodPage>=prodTotalPages} style={pageBtn(prodPage>=prodTotalPages)}>»</button>
             </div>
