@@ -191,9 +191,49 @@ export default function MonitorProductDetail() {
 
       {/* Imports Tab */}
       {tab === 'imports' && (
-        <table style={tableStyle}><thead><tr style={{background:'#fafafa'}}><th style={thStyle}>时间</th><th style={thStyle}>文件名</th><th style={thStyle}>总数</th><th style={thStyle}>广告</th><th style={thStyle}>有效</th><th style={thStyle}>操作人</th></tr></thead>
-          <tbody>{imports.map(i=><tr key={i.id} style={{borderBottom:'1px solid #f0f0f0'}}><td style={tdStyle}>{i.import_time?new Date(i.import_time).toLocaleString('zh-CN'):'-'}</td><td style={tdStyle}>{i.file_name}</td><td style={tdStyle}>{i.total_count}</td><td style={tdStyle}>{i.ad_count}</td><td style={tdStyle}>{i.valid_count}</td><td style={tdStyle}>{i.imported_by_name||'-'}</td></tr>)}</tbody>
-        </table>
+        <div>
+          {imports.length === 0 ? (
+            <div style={{textAlign:'center',padding:60,color:'#999',border:'1px dashed #d9d9d9',borderRadius:8}}>
+              <p style={{fontSize:16,marginBottom:8}}>📦 暂无导入记录</p>
+              <p style={{fontSize:13}}>点击右上角「导入数据」上传 DTS Excel</p>
+            </div>
+          ) : (
+            <div style={{display:'flex',flexDirection:'column',gap:12}}>
+              {imports.map(i => (
+                <div key={i.id} style={{border:'1px solid #e5e7eb',borderRadius:8,overflow:'hidden'}}>
+                  <div style={{padding:'12px 16px',display:'flex',justifyContent:'space-between',alignItems:'center',background:'#fafafa'}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontWeight:500,fontSize:14}}>{i.file_name}</div>
+                      <div style={{fontSize:12,color:'#999',marginTop:2}}>
+                        {i.import_time ? new Date(i.import_time).toLocaleString('zh-CN') : '-'} · 操作人: {i.imported_by_name||'-'}
+                      </div>
+                    </div>
+                    <div style={{display:'flex',gap:16,alignItems:'center',fontSize:13}}>
+                      <span>总计 <b>{i.total_count}</b></span>
+                      <span style={{color:'#fa8c16'}}>广告 <b>{i.ad_count}</b></span>
+                      <span style={{color:'#16a34a'}}>有效 <b>{i.valid_count}</b></span>
+                    </div>
+                    <div style={{display:'flex',gap:8,marginLeft:16}}>
+                      <button onClick={async () => {
+                        try { const r = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(r.items||[]); setTab('products') } catch { /**/ }
+                      }} style={btnSecondary}>查看商品</button>
+                      {canWrite && (
+                        <button onClick={async () => {
+                          if (!confirm(`确定删除批次「${i.file_name}」的所有导入数据？`)) return
+                          try {
+                            // Delete products from this batch
+                            await apiFetch(`/api/monitor-products/${id}/imports/${i.id}`, { method: 'DELETE' })
+                            const r = await apiFetch(`/api/monitor-products/${id}/imports`); setImports(r.items||[]); fetchMp()
+                          } catch { /**/ }
+                        }} style={{...btnSecondary,color:'#dc2626',borderColor:'#fecaca'}}>删除</button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Products Tab */}

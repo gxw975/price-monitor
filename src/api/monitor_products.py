@@ -342,6 +342,41 @@ def list_imports(
         conn.close()
 
 
+@router.delete("/{product_id}/imports/{batch_id}", dependencies=[Depends(require_write_permission)])
+def delete_import_batch(
+    product_id: int,
+    batch_id: int,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """删除导入批次及其商品数据"""
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            # 删除该批次的商品
+            cur.execute(
+                'DELETE FROM "Product" WHERE import_batch_id=%s AND monitor_product_id=%s',
+                (batch_id, product_id),
+            )
+            prod_deleted = cur.rowcount
+            # 删除批次记录
+            cur.execute(
+                'DELETE FROM "ImportBatch" WHERE id=%s AND monitor_product_id=%s',
+                (batch_id, product_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="批次不存在")
+            conn.commit()
+        logger.info("删除导入批次: batch=%d products=%d by %s", batch_id, prod_deleted, current_user["username"])
+        return {"success": True, "products_deleted": prod_deleted}
+    except HTTPException: raise
+    except Exception:
+        logger.exception("删除批次失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="删除失败")
+    finally:
+        conn.close()
+
+
 # ═══════════════════════════════════════════════
 # 商品列表 + 预警
 # ═══════════════════════════════════════════════
