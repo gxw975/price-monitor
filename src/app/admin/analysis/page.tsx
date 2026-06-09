@@ -16,6 +16,8 @@ export default function AnalysisPage() {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<'price'|'sales'>('price')
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
+  const [excludeWhitelist, setExcludeWhitelist] = useState(false)
+  const [whitelistSellers, setWhitelistSellers] = useState<string[]>([])
 
   const fetchMPs = useCallback(async () => {
     try { const r = await apiFetch('/api/monitor-products/'); setMonitorProducts(r.items||[]) } catch { /**/ }
@@ -26,29 +28,32 @@ export default function AnalysisPage() {
     setLoading(true); setProducts([])
     try {
       const r = await apiFetch(`/api/monitor-products/${mpId}/products?limit=2000`)
-      setProducts(r.items||[]); const mp = monitorProducts.find(m=>m.id===mpId); setMpName(mp?.name||'')
+      setProducts(r.items||[])
+      const mp = monitorProducts.find(m=>m.id===mpId); setMpName(mp?.name||'')
+      setWhitelistSellers((mp?.whitelist_sellers||'').split(',').map((s:string)=>s.trim()).filter(Boolean))
     } catch { /**/ } finally { setLoading(false) }
   }
 
-  const filtered = products.filter(p =>
-    !search || p.title?.includes(search) || p.shop_name?.includes(search) || p.seller_name?.includes(search)
-  ).sort((a,b) => {
-    if (sortKey==='price') return sortDir==='asc'?(a.price||0)-(b.price||0):(b.price||0)-(a.price||0)
-    return sortDir==='asc'?(a.sales||0)-(b.sales||0):(b.sales||0)-(a.sales||0)
-  })
+  const filtered = products
+    .filter(p => excludeWhitelist ? !whitelistSellers.includes(p.seller_name||'') : true)
+    .filter(p => !search || p.title?.includes(search) || p.shop_name?.includes(search) || p.seller_name?.includes(search))
+    .sort((a,b) => {
+      if (sortKey==='price') return sortDir==='asc'?(a.price||0)-(b.price||0):(b.price||0)-(a.price||0)
+      return sortDir==='asc'?(a.sales||0)-(b.sales||0):(b.sales||0)-(a.sales||0)
+    })
 
-  // Stats
-  const prices = products.map(p=>p.price||0).filter(p=>p>0).sort((a,b)=>a-b)
-  const avgPrice = prices.length>0?prices.reduce((a,b)=>a+b,0)/prices.length:0
-  const minPrice = prices[0]||0; const maxPrice = prices[prices.length-1]||0
-  const medianPrice = prices.length>0?prices[Math.floor(prices.length/2)]:0
-  const totalSales = products.reduce((s,p)=>s+(p.sales||0),0)
-  const shops=Array.from(new Set(products.map(p=>p.shop_name).filter(Boolean))).length
-  const sellers=Array.from(new Set(products.map(p=>p.seller_name).filter(Boolean))).length
+  // Stats (based on filtered)
+  const fprices = filtered.map(p=>p.price||0).filter(p=>p>0).sort((a,b)=>a-b)
+  const avgPrice = fprices.length>0?fprices.reduce((a,b)=>a+b,0)/fprices.length:0
+  const minPrice = fprices[0]||0; const maxPrice = fprices[fprices.length-1]||0
+  const medianPrice = fprices.length>0?fprices[Math.floor(fprices.length/2)]:0
+  const totalSales = filtered.reduce((s,p)=>s+(p.sales||0),0)
+  const shops=Array.from(new Set(filtered.map(p=>p.shop_name).filter(Boolean))).length
+  const sellers=Array.from(new Set(filtered.map(p=>p.seller_name).filter(Boolean))).length
   // Price distribution
   const range=maxPrice-minPrice||1; const bins=8
   const histogram=Array(bins).fill(0).map((_,i)=>({lo:Math.round(minPrice+range*i/bins),hi:Math.round(minPrice+range*(i+1)/bins),cnt:0}))
-  prices.forEach(p=>{const idx=Math.min(Math.floor((p-minPrice)/range*bins),bins-1);histogram[idx].cnt++})
+  fprices.forEach(p=>{const idx=Math.min(Math.floor((p-minPrice)/range*bins),bins-1);histogram[idx].cnt++})
 
   return (
     <div style={{ padding: 24 }}>
@@ -60,6 +65,12 @@ export default function AnalysisPage() {
           {monitorProducts.map(mp=><option key={mp.id} value={mp.id}>{mp.name}</option>)}
         </select>
         {products.length>0 && <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="搜索商品/店铺/掌柜" style={{...selectStyle,width:200}} />}
+        {whitelistSellers.length>0 && (
+          <label style={{display:'flex',alignItems:'center',gap:6,fontSize:13,cursor:'pointer',background:'#f9fafb',padding:'6px 12px',borderRadius:6,border:'1px solid #e5e7eb'}}>
+            <input type="checkbox" checked={excludeWhitelist} onChange={e=>setExcludeWhitelist(e.target.checked)} />
+            🛡️ 去除白名单({whitelistSellers.length}个)
+          </label>
+        )}
       </div>
 
       {!selectedMp ? (
@@ -73,7 +84,7 @@ export default function AnalysisPage() {
         <>
           {/* Summary cards */}
           <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12,marginBottom:20}}>
-            <StatCard label="商品总数" value={products.length} unit="个" color="#1677ff" />
+            <StatCard label="商品总数" value={filtered.length} unit="个" color="#1677ff" />
             <StatCard label="均价" value={`¥${avgPrice.toFixed(0)}`} unit="" color="#16a34a" />
             <StatCard label="最低价" value={`¥${minPrice.toFixed(0)}`} unit="" color="#dc2626" />
             <StatCard label="最高价" value={`¥${maxPrice.toFixed(0)}`} unit="" color="#d97706" />
@@ -99,7 +110,7 @@ export default function AnalysisPage() {
           <div style={{marginBottom:20}}>
             <h3 style={{fontSize:15,fontWeight:600,marginBottom:8}}>🏪 最低价店铺 TOP 10</h3>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:8}}>
-              {[...products].sort((a,b)=>(a.price||0)-(b.price||0)).slice(0,10).map(p=>(
+              {[...filtered].sort((a,b)=>(a.price||0)-(b.price||0)).slice(0,10).map(p=>(
                 <div key={p.product_id} style={{display:'flex',alignItems:'center',gap:8,padding:8,background:'#fff',border:'1px solid #e5e7eb',borderRadius:6}}>
                   {(p.image_url||p.main_image_url)?<img src={p.image_url||p.main_image_url} alt="" style={{width:40,height:40,objectFit:'cover',borderRadius:4}}/>:<div style={{width:40,height:40,background:'#f5f5f5',borderRadius:4}}/>}
                   <div style={{flex:1,minWidth:0}}>
