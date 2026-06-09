@@ -161,11 +161,12 @@ function TopBar() {
   }
 
   const navItems = [
-    { label: '商品监控', href: '/admin/monitor-products' },
-    { label: '预警中心', href: '/admin/alerts' },
-    { label: '数据分析', href: '/admin/analysis' },
-    { label: '系统设置', href: '/admin/settings' },
-    { label: '故障排查', href: '/admin/diagnostics' },
+    { label: '商品监控', href: '/admin/monitor-products', roles: ['admin','manager','staff'] },
+    { label: '预警中心', href: '/admin/alerts', roles: ['admin','manager','staff'] },
+    { label: '数据分析', href: '/admin/analysis', roles: ['admin','manager','staff'] },
+    { label: '用户管理', href: '/admin/users', roles: ['admin'] },
+    { label: '系统设置', href: '/admin/settings', roles: ['admin','manager'] },
+    { label: '故障排查', href: '/admin/diagnostics', roles: ['admin','manager'] },
   ]
 
   return (
@@ -178,7 +179,7 @@ function TopBar() {
           >
             电商低价监控系统
           </button>
-          {navItems.map((item) => (
+          {navItems.filter(item => item.roles.includes(user.role)).map((item) => (
             <button
               key={item.href}
               onClick={() => router.push(item.href)}

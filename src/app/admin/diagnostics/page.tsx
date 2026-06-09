@@ -21,7 +21,8 @@ type LogFile = 'alert' | 'backend' | 'frontend'
 
 export default function DiagnosticsPage() {
   const { user } = useAuth()
-  const canWrite = user?.role === 'admin' || user?.role === 'manager'
+  if (user?.role !== 'admin') return <div style={{padding:24,textAlign:'center',color:'#999'}}>仅管理员可访问</div>
+  const canWrite = true
 
   const [health, setHealth] = useState<HealthResult | null>(null)
   const [loading, setLoading] = useState(true)
