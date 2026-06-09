@@ -135,8 +135,6 @@ export default function MonitorProductDetail() {
     { key: 'alerts', label: `预警记录${mp.unhandled_alert_count ? ` (${mp.unhandled_alert_count})` : ''}` },
   ]
 
-  const whitelistSellers = (mp.whitelist_sellers || '').split(',').filter(Boolean)
-
   return (
     <div style={{ padding: 24 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
