@@ -11,7 +11,7 @@ interface MonitorProduct { id: number; name: string; brand: string | null; descr
   import_count: number; unhandled_alert_count: number; whitelist_sellers: string | null
 }
 interface ImportBatch { id: number; file_name: string; import_time: string; total_count: number; ad_count: number; valid_count: number; imported_by_name: string }
-interface Product { product_id: string; title: string; shop_name: string; main_image_url: string; image_url: string; price: number; sales: number; seller_name: string; platform: string; shop_type: string; location: string; url?: string; product_url?: string; is_approved: boolean; import_batch_id?: number }
+interface Product { product_id: string; title: string; shop_name: string; main_image_url: string; image_url: string; price: number; sales: number; seller_name: string; shop_id?: string; platform: string; shop_type: string; location?: string; url?: string; product_url?: string; is_approved: boolean; import_batch_id?: number }
 interface SkuCategory { id: number; name: string; unit: string; conversion_factor: number }
 interface Alert { id: number; product_id: string; product_title: string; alert_type: string; message: string; is_handled: boolean; created_at: string }
 type Tab = 'info' | 'imports' | 'products' | 'skus' | 'alerts'
