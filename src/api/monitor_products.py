@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import Any
 
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from services.auth_service import get_current_user
@@ -503,35 +504,26 @@ async def import_excel_preview(
             except OSError: pass
 
 
-@router.post("/{product_id}/import/confirm", dependencies=[Depends(require_write_permission)])
-def confirm_import(
-    product_id: int,
-    data: ConfirmImportRequest,
-    current_user: dict[str, Any] = Depends(get_current_user),
-) -> dict[str, Any]:
-    """阶段B — 确认导入"""
+def _do_import(product_id: int, file_name: str, selected_ids: list[str],
+               products_data: list[dict], user_id: int) -> dict:
+    """共用导入入库逻辑，供单文件和批量导入调用。"""
     conn = _get_conn()
     try:
-        if not data.selected_product_ids:
-            raise HTTPException(status_code=400, detail="未选择任何商品")
-
         with conn.cursor() as cur:
             cur.execute(
-                'INSERT INTO "ImportBatch" (monitor_product_id, file_name, total_count, ad_count, valid_count, imported_by) VALUES (%s,%s,%s,%s,%s,%s) RETURNING id',
-                (product_id, data.file_name, len(data.selected_product_ids), 0, len(data.selected_product_ids), current_user.get("user_id")),
+                'INSERT INTO "ImportBatch" (monitor_product_id, file_name, total_count, ad_count, valid_count, imported_by) '
+                'VALUES (%s,%s,%s,%s,%s,%s) RETURNING id',
+                (product_id, file_name, len(selected_ids), 0, len(selected_ids), user_id),
             )
             batch_id = cur.fetchone()[0]
             conn.commit()
 
-        # Build a lookup from product_id to full data
-        products_map = {p.get('product_id', ''): p for p in data.products_data}
-
-        inserted = 0
-        new_count = 0
+        products_map = {p.get('product_id', ''): p for p in products_data}
+        inserted = 0; new_count = 0
         from services.product_service import _get_conn as svc_conn_fn
         svc = svc_conn_fn()
         try:
-            for pid in data.selected_product_ids:
+            for pid in selected_ids:
                 try:
                     pdata = products_map.get(pid, {})
                     title = (pdata.get('title') or pdata.get('商品名称') or pid)[:200]
@@ -544,7 +536,6 @@ def confirm_import(
                     platform = (pdata.get('platform') or '')[:50]
                     shop_type = (pdata.get('shop_type') or '')[:50]
                     location = (pdata.get('location') or '')[:100]
-
                     with svc.cursor() as cur:
                         cur.execute('SELECT product_id FROM "Product" WHERE product_id=%s', (pid,))
                         if cur.fetchone():
@@ -557,7 +548,6 @@ def confirm_import(
                                 'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE,NOW(),NOW())',
                                 (pid, title, image_url, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, product_id, batch_id))
                             new_count += 1
-                        # Record price/sales history
                         if price > 0:
                             cur.execute(
                                 'INSERT INTO "ProductHistory" (product_id, price, sales_volume, recorded_at) VALUES (%s,%s,%s,NOW())',
@@ -573,18 +563,163 @@ def confirm_import(
         with conn.cursor() as cur:
             cur.execute('UPDATE "ImportBatch" SET valid_count=%s WHERE id=%s', (inserted, batch_id))
             conn.commit()
+        return {"batch_id": batch_id, "inserted": inserted, "new_count": new_count}
+    finally:
+        conn.close()
 
+
+def _auto_match_filename(filename: str, products: list[dict]) -> int | None:
+    """文件名与监控商品名称模糊匹配，返回最佳匹配的 monitor_product_id。"""
+    from difflib import SequenceMatcher
+    import os as _os
+    name = _os.path.splitext(filename)[0].lower().replace('_', ' ').replace('-', ' ')
+    best_score = 0; best_id = None
+    for mp in products:
+        mp_name = mp['name'].lower().replace(' ', '')
+        score = SequenceMatcher(None, name.replace(' ', ''), mp_name).ratio()
+        if score > 0.4 and score > best_score:
+            best_score = score; best_id = mp['id']
+    return best_id
+
+
+@router.post("/{product_id}/import/confirm", dependencies=[Depends(require_write_permission)])
+def confirm_import(
+    product_id: int,
+    data: ConfirmImportRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """阶段B — 确认导入"""
+    if not data.selected_product_ids:
+        raise HTTPException(status_code=400, detail="未选择任何商品")
+    try:
+        result = _do_import(product_id, data.file_name, data.selected_product_ids,
+                           data.products_data, current_user.get("user_id", 0))
         from scripts.check_alerts import run_alerts
         ar = run_alerts(test_mode=False, force=False)
-
         return {"code": 200, "msg": "导入成功", "data": {
-            "batch_id": batch_id, "import_result": {"success_count": inserted, "new_count": new_count, "fail_count": len(data.selected_product_ids)-inserted, "total": len(data.selected_product_ids)},
-            "alert_result": {"checked": ar.get("checked",0), "sent": ar.get("sent",0)},
+            "batch_id": result["batch_id"],
+            "import_result": {"success_count": result["inserted"], "new_count": result["new_count"],
+                              "fail_count": len(data.selected_product_ids) - result["inserted"],
+                              "total": len(data.selected_product_ids)},
+            "alert_result": {"checked": ar.get("checked", 0), "sent": ar.get("sent", 0)},
         }}
     except HTTPException: raise
     except Exception as e:
         logger.exception("确认导入失败")
-        conn.rollback()
         raise HTTPException(status_code=500, detail=f"导入失败：{e}")
+
+
+@router.post("/batch-import", dependencies=[Depends(require_write_permission)])
+async def batch_import(
+    files: list[UploadFile] = File(...),
+    mappings_json: str = Form(...),
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """批量导入：同时上传多个DTS Excel文件，自动解析+清洗+入库。"""
+    import json as _json, os as _os, tempfile as _tempfile
+    from pathlib import Path as _Path
+    from difflib import SequenceMatcher
+
+    try:
+        mappings = _json.loads(mappings_json)
+    except Exception:
+        raise HTTPException(status_code=400, detail="mappings JSON 解析失败")
+
+    mp_map: dict[int, int] = {}
+    for m in mappings:
+        mp_map[m["file_index"]] = m["monitor_product_id"]
+
+    # 获取监控商品列表用于自动匹配
+    all_mps = []
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('SELECT id, name FROM "MonitorProduct" ORDER BY id')
+            all_mps = [dict(r) for r in cur.fetchall()]
     finally:
         conn.close()
+
+    from services.dts_parser import DtsDataParser
+
+    results = []
+    total_inserted = 0; total_new = 0; total_errors = 0
+    temp_paths = []
+
+    try:
+        for idx, file in enumerate(files):
+            file_result = {"file_name": file.filename, "index": idx, "status": "pending",
+                          "total": 0, "ad": 0, "valid": 0, "inserted": 0, "new_count": 0, "error": None}
+
+            mp_id = mp_map.get(idx)
+            if not mp_id:
+                mp_id = _auto_match_filename(file.filename or f"file_{idx}", all_mps)
+            if not mp_id:
+                file_result["status"] = "error"
+                file_result["error"] = "未指定监控商品，且自动匹配失败"
+                results.append(file_result)
+                total_errors += 1
+                continue
+
+            # 保存临时文件
+            suffix = _Path(file.filename).suffix if file.filename else '.xlsx'
+            temp_path = _os.path.join(_tempfile.gettempdir(), f"batch_import_{idx}_{uuid.uuid4().hex}{suffix}")
+            with open(temp_path, "wb") as f:
+                f.write(await file.read())
+            temp_paths.append(temp_path)
+
+            try:
+                parser = DtsDataParser()
+                parsed = parser.parse(temp_path)
+                if not parsed:
+                    file_result["status"] = "error"
+                    file_result["error"] = "文件解析失败"
+                    results.append(file_result)
+                    total_errors += 1
+                    continue
+
+                valid_data, total_rows, ad_count, dup_count = parser.clean_ad_data(parsed)
+                product_ids = [p.get("product_id") for p in valid_data if p.get("product_id")]
+                file_result["total"] = total_rows
+                file_result["ad"] = ad_count
+                file_result["valid"] = len(valid_data)
+
+                if not product_ids:
+                    file_result["status"] = "error"
+                    file_result["error"] = "无有效商品数据"
+                    results.append(file_result)
+                    total_errors += 1
+                    continue
+
+                ir = _do_import(mp_id, file.filename or f"batch_file_{idx}", product_ids, valid_data,
+                               current_user.get("user_id", 0))
+                file_result["inserted"] = ir["inserted"]
+                file_result["new_count"] = ir["new_count"]
+                file_result["status"] = "success"
+                total_inserted += ir["inserted"]
+                total_new += ir["new_count"]
+
+                # 每个文件导入后触发预警
+                try:
+                    from scripts.check_alerts import run_alerts
+                    run_alerts(test_mode=False, force=False)
+                except Exception:
+                    logger.exception("预警检测失败: %s", file.filename)
+            except Exception as e:
+                file_result["status"] = "error"
+                file_result["error"] = str(e)
+                total_errors += 1
+            results.append(file_result)
+    finally:
+        for tp in temp_paths:
+            if _os.path.exists(tp):
+                try: _os.unlink(tp)
+                except OSError: pass
+
+    return {
+        "code": 200, "msg": "批量导入完成",
+        "data": {
+            "results": results,
+            "summary": {"total_files": len(files), "total_inserted": total_inserted,
+                       "total_new": total_new, "total_errors": total_errors},
+        },
+    }

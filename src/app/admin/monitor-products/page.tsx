@@ -30,6 +30,17 @@ export default function MonitorProductsPage() {
   const [catFactor, setCatFactor] = useState('1.0')
   const [categories, setCategories] = useState<SkuCategory[]>([])
 
+  // Batch import
+  const [batchVisible, setBatchVisible] = useState(false)
+  const [batchStep, setBatchStep] = useState<'select' | 'parse' | 'importing'>('select')
+  const [batchFiles, setBatchFiles] = useState<File[]>([])
+  const [batchParsing, setBatchParsing] = useState(false)
+  const [batchFileInfos, setBatchFileInfos] = useState<any[]>([])
+  const [batchMapping, setBatchMapping] = useState<Record<number, number>>({})
+  const [batchImporting, setBatchImporting] = useState(false)
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 })
+  const [batchResults, setBatchResults] = useState<any[]>([])
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
     try { const res = await apiFetch('/api/monitor-products/'); setProducts(res.items || []) } catch { /**/ } finally { setLoading(false) }
@@ -84,6 +95,63 @@ export default function MonitorProductsPage() {
     try { await apiFetch(`/api/monitor-products/${expandedId}/sku-categories/${catId}`, { method: 'DELETE' }); const res = await apiFetch(`/api/monitor-products/${expandedId}/sku-categories`); setCategories(res.items || []) } catch { alert('删除失败') }
   }
 
+  // ── Batch Import Handlers ──
+  const handleBatchFiles = (fl: FileList | null) => {
+    if (!fl || fl.length === 0) return
+    const arr = Array.from(fl).filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'))
+    setBatchFiles(arr); setBatchMapping({})
+    arr.forEach((f, i) => {
+      const name = f.name.replace(/\.[^.]+$/, '').replace(/[_\-]+/g, ' ')
+      const match = products.find(p => name.includes(p.name) || p.name.includes(name))
+      if (match) setBatchMapping(prev => ({ ...prev, [i]: match.id }))
+    })
+  }
+
+  const handleBatchParse = async () => {
+    if (batchFiles.length === 0) { alert('请先选择文件'); return }
+    setBatchParsing(true); setBatchFileInfos([])
+    const infos: any[] = []
+    const token = localStorage.getItem('auth_token')
+    for (let i = 0; i < batchFiles.length; i++) {
+      const file = batchFiles[i]
+      const fd = new FormData(); fd.append('file', file)
+      try {
+        const res = await fetch(`/api/monitor-products/${batchMapping[i] || products[0]?.id || 1}/import`, {
+          method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+        })
+        const json = await res.json()
+        infos.push({ index: i, name: file.name, size: file.size, data: json.data, error: null })
+      } catch (e: any) {
+        infos.push({ index: i, name: file.name, size: file.size, data: null, error: e.message || '解析失败' })
+      }
+    }
+    setBatchFileInfos(infos); setBatchParsing(false); setBatchStep('parse')
+  }
+
+  const handleBatchImport = async () => {
+    setBatchImporting(true); setBatchStep('importing')
+    setBatchProgress({ current: 0, total: batchFiles.length })
+    setBatchResults([])
+    const token = localStorage.getItem('auth_token')
+    const mappings = batchFiles.map((_, i) => ({ file_index: i, monitor_product_id: batchMapping[i] || 0 }))
+    const fd = new FormData()
+    batchFiles.forEach(f => fd.append('files', f))
+    fd.append('mappings_json', JSON.stringify(mappings))
+
+    try {
+      const res = await fetch('/api/monitor-products/batch-import', {
+        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
+      })
+      const json = await res.json()
+      setBatchResults(json.data?.results || [])
+      setBatchProgress({ current: batchFiles.length, total: batchFiles.length })
+    } catch (e: any) {
+      alert('批量导入失败: ' + (e.message || '网络错误'))
+    } finally { setBatchImporting(false) }
+  }
+
+  const closeBatch = () => { setBatchVisible(false); setBatchStep('select'); setBatchFiles([]); setBatchFileInfos([]); setBatchResults([]); fetchAll() }
+
   const filtered = products.filter(p => {
     if (!search) return true
     const s = search.toLowerCase()
@@ -98,6 +166,7 @@ export default function MonitorProductsPage() {
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索名称/品牌..."
             style={{ padding: '6px 10px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, width: 180 }} />
           {canWrite && <button onClick={openCreate} style={btnPrimary}>新增监控商品</button>}
+          {canWrite && <button onClick={() => { setBatchVisible(true); setBatchStep('select') }} style={btnSecondary}>批量导入</button>}
         </div>
       </div>
 
@@ -188,6 +257,105 @@ export default function MonitorProductsPage() {
               <button onClick={() => setShowForm(false)} style={btnSecondary}>取消</button>
               <button onClick={save} disabled={saving} style={btnPrimary}>{saving ? '保存中...' : '保存'}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── 批量导入弹窗 ── */}
+      {batchVisible && (
+        <div style={modalOverlay}>
+          <div style={{ ...modalContent, width: 700, maxWidth: '90vw' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 600 }}>批量导入</h2>
+              <button onClick={closeBatch} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#999' }}>×</button>
+            </div>
+
+            {/* Step 1: Select files */}
+            {batchStep === 'select' && (
+              <>
+                <p style={{ color: '#666', fontSize: 14, marginBottom: 12 }}>选择多个 DTS Excel 文件，系统将自动解析并导入到对应监控商品。</p>
+                <input type="file" multiple accept=".xlsx,.xls"
+                  onChange={e => handleBatchFiles(e.target.files)}
+                  style={{ display: 'block', marginBottom: 12 }} />
+                {batchFiles.length > 0 && (
+                  <>
+                    <p style={{ fontSize: 13, color: '#374151', marginBottom: 8 }}>已选择 <b>{batchFiles.length}</b> 个文件：</p>
+                    <div style={{ maxHeight: 200, overflow: 'auto', marginBottom: 12, border: '1px solid #e5e7eb', borderRadius: 6 }}>
+                      {batchFiles.map((f, i) => (
+                        <div key={i} style={{ padding: '6px 10px', fontSize: 13, borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between' }}>
+                          <span>{f.name}</span>
+                          <span style={{ color: '#999' }}>{(f.size / 1024).toFixed(1)} KB</span>
+                        </div>
+                      ))}
+                    </div>
+                    <button onClick={handleBatchParse} disabled={batchParsing} style={btnPrimary}>
+                      {batchParsing ? '解析中...' : '解析文件'}
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+
+            {/* Step 2: Review mappings */}
+            {batchStep === 'parse' && (
+              <>
+                <p style={{ fontSize: 13, color: '#374151', marginBottom: 12 }}>为每个文件选择对应的监控商品，然后开始导入：</p>
+                <div style={{ maxHeight: 350, overflow: 'auto', marginBottom: 12 }}>
+                  {batchFileInfos.map((info, i) => (
+                    <div key={i} style={{ padding: 10, marginBottom: 8, border: '1px solid #e5e7eb', borderRadius: 6, background: info.data ? '#fff' : '#fef2f2' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 13 }}>
+                        <span style={{ fontWeight: 500, maxWidth: 300, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{info.name}</span>
+                        <span>{info.data ? `🟢 ${info.data.valid_count} 条有效` : '🔴 解析失败'}</span>
+                      </div>
+                      <select value={batchMapping[info.index] || ''}
+                        onChange={e => setBatchMapping(prev => ({ ...prev, [info.index]: parseInt(e.target.value) }))}
+                        style={{ padding: '4px 8px', border: '1px solid #d9d9d9', borderRadius: 4, fontSize: 13, width: '100%' }}>
+                        <option value="">-- 选择监控商品 --</option>
+                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                  <button onClick={() => { setBatchStep('select'); setBatchFileInfos([]) }} style={btnSecondary}>重新选择</button>
+                  <button onClick={handleBatchImport}
+                    disabled={batchImporting || batchFileInfos.some(info => info.data && !batchMapping[info.index])}
+                    style={btnPrimary}>
+                    {batchImporting ? '导入中...' : `开始批量导入 (${batchFileInfos.length}个文件)`}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {/* Step 3: Progress/Results */}
+            {batchStep === 'importing' && (
+              <>
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ background: '#e5e7eb', borderRadius: 10, height: 12, overflow: 'hidden' }}>
+                    <div style={{ background: '#1677ff', height: '100%', width: `${batchProgress.total > 0 ? (batchProgress.current / batchProgress.total) * 100 : 0}%`, transition: 'width 0.3s' }} />
+                  </div>
+                  <p style={{ textAlign: 'center', color: '#666', fontSize: 13, marginTop: 4 }}>
+                    {batchImporting ? `导入中... ${batchProgress.current}/${batchProgress.total}` : `完成 ${batchProgress.current}/${batchProgress.total}`}
+                  </p>
+                </div>
+                <div style={{ maxHeight: 350, overflow: 'auto', marginBottom: 12 }}>
+                  {batchResults.map((r, i) => (
+                    <div key={i} style={{ padding: '8px 12px', marginBottom: 6, borderRadius: 6, fontSize: 13, border: '1px solid', borderColor: r.status === 'success' ? '#bbf7d0' : '#fecaca', background: r.status === 'success' ? '#f0fdf4' : '#fef2f2' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span style={{ fontWeight: 500, maxWidth: 250, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.file_name}</span>
+                        <span>{r.status === 'success' ? `✅ ${r.inserted}条` : `❌ ${r.error || '失败'}`}</span>
+                      </div>
+                      {r.status === 'success' && <span style={{ color: '#666', fontSize: 12 }}>新增 {r.new_count} 条</span>}
+                    </div>
+                  ))}
+                </div>
+                {!batchImporting && (
+                  <div style={{ textAlign: 'right' }}>
+                    <button onClick={closeBatch} style={btnPrimary}>关闭</button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         </div>
       )}
