@@ -438,6 +438,49 @@ def list_products(
         conn.close()
 
 
+@router.get("/{product_id}/products/export")
+def export_products(
+    product_id: int,
+    keyword: str | None = None,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """导出监控商品下的所有商品数据为Excel"""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from fastapi.responses import StreamingResponse
+
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if keyword:
+                cur.execute(
+                    'SELECT * FROM "Product" WHERE monitor_product_id=%s AND (title ILIKE %s OR shop_name ILIKE %s OR seller_name ILIKE %s) ORDER BY price ASC',
+                    (product_id, f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"),
+                )
+            else:
+                cur.execute('SELECT * FROM "Product" WHERE monitor_product_id=%s ORDER BY price ASC', (product_id,))
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "商品数据"
+    headers = ["商品ID", "标题", "店铺", "掌柜", "现价", "销量", "平台", "店铺类型", "地址", "图片链接", "商品链接"]
+    ws.append(headers)
+    for r in rows:
+        ws.append([
+            r.get("product_id"), r.get("title"), r.get("shop_name"), r.get("seller_name"),
+            r.get("price"), r.get("sales_volume"), r.get("platform"), r.get("shop_type"),
+            r.get("location"), r.get("image_url") or r.get("main_image_url"), r.get("product_url"),
+        ])
+    output = BytesIO()
+    wb.save(output); output.seek(0)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            headers={"Content-Disposition": f"attachment; filename=products_{product_id}_{ts}.xlsx"})
+
+
 @router.get("/{product_id}/alerts")
 def list_alerts_for_product(
     product_id: int,

@@ -10,7 +10,7 @@ import logging
 import os
 import tempfile
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +18,7 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from services.auth_service import get_current_user
@@ -255,4 +256,38 @@ def delete_product(
         logger.exception("删除商品失败")
         conn.rollback()
         raise HTTPException(status_code=500, detail="删除失败")
+
+
+@router.get("/{product_id}/history/export")
+def export_price_history(product_id: str):
+    """导出单个商品的价格历史数据为Excel"""
+    from io import BytesIO
+    from openpyxl import Workbook
+    from fastapi.responses import StreamingResponse
+
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('SELECT title FROM "Product" WHERE product_id=%s', (product_id,))
+            p = cur.fetchone()
+            title = p["title"] if p else product_id
+            cur.execute(
+                'SELECT price, sales_volume, recorded_at FROM "ProductHistory" WHERE product_id=%s ORDER BY recorded_at ASC',
+                (product_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "价格历史"
+    ws.append(["商品ID", "商品标题", "价格", "销量", "记录时间"])
+    for r in rows:
+        ws.append([product_id, title, float(r["price"]), r["sales_volume"], r["recorded_at"].isoformat() if r["recorded_at"] else ""])
+    output = BytesIO()
+    wb.save(output); output.seek(0)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return StreamingResponse(output, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            headers={"Content-Disposition": f"attachment; filename=history_{product_id}_{ts}.xlsx"})
 

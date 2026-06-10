@@ -263,6 +263,9 @@ export default function MonitorProductDetail() {
               <input type="checkbox" checked={onlyNew} onChange={e => { setOnlyNew(e.target.checked); setProdPage(1) }} />
               仅看新增({products.filter((p:any)=>latestBatchId && p.import_batch_id===latestBatchId).length})
             </label>
+            <span style={{ flex: 1 }} />
+            <button onClick={() => window.open(`/api/monitor-products/${id}/products/export`, '_blank')}
+              style={{ ...btnSmall, background: '#16a34a', color: '#fff', border: 'none' }}>📥 导出Excel</button>
             {whitelistSellers.length>0 && (
               <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <input type="checkbox" checked={excludeWhitelist} onChange={e => { setExcludeWhitelist(e.target.checked); setProdPage(1) }} />
