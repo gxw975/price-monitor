@@ -29,7 +29,6 @@ export default function MonitorProductsPage() {
   const [catUnit, setCatUnit] = useState('')
   const [catFactor, setCatFactor] = useState('1.0')
   const [categories, setCategories] = useState<SkuCategory[]>([])
-  const [catData, setCatData] = useState({ name: '', unit: '', factor: '1.0' })
 
   const fetchAll = useCallback(async () => {
     setLoading(true)
@@ -70,12 +69,12 @@ export default function MonitorProductsPage() {
     finally { setCatLoading(false) }
   }
   const addCat = async () => {
-    if (!catData.name.trim() || !expandedId) { alert('请输入分类名称'); return }
+    if (!catName.trim() || !expandedId) { alert('请输入分类名称'); return }
     try {
       await apiFetch(`/api/monitor-products/${expandedId}/sku-categories`, {
-        method: 'POST', body: JSON.stringify({ name: catData.name, unit: catData.unit, conversion_factor: parseFloat(catData.factor) || 1 }),
+        method: 'POST', body: JSON.stringify({ name: catName.trim(), unit: catUnit.trim(), conversion_factor: parseFloat(catFactor) || 1 }),
       })
-      setCatData({ name: '', unit: '', factor: '1.0' })
+      setCatName(''); setCatUnit(''); setCatFactor('1.0')
       const res = await apiFetch(`/api/monitor-products/${expandedId}/sku-categories`); setCategories(res.items || [])
     } catch { alert('添加分类失败') }
   }
