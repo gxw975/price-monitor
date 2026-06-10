@@ -264,7 +264,14 @@ export default function MonitorProductDetail() {
               仅看新增({products.filter((p:any)=>latestBatchId && p.import_batch_id===latestBatchId).length})
             </label>
             <span style={{ flex: 1 }} />
-            <button onClick={() => window.open(`/api/monitor-products/${id}/products/export`, '_blank')}
+            <button onClick={async () => {
+              const token = localStorage.getItem('auth_token')
+              const res = await fetch(`/api/monitor-products/${id}/products/export`, { headers: { Authorization: `Bearer ${token}` } })
+              const blob = await res.blob()
+              const url = URL.createObjectURL(blob)
+              const a = document.createElement('a'); a.href = url; a.download = `products_${id}_${new Date().toISOString().slice(0,10)}.xlsx`
+              a.click(); URL.revokeObjectURL(url)
+            }}
               style={{ padding: '4px 10px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>📥 导出Excel</button>
             {whitelistSellers.length>0 && (
               <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
