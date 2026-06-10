@@ -265,7 +265,7 @@ export default function MonitorProductDetail() {
             </label>
             <span style={{ flex: 1 }} />
             <button onClick={() => window.open(`/api/monitor-products/${id}/products/export`, '_blank')}
-              style={{ ...btnSmall, background: '#16a34a', color: '#fff', border: 'none' }}>📥 导出Excel</button>
+              style={{ padding: '4px 10px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>📥 导出Excel</button>
             {whitelistSellers.length>0 && (
               <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <input type="checkbox" checked={excludeWhitelist} onChange={e => { setExcludeWhitelist(e.target.checked); setProdPage(1) }} />
