@@ -13,9 +13,11 @@ export default function ImportPage() {
   const { user } = useAuth()
 
   const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
   const [preview, setPreview] = useState<PreviewData | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [confirming, setConfirming] = useState(false)
+  const [importProgress, setImportProgress] = useState({ status: '', processed: 0, total: 0 })
   const [result, setResult] = useState<string | null>(null)
   const [step, setStep] = useState<'upload' | 'preview' | 'login' | 'done'>('upload')
   const [page, setPage] = useState(1)
@@ -25,19 +27,27 @@ export default function ImportPage() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   const handleUpload = async (file: File) => {
-    setUploading(true); setResult(null)
-    const fd = new FormData(); fd.append('file', file)
-    try {
-      const token = localStorage.getItem('auth_token')
-      const res = await fetch(`/api/monitor-products/${mpId}/import`, {
-        method: 'POST', headers: { Authorization: `Bearer ${token}` }, body: fd,
-      })
-      const json = await res.json()
-      if (!res.ok) throw new Error(json.detail || '解析失败')
-      const d = json.data as PreviewData
-      setPreview(d); setSelectedIds(new Set(d.preview_data.map(p => p.product_id)))
-      setStep('preview'); setPage(1)
-    } catch (err: any) { alert(err.message) } finally { setUploading(false) }
+    setUploading(true); setResult(null); setUploadProgress(0)
+    const token = localStorage.getItem('auth_token')
+    // Use XMLHttpRequest for upload progress
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `/api/monitor-products/${mpId}/import`)
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100)) }
+      xhr.onload = () => {
+        try {
+          const json = JSON.parse(xhr.responseText)
+          if (xhr.status >= 400) throw new Error(json.detail || '解析失败')
+          const d = json.data as PreviewData
+          setPreview(d); setSelectedIds(new Set(d.preview_data.map((p: any) => p.product_id)))
+          setStep('preview'); setPage(1); resolve()
+        } catch (e: any) { reject(e) }
+      }
+      xhr.onerror = () => reject(new Error('网络错误'))
+      const fd = new FormData(); fd.append('file', file)
+      xhr.send(fd)
+    }).catch((err: any) => { alert(err.message) }).finally(() => setUploading(false))
   }
 
   const toggleAll = () => {
@@ -52,7 +62,7 @@ export default function ImportPage() {
 
   const confirmImport = async () => {
     if (!preview || selectedIds.size === 0) return
-    setConfirming(true)
+    setConfirming(true); setImportProgress({ status: '提交中...', processed: 0, total: selectedIds.size })
     try {
       const token = localStorage.getItem('auth_token')
       const res = await fetch(`/api/monitor-products/${mpId}/import/confirm`, {
@@ -62,6 +72,26 @@ export default function ImportPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.detail || '导入失败')
+
+      // Poll task progress every 500ms until complete
+      const taskId = json.data?.task_id
+      if (taskId) {
+        setImportProgress({ status: '导入中...', processed: 0, total: selectedIds.size })
+        for (let i = 0; i < 120; i++) {
+          await new Promise(r => setTimeout(r, 500))
+          try {
+            const tr = await fetch(`/api/monitor-products/import/tasks/${taskId}`, { headers: { Authorization: `Bearer ${token}` } })
+            if (tr.ok) {
+              const td = await tr.json()
+              const t = td.data
+              setImportProgress({ status: t.status === 'processing' ? '导入中...' : t.status, processed: t.processed || 0, total: t.total || selectedIds.size })
+              if (t.status === 'completed' || t.status === 'failed') break
+            }
+          } catch { /* continue polling */ }
+        }
+      }
+
+      setImportProgress({ status: 'completed', processed: selectedIds.size, total: selectedIds.size })
       setResult(`导入完成！成功 ${json.data.import_result.success_count} 条（其中新增 ${json.data.import_result.new_count} 条），预警 ${json.data.alert_result.sent} 条`)
       setStep('done')
     } catch (err: any) { alert(err.message) } finally { setConfirming(false) }
@@ -95,7 +125,14 @@ export default function ImportPage() {
           <input type="file" accept=".xlsx,.xls" disabled={uploading}
             onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f) }}
             style={{ display: 'block', marginBottom: 12 }} />
-          {uploading && <p style={{ color: '#1677ff' }}>正在解析文件...</p>}
+          {uploading && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ background: '#e5e7eb', borderRadius: 8, height: 10, overflow: 'hidden', marginBottom: 4 }}>
+                <div style={{ background: '#1677ff', height: '100%', width: `${uploadProgress}%`, transition: 'width 0.3s' }} />
+              </div>
+              <p style={{ color: '#1677ff', fontSize: 13 }}>上传中... {uploadProgress}%（上传完成后自动解析）</p>
+            </div>
+          )}
         </div>
       )}
 
@@ -113,6 +150,14 @@ export default function ImportPage() {
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               <button onClick={() => { setPreview(null); setStep('upload') }} style={btnSecondary}>重新选择</button>
+              {confirming && importProgress.total > 0 && (
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ background: '#e5e7eb', borderRadius: 8, height: 10, overflow: 'hidden', marginBottom: 4 }}>
+                    <div style={{ background: '#1677ff', height: '100%', width: `${Math.round((importProgress.processed / importProgress.total) * 100)}%`, transition: 'width 0.3s' }} />
+                  </div>
+                  <p style={{ color: '#666', fontSize: 12 }}>导入中... {importProgress.processed}/{importProgress.total}</p>
+                </div>
+              )}
               <button onClick={confirmImport} disabled={confirming || selectedIds.size === 0} style={btnPrimary}>
                 {confirming ? '导入中...' : `确认导入 (${selectedIds.size}条)`}
               </button>

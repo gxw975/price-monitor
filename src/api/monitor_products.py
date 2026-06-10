@@ -18,8 +18,14 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from services.auth_service import get_current_user
+from threading import Lock
+import time
 
 load_dotenv()
+
+# ── 导入任务状态存储（内存）──
+_import_tasks: dict[str, dict[str, Any]] = {}
+_import_tasks_lock = Lock()
 logger = logging.getLogger("api.monitor_products")
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
@@ -505,8 +511,16 @@ async def import_excel_preview(
 
 
 def _do_import(product_id: int, file_name: str, selected_ids: list[str],
-               products_data: list[dict], user_id: int) -> dict:
+               products_data: list[dict], user_id: int, task_id: str = "") -> dict:
     """共用导入入库逻辑，供单文件和批量导入调用。"""
+    def _update_task(status, processed, total):
+        if not task_id: return
+        with _import_tasks_lock:
+            if task_id in _import_tasks:
+                _import_tasks[task_id].update({"status": status, "processed": processed,
+                                               "total": total, "updated_at": time.time()})
+
+    _update_task("processing", 0, len(selected_ids))
     conn = _get_conn()
     try:
         with conn.cursor() as cur:
@@ -523,7 +537,9 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
         from services.product_service import _get_conn as svc_conn_fn
         svc = svc_conn_fn()
         try:
-            for pid in selected_ids:
+            for idx, pid in enumerate(selected_ids):
+                if idx % 5 == 0:  # 每5条更新进度
+                    _update_task("processing", idx + 1, len(selected_ids))
                 try:
                     pdata = products_map.get(pid, {})
                     title = (pdata.get('title') or pdata.get('商品名称') or pid)[:200]
@@ -588,10 +604,28 @@ def confirm_import(
     data: ConfirmImportRequest,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """阶段B — 确认导入"""
+    """阶段B — 确认导入（返回task_id供前端轮询进度）"""
     if not data.selected_product_ids:
         raise HTTPException(status_code=400, detail="未选择任何商品")
+    task_id = f"import_{uuid.uuid4().hex[:12]}"
+    with _import_tasks_lock:
+        _import_tasks[task_id] = {"status": "pending", "processed": 0, "total": len(data.selected_product_ids),
+                                  "file_name": data.file_name, "created_at": time.time(), "updated_at": time.time()}
     try:
+        result = _do_import(product_id, data.file_name, data.selected_product_ids,
+                           data.products_data, current_user.get("user_id", 0), task_id=task_id)
+        from scripts.check_alerts import run_alerts
+        ar = run_alerts(test_mode=False, force=False)
+        with _import_tasks_lock:
+            _import_tasks[task_id] = {"status": "completed", "processed": result["inserted"], "total": len(data.selected_product_ids),
+                                      "result": result, "updated_at": time.time()}
+        return {"code": 200, "msg": "导入成功", "data": {
+            "task_id": task_id, "batch_id": result["batch_id"],
+            "import_result": {"success_count": result["inserted"], "new_count": result["new_count"],
+                              "fail_count": len(data.selected_product_ids) - result["inserted"],
+                              "total": len(data.selected_product_ids)},
+            "alert_result": {"checked": ar.get("checked", 0), "sent": ar.get("sent", 0)},
+        }}
         result = _do_import(product_id, data.file_name, data.selected_product_ids,
                            data.products_data, current_user.get("user_id", 0))
         from scripts.check_alerts import run_alerts
@@ -603,10 +637,27 @@ def confirm_import(
                               "total": len(data.selected_product_ids)},
             "alert_result": {"checked": ar.get("checked", 0), "sent": ar.get("sent", 0)},
         }}
-    except HTTPException: raise
+    except HTTPException:
+        with _import_tasks_lock:
+            if task_id in _import_tasks:
+                _import_tasks[task_id] = {"status": "failed", "error": "权限不足", "updated_at": time.time()}
+        raise
     except Exception as e:
         logger.exception("确认导入失败")
+        with _import_tasks_lock:
+            if task_id in _import_tasks:
+                _import_tasks[task_id] = {"status": "failed", "error": str(e), "updated_at": time.time()}
         raise HTTPException(status_code=500, detail=f"导入失败：{e}")
+
+
+@router.get("/import/tasks/{task_id}")
+def get_import_task(task_id: str) -> dict[str, Any]:
+    """查询导入任务状态和进度"""
+    with _import_tasks_lock:
+        task = _import_tasks.get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在或已过期")
+    return {"code": 200, "data": dict(task)}
 
 
 @router.post("/batch-import", dependencies=[Depends(require_write_permission)])
