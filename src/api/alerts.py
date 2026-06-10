@@ -15,7 +15,9 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
+
+from services.auth_service import get_current_user
 
 load_dotenv()
 logger = logging.getLogger("api.alerts")
@@ -54,7 +56,21 @@ def _alert_to_dict(row: dict[str, Any]) -> dict[str, Any]:
         "is_sent": row["is_sent"],
         "sent_at": row["sent_at"].isoformat() if row.get("sent_at") else None,
         "is_read": row["is_read"],
+        "is_handled": row.get("is_handled", False),
+        "alert_value": row.get("alert_value"),
+        "threshold": row.get("threshold"),
+        "monitor_product_id": row.get("monitor_product_id"),
         "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+        "handled_at": row["handled_at"].isoformat() if row.get("handled_at") else None,
+        "product_title": row.get("product_title"),
+        "price": row.get("price"),
+        "sales_volume": row.get("sales_volume"),
+        "platform": row.get("platform"),
+        "seller_name": row.get("seller_name"),
+        "shop_name": row.get("shop_name"),
+        "product_url": row.get("product_url"),
+        "location": row.get("location"),
+        "main_image_url": row.get("main_image_url"),
     }
 
 
@@ -66,6 +82,8 @@ def list_alerts(
     is_read: bool | None = Query(None),
     status: str | None = Query(None),
     keyword: str | None = Query(None),
+    monitor_product_id: int | None = Query(None),
+    is_handled: bool | None = Query(None),
 ) -> dict[str, Any]:
     conn = _get_conn()
     try:
@@ -82,6 +100,12 @@ def list_alerts(
             if status:
                 conditions.append("a.status = %s")
                 params.append(status)
+            if monitor_product_id:
+                conditions.append("a.monitor_product_id = %s")
+                params.append(monitor_product_id)
+            if is_handled is not None:
+                conditions.append("a.is_handled = %s")
+                params.append(is_handled)
             if keyword:
                 conditions.append("(a.message ILIKE %s OR a.product_id ILIKE %s OR p.title ILIKE %s)")
                 params.extend([f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"])
@@ -96,7 +120,9 @@ def list_alerts(
 
             offset = (page - 1) * page_size
             data_sql = (
-                'SELECT a.*, COALESCE(p.title, a.product_id) AS product_title '
+                'SELECT a.*, COALESCE(p.title, a.product_id) AS product_title, '
+                'p.price, p.sales_volume, p.platform, p.seller_name, p.shop_name, '
+                'p.product_url, p.location, p.main_image_url '
                 'FROM "Alert" a '
                 'LEFT JOIN "Product" p ON a.product_id = p.product_id '
                 f"{where} "
@@ -297,5 +323,35 @@ def export_alerts(
     except Exception:
         logger.exception("导出预警失败")
         raise HTTPException(status_code=500, detail="导出失败")
+    finally:
+        conn.close()
+
+
+@router.post("/batch-handle")
+def batch_handle_alerts(
+    ids: list[int],
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """批量标记预警为已处理。权限：admin/manager"""
+    role = current_user["role"]
+    if role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="权限不足")
+    if not ids:
+        raise HTTPException(status_code=400, detail="未选择任何预警")
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'UPDATE "Alert" SET is_handled = TRUE, handled_at = NOW() WHERE id = ANY(%s)',
+                (ids,),
+            )
+            affected = cur.rowcount
+            conn.commit()
+        logger.info("批量标记预警已处理: ids=%s affected=%d by %s", ids, affected, current_user["username"])
+        return {"success": True, "affected": affected}
+    except Exception:
+        logger.exception("批量标记预警失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="操作失败")
     finally:
         conn.close()

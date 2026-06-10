@@ -17,15 +17,16 @@ interface HealthResult {
   items: HealthItem[]
 }
 
-type LogFile = 'crawl' | 'alert' | 'backend' | 'frontend'
+type LogFile = 'alert' | 'backend' | 'frontend'
 
 export default function DiagnosticsPage() {
   const { user } = useAuth()
-  const canWrite = user?.role === 'admin' || user?.role === 'manager'
+  if (user?.role !== 'admin') return <div style={{padding:24,textAlign:'center',color:'#999'}}>仅管理员可访问</div>
+  const canWrite = true
 
   const [health, setHealth] = useState<HealthResult | null>(null)
   const [loading, setLoading] = useState(true)
-  const [logFile, setLogFile] = useState<LogFile>('crawl')
+  const [logFile, setLogFile] = useState<LogFile>('alert')
   const [logLines, setLogLines] = useState<string[]>([])
   const [logInfo, setLogInfo] = useState({ total_lines: 0, showing: 0 })
   const [logLoading, setLogLoading] = useState(false)
@@ -104,7 +105,6 @@ export default function DiagnosticsPage() {
   }
 
   const logFiles: { key: LogFile; label: string }[] = [
-    { key: 'crawl', label: '抓取日志' },
     { key: 'alert', label: '预警日志' },
     { key: 'backend', label: '后端日志' },
     { key: 'frontend', label: '前端日志' },
@@ -257,6 +257,19 @@ export default function DiagnosticsPage() {
                 className="ml-3 text-blue-600 hover:text-blue-800"
               >
                 刷新
+              </button>
+              <button
+                onClick={() => {
+                  const text = logLines.join('\n')
+                  navigator.clipboard.writeText(text).then(() => {
+                    setMsg({ type: 'success', text: '日志已复制到剪贴板' })
+                  }).catch(() => {
+                    setMsg({ type: 'error', text: '复制失败，请手动选择复制' })
+                  })
+                }}
+                className="ml-3 text-gray-500 hover:text-gray-700"
+              >
+                复制
               </button>
             </div>
             <div className="max-h-[500px] overflow-y-auto p-4 bg-gray-900 text-green-400 font-mono text-xs leading-relaxed" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>

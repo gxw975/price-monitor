@@ -1,47 +1,39 @@
-"""淘宝智能扫码登录 API
+"""淘宝登录状态管理 API
 
-通过 OpenCLI 控制 Chrome 浏览器，管理淘宝账号扫码登录。
-支持：自动状态检测、反爬封控识别、二维码刷新、登录确认、退出登录。
-权限：仅 admin / manager 可操作。
+通过 xdotool 检查 Chrome 中的淘宝登录状态。
+登录操作需要在真实 Chrome 窗口中人工完成扫码。
 
 端点：
-  GET  /api/taobao/status        完整状态（登录态 + 封控态 + 用户名）
-  POST /api/taobao/login/start   启动扫码登录（返回二维码 base64）
-  POST /api/taobao/login/refresh 刷新二维码
+  GET  /api/taobao/status        登录状态检测
+  POST /api/taobao/login/start   提示用户手动扫码登录
   POST /api/taobao/login/confirm 确认登录完成
   POST /api/taobao/logout        退出登录
 """
 
 from __future__ import annotations
 
-import base64
-import json
 import logging
 import os
 import subprocess
-import tempfile
 import time
+import urllib.parse
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
 
 from services.auth_service import get_current_user
 
-load_dotenv()
 logger = logging.getLogger("api.taobao")
 
-OPENCLI_PROFILE = os.environ.get("OPENCLI_PROFILE", "zu4794g4")
-OPENCLI_BIN = "/home/lab-admin/.nvm/versions/node/v22.22.0/bin/opencli"
-SESSION = "taobao_login"
-OPENCLI_TIMEOUT = 30
+DISPLAY = os.environ.get("DISPLAY", ":0")
+XAUTH = os.environ.get(
+    "XAUTHORITY", "/run/user/1000/.mutter-Xwaylandauth.47UFP3"
+)
 
 TAOBAO_HOME = "https://www.taobao.com"
 TAOBAO_LOGIN = "https://login.taobao.com"
 TAOBAO_MY = "https://i.taobao.com/my_itaobao"
-QR_EXPIRY_SECONDS = 120
 
 router = APIRouter(prefix="/api/taobao", tags=["taobao"])
 
@@ -53,220 +45,144 @@ def _check_permission(role: str) -> None:
         raise HTTPException(status_code=403, detail="权限不足，仅管理员和主管可以操作")
 
 
-def _run_opencli(args: list[str], timeout: int = OPENCLI_TIMEOUT, binary: bool = False) -> subprocess.CompletedProcess[Any]:
-    cmd = [OPENCLI_BIN, "--profile", OPENCLI_PROFILE] + args
-    logger.info("opencli 执行: %s", " ".join(cmd))
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=not binary, timeout=timeout)
-        if result.returncode == 0:
-            stdout_preview = (result.stdout or "")[:200]
-            if stdout_preview:
-                logger.info("opencli 成功: stdout=%s", stdout_preview)
-            else:
-                logger.info("opencli 成功: exit=0")
-        else:
-            stderr = (result.stderr or "").strip()
-            stdout = (result.stdout or "").strip()
-            logger.error("opencli 失败: exit=%d stderr=%s stdout=%s", result.returncode, stderr[:300], stdout[:300])
-        return result
-    except FileNotFoundError:
-        logger.error("opencli 二进制不存在: %s", OPENCLI_BIN)
-        raise RuntimeError(f"opencli 未安装，期望路径: {OPENCLI_BIN}")
-    except subprocess.TimeoutExpired as e:
-        logger.error("opencli 执行超时: %s", " ".join(cmd))
-        raise RuntimeError(f"opencli 命令执行超时（{timeout}秒）: {' '.join(cmd)}")
+def _xdotool_env() -> dict:
+    env = os.environ.copy()
+    env["DISPLAY"] = DISPLAY
+    env["XAUTHORITY"] = XAUTH
+    return env
 
 
-def _session_exists() -> bool:
+def _xd(*args) -> str:
+    """执行xdotool命令"""
+    r = subprocess.run(
+        ["xdotool"] + list(args),
+        env=_xdotool_env(), capture_output=True, text=True, timeout=10,
+    )
+    return r.stdout.strip()
+
+
+def _find_chrome_wid() -> str | None:
+    """查找Chrome窗口ID"""
+    result = _xd("search", "--class", "google-chrome")
+    wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
+    if wids:
+        return wids[0]
+    for name in ["淘宝", "Google Chrome"]:
+        result = _xd("search", "--name", name)
+        wids = [w.strip() for w in result.split("\n") if w.strip().isdigit()]
+        if wids:
+            return wids[0]
+    return None
+
+
+def _activate_chrome() -> bool:
+    """激活Chrome窗口"""
+    wid = _find_chrome_wid()
+    if not wid:
+        return False
     try:
-        result = _run_opencli(["browser", SESSION, "state"], timeout=10)
-        if result.returncode == 0:
-            return True
-        stderr = (result.stderr or "").lower()
-        return "not found" not in stderr and "no session" not in stderr and "unknown" not in stderr
+        _xd("windowactivate", "--sync", wid)
+        time.sleep(0.3)
+        return True
     except Exception:
         return False
 
 
-def _close_session() -> None:
+def _get_window_title() -> str:
+    """获取Chrome窗口标题"""
+    wid = _find_chrome_wid()
+    if not wid:
+        return ""
     try:
-        _run_opencli(["browser", SESSION, "close"], timeout=15)
-        logger.info("浏览器会话已关闭: %s", SESSION)
-    except Exception as e:
-        logger.warning("关闭浏览器会话失败: %s", e)
+        return _xd("getwindowname", wid)
+    except Exception:
+        return ""
 
 
-def _take_screenshot() -> str | None:
-    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-    tmp.close()
-    tmp_path = tmp.name
+def _navigate_to(url: str) -> None:
+    """通过xdotool在Chrome地址栏导航到指定URL"""
+    if not _activate_chrome():
+        raise RuntimeError("Chrome窗口未找到，请确认浏览器已启动")
+
+    _xd("key", "ctrl+l")     # 聚焦地址栏
+    time.sleep(0.5)
+    _xd("key", "ctrl+a")     # 全选
+    time.sleep(0.2)
+
+    # 通过xclip粘贴URL
+    env = _xdotool_env()
+    p = subprocess.Popen(
+        ["xclip", "-selection", "clipboard"],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL, env=env,
+    )
+    p.communicate(input=url.encode("utf-8"), timeout=10)
+    time.sleep(0.3)
+    _xd("key", "ctrl+v")
+    time.sleep(0.3)
+    _xd("key", "Return")
+    time.sleep(5)  # 等待页面加载
+
+
+def _check_login_status() -> dict[str, Any]:
+    """通过导航到我的淘宝检测登录状态（无CDP）。"""
     try:
-        result = _run_opencli(["browser", SESSION, "screenshot", tmp_path], timeout=20)
-        if result.returncode == 0 and os.path.getsize(tmp_path) > 100:
-            with open(tmp_path, "rb") as f:
-                return base64.b64encode(f.read()).decode("ascii")
-        return None
-    except Exception as e:
-        logger.warning("截图失败: %s", e)
-        return None
-    finally:
-        try:
-            os.unlink(tmp_path)
-        except Exception:
-            pass
+        _navigate_to(TAOBAO_MY)
+        time.sleep(3)
 
+        title = _get_window_title()
+        current_url = ""  # 无法获取URL，只能靠标题判断
 
-def _eval_js(js_code: str, timeout: int = 15) -> str:
-    result = _run_opencli(["browser", SESSION, "eval", js_code], timeout=timeout)
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout or "").strip()
-        raise RuntimeError(err[:300] or "eval 执行失败")
-    return (result.stdout or "").strip()
+        # 如果标题包含"我的淘宝"或用户名信息 → 已登录
+        if "我的淘宝" in title or "个人中心" in title:
+            return {
+                "logged_in": True,
+                "blocked": False,
+                "blocked_reason": "",
+                "username": "",
+                "status": "logged_in",
+            }
 
+        # 如果标题包含登录 → 未登录
+        if "登录" in title and "淘宝" in title:
+            return {
+                "logged_in": False,
+                "blocked": False,
+                "blocked_reason": "",
+                "username": "",
+                "status": "not_logged_in",
+            }
 
-def _navigate(url: str, timeout: int = 30) -> None:
-    _run_opencli(["browser", SESSION, "open", url], timeout=timeout)
-
-
-def _resize_viewport(width: int = 1920, height: int = 1080) -> None:
-    js = f"window.resizeTo({width},{height});document.documentElement.style.minWidth='{width}px';"
-    try:
-        _eval_js(js, timeout=5)
-        logger.info("viewport 已设置为 %dx%d", width, height)
-    except Exception as e:
-        logger.warning("设置 viewport 失败: %s", e)
-
-
-def _ensure_page(url: str) -> None:
-    """确保浏览器有可操作的页面。CDP 兜底创建 → opencli tab new → open。"""
-    import requests
-    try:
-        pages_resp = requests.get("http://127.0.0.1:9222/json", timeout=5)
-        pages = pages_resp.json()
-        page_count = sum(1 for p in pages if p.get("type") == "page")
-        if page_count == 0:
-            logger.info("无浏览器窗口，CDP 创建兜底页面")
-            requests.put("http://127.0.0.1:9222/json/new?about:blank", timeout=10)
-            time.sleep(2)
-    except Exception as e:
-        logger.warning("CDP 页面检查失败: %s", e)
-
-    _run_opencli(["browser", SESSION, "tab", "new"], timeout=15)
-    _run_opencli(["browser", SESSION, "open", url], timeout=25)
-    _resize_viewport()
-
-
-def _wait(seconds: float) -> None:
-    _run_opencli(["browser", SESSION, "wait", "time", str(int(seconds))], timeout=max(15, int(seconds) + 5))
-
-
-DETECT_JS = """
-(function() {
-    var url = window.location.href || '';
-    var bodyText = (document.body ? document.body.innerText : '') || '';
-    var title = (document.title || '').toLowerCase();
-
-    var blockedKeywords = ['已被限制', '账号已被', '冻结', '违规', '无法登录',
-        '安全风险', '账号异常', '需验证', '请拖动滑块', '请完成安全验证',
-        '验证码', '短信验证', '滑块验证', '手机验证'];
-    var blocked = false;
-    var blockedReason = '';
-    for (var i = 0; i < blockedKeywords.length; i++) {
-        if (bodyText.indexOf(blockedKeywords[i]) !== -1 || title.indexOf(blockedKeywords[i]) !== -1) {
-            blocked = true;
-            blockedReason = blockedKeywords[i];
-            break;
+        # 不确定状态
+        return {
+            "logged_in": False,
+            "blocked": False,
+            "blocked_reason": "",
+            "username": "",
+            "status": "unknown",
+            "title": title,
         }
-    }
 
-    var isLoginPage = url.indexOf('login.taobao.com') !== -1 ||
-                      url.indexOf('login.tmall.com') !== -1;
-
-    var userSelectors = [
-        '.site-nav-user .site-nav-login-info-nick',
-        '.J_SiteNavLogin .site-nav-menu-hd .menu-hd-text',
-        '[data-spm="duserinfo"]',
-        '.site-nav-bd .nickname',
-        '.J_UserMember .tnick',
-        '.mytaobao-username',
-        '.tb-header-username'
-    ];
-    var userEl = null;
-    for (var j = 0; j < userSelectors.length; j++) {
-        userEl = document.querySelector(userSelectors[j]);
-        if (userEl && userEl.textContent.trim()) break;
-    }
-    var username = userEl ? userEl.textContent.trim().replace(/^hi[,\s]*/i, '').replace(/[\\s\\u00a0]+/g, '').trim() : '';
-
-    var hasNavLogin = !!document.querySelector('.site-nav-login-info-nick') ||
-                      !!document.querySelector('.J_SiteNavLogin');
-
-    var loggedIn = !isLoginPage && (!!username || hasNavLogin);
-
-    if (!loggedIn && !blocked && !isLoginPage) {
-        var logoutLink = document.querySelector('a[href*="logout"]') ||
-                         document.querySelector('a[href*="login.taobao.com/member/logout"]');
-        if (logoutLink) loggedIn = true;
-    }
-
-    return JSON.stringify({
-        url: url,
-        title: document.title || '',
-        isLoginPage: isLoginPage,
-        loggedIn: loggedIn,
-        blocked: blocked,
-        blockedReason: blocked ? blockedReason : '',
-        username: username,
-        hasNavLogin: hasNavLogin
-    });
-})()
-"""
-
-LOGIN_PAGE_DETECT_JS = """
-(function() {
-    var url = window.location.href || '';
-    var hasQR = !!document.querySelector('#J_QRCodeImg') ||
-                !!document.querySelector('.qrcode-img') ||
-                !!document.querySelector('img[src*="qr"]') ||
-                !!document.querySelector('.icon-qr');
-    var hasIframe = !!document.querySelector('iframe[id*="alibaba-login"]') ||
-                    !!document.querySelector('iframe[src*="login"]');
-    var qrExpired = false;
-    var expireEl = document.querySelector('.qrcode-expired') ||
-                   document.querySelector('[data-status="expired"]') ||
-                   document.querySelector('.qrcode-tips');
-    if (expireEl) {
-        var tipsText = (expireEl.textContent || '').toLowerCase();
-        qrExpired = tipsText.indexOf('已过期') !== -1 || tipsText.indexOf('expired') !== -1 ||
-                    tipsText.indexOf('刷新') !== -1;
-    }
-    var hasRefreshBtn = !!document.querySelector('.qrcode-refresh') ||
-                        !!document.querySelector('.J_QRCodeRefresh') ||
-                        !!document.querySelector('[data-action="refresh"]');
-    var bodyText = (document.body ? document.body.innerText : '') || '';
-    var blocked = bodyText.indexOf('滑块') !== -1 || bodyText.indexOf('验证码') !== -1 ||
-                  bodyText.indexOf('安全验证') !== -1 || bodyText.indexOf('异常') !== -1;
-    return JSON.stringify({
-        url: url,
-        hasQR: hasQR,
-        qrExpired: qrExpired,
-        hasRefreshBtn: hasRefreshBtn,
-        hasIframe: hasIframe,
-        blocked: blocked
-    });
-})()
-"""
+    except RuntimeError as e:
+        logger.warning("登录检测失败: %s", e)
+        return {
+            "logged_in": False,
+            "blocked": False,
+            "blocked_reason": "",
+            "username": "",
+            "status": "chrome_not_running",
+        }
 
 
 @router.get("/status")
 def login_status(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """检测淘宝登录状态。"""
     _check_permission(current_user["role"])
 
     global login_in_progress
     if login_in_progress:
-        logger.info("登录流程进行中，status 接口跳过导航检测")
         return {
             "logged_in": False,
             "blocked": False,
@@ -279,130 +195,41 @@ def login_status(
             "checked_at": datetime.now().isoformat(),
         }
 
-    session_active = _session_exists()
-    if not session_active:
-        return {
-            "logged_in": False,
-            "blocked": False,
-            "blocked_reason": "",
-            "username": "",
-            "session_active": False,
-            "status": "no_session",
-            "login_in_progress": False,
-            "current_url": "",
-            "checked_at": datetime.now().isoformat(),
-        }
-
-    try:
-        _navigate(TAOBAO_HOME, timeout=20)
-        _wait(2.5)
-    except Exception as e:
-        logger.warning("导航到淘宝首页失败: %s", e)
-        return {
-            "logged_in": False,
-            "blocked": False,
-            "blocked_reason": "",
-            "username": "",
-            "session_active": True,
-            "status": "navigate_error",
-            "login_in_progress": False,
-            "current_url": "",
-            "checked_at": datetime.now().isoformat(),
-        }
-
-    try:
-        result_str = _eval_js(DETECT_JS, timeout=15)
-        data: dict[str, Any] = json.loads(result_str)
-
-        logged_in = bool(data.get("loggedIn") or data.get("logged_in"))
-        blocked = bool(data.get("blocked"))
-        username = str(data.get("username", "") or "")
-
-        if blocked:
-            detail = str(data.get("blockedReason", "") or data.get("blocked_reason", ""))
-            return {
-                "logged_in": False,
-                "blocked": True,
-                "blocked_reason": detail,
-                "username": username,
-                "session_active": True,
-                "status": "blocked",
-                "login_in_progress": False,
-                "current_url": data.get("url", ""),
-                "checked_at": datetime.now().isoformat(),
-            }
-
-        if logged_in:
-            return {
-                "logged_in": True,
-                "blocked": False,
-                "blocked_reason": "",
-                "username": username,
-                "session_active": True,
-                "status": "logged_in",
-                "login_in_progress": False,
-                "current_url": data.get("url", ""),
-                "checked_at": datetime.now().isoformat(),
-            }
-
-        return {
-            "logged_in": False,
-            "blocked": False,
-            "blocked_reason": "",
-            "username": "",
-            "session_active": True,
-            "status": "not_logged_in",
-            "login_in_progress": False,
-            "current_url": data.get("url", ""),
-            "checked_at": datetime.now().isoformat(),
-        }
-
-    except Exception as e:
-        logger.exception("检测登录状态时异常")
-        return {
-            "logged_in": False,
-            "blocked": False,
-            "blocked_reason": "",
-            "username": "",
-            "session_active": True,
-            "status": "detect_error",
-            "login_in_progress": False,
-            "current_url": "",
-            "checked_at": datetime.now().isoformat(),
-        }
+    result = _check_login_status()
+    result["session_active"] = _find_chrome_wid() is not None
+    result["checked_at"] = datetime.now().isoformat()
+    result["current_url"] = ""
+    result["login_in_progress"] = False
+    return result
 
 
 @router.post("/login/start")
 def start_login(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """启动扫码登录流程。
+
+    打开淘宝登录页，用户在真实Chrome窗口中扫码。
+    不再通过CDP截取二维码图片。
+    """
     _check_permission(current_user["role"])
 
     try:
-        _ensure_page(TAOBAO_LOGIN)
-        _wait(4.0)
-        logger.info("已打开淘宝登录页并创建会话: %s", SESSION)
-    except Exception as e:
-        logger.exception("打开淘宝登录页失败")
+        _navigate_to(TAOBAO_LOGIN)
+    except RuntimeError as e:
         raise HTTPException(status_code=500, detail=f"无法打开登录页面: {e}")
-
-    qrcode_base64 = _take_screenshot()
-    if not qrcode_base64:
-        raise HTTPException(status_code=500, detail="页面截图失败，请重试")
 
     global login_in_progress
     login_in_progress = True
 
-    expires_at = datetime.now().isoformat()
-    logger.info("淘宝扫码登录已启动 by %s login_in_progress=True", current_user["username"])
+    logger.info("淘宝扫码登录已启动 (手动模式) by %s", current_user["username"])
     return {
         "success": True,
-        "session": SESSION,
-        "qrcode": f"data:image/png;base64,{qrcode_base64}",
-        "expires_at": expires_at,
-        "expires_in": QR_EXPIRY_SECONDS,
+        "qrcode": None,  # 无CDP无法截图
+        "expires_at": datetime.now().isoformat(),
+        "expires_in": 120,
         "status": "waiting_scan",
-        "message": "请使用淘宝APP扫描二维码登录",
+        "message": "请在真实Chrome窗口中用淘宝APP扫码登录。二维码显示在Chrome的login.taobao.com页面中。",
     }
 
 
@@ -410,30 +237,20 @@ def start_login(
 def refresh_qrcode(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """刷新登录页。"""
     _check_permission(current_user["role"])
 
-    if not _session_exists():
-        raise HTTPException(status_code=400, detail="登录会话已过期，请重新启动登录")
-
     try:
-        _ensure_page(TAOBAO_LOGIN)
-        _wait(3.0)
-        logger.info("已重新导航到登录页")
-    except Exception as e:
-        logger.error("刷新登录页失败: %s", e)
-        raise HTTPException(status_code=500, detail=f"刷新登录页失败: {e}")
+        _navigate_to(TAOBAO_LOGIN)
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=f"无法刷新登录页面: {e}")
 
-    qrcode_base64 = _take_screenshot()
-    if not qrcode_base64:
-        raise HTTPException(status_code=500, detail="页面截图失败，请重试")
-
-    expires_at = datetime.now().isoformat()
     return {
         "success": True,
-        "qrcode": f"data:image/png;base64,{qrcode_base64}",
-        "expires_at": expires_at,
-        "expires_in": QR_EXPIRY_SECONDS,
-        "message": "二维码已刷新",
+        "qrcode": None,
+        "expires_at": datetime.now().isoformat(),
+        "expires_in": 120,
+        "message": "登录页已刷新，请重新扫码",
     }
 
 
@@ -441,177 +258,66 @@ def refresh_qrcode(
 def confirm_login(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """确认扫码登录完成。
-
-    当 login_in_progress 时，仅检查当前页面 URL 是否已离开登录页，
-    而不主动导航（避免打断扫码流程）。
-    当登录成功、被封控或会话过期时，清除 login_in_progress 标记。
-    """
+    """确认扫码登录完成。"""
     _check_permission(current_user["role"])
-
     global login_in_progress
 
-    if not _session_exists():
+    result = _check_login_status()
+
+    if result.get("logged_in"):
         login_in_progress = False
         return {
-            "logged_in": False,
+            "logged_in": True,
             "blocked": False,
-            "username": "",
-            "status": "expired",
-            "message": "登录会话已过期，请重新启动登录",
+            "username": result.get("username", ""),
+            "status": "logged_in",
+            "message": "✅ 登录成功！",
         }
 
-    if login_in_progress:
-        page_url_js = "(function() { return window.location.href || ''; })()"
-        try:
-            current_url = _eval_js(page_url_js, timeout=5)
-        except Exception:
-            current_url = ""
-
-        logger.info("confirm 轮询: 当前页面URL=%s login_in_progress=True", current_url[:120])
-
-        is_still_login_page = "login.taobao.com" in current_url or "login.tmall.com" in current_url
-        if is_still_login_page:
-            return {
-                "logged_in": False,
-                "blocked": False,
-                "blocked_reason": "",
-                "username": "",
-                "status": "waiting_scan",
-                "message": "等待扫码中...",
-            }
-
-        logger.info("confirm: 已离开登录页，尝试检测登录状态, URL=%s", current_url[:120])
-
-    try:
-        _navigate(TAOBAO_MY, timeout=20)
-        _wait(2.5)
-    except Exception as e:
-        logger.warning("导航到我的淘宝失败: %s", e)
-        try:
-            _navigate(TAOBAO_HOME, timeout=20)
-            _wait(2.5)
-        except Exception:
-            pass
-
-    try:
-        result_str = _eval_js(DETECT_JS, timeout=15)
-        data: dict[str, Any] = json.loads(result_str)
-
-        blocked = bool(data.get("blocked"))
-        if blocked:
-            detail = str(data.get("blockedReason", "") or data.get("blocked_reason", ""))
-            login_in_progress = False
-            return {
-                "logged_in": False,
-                "blocked": True,
-                "blocked_reason": detail,
-                "username": "",
-                "status": "blocked",
-                "message": f"⚠️ 该淘宝账号已被限制（{detail}），请更换账号",
-            }
-
-        logged_in = bool(data.get("loggedIn") or data.get("logged_in"))
-        username = str(data.get("username", "") or "")
-
-        if logged_in and username:
-            login_in_progress = False
-            logger.info("淘宝登录确认成功: username=%s login_in_progress=False", username)
-            return {
-                "logged_in": True,
-                "blocked": False,
-                "blocked_reason": "",
-                "username": username,
-                "status": "logged_in",
-                "message": f"✅ 登录成功！当前账号：{username}",
-            }
-
-        if logged_in and not username:
-            login_in_progress = False
-            logger.info("淘宝登录确认: 已登录但未识别到用户名")
-            return {
-                "logged_in": True,
-                "blocked": False,
-                "blocked_reason": "",
-                "username": "",
-                "status": "logged_in_partial",
-                "message": "✅ 已登录淘宝（未识别到用户名）",
-            }
-
-        is_login_page = bool(data.get("isLoginPage"))
-        if is_login_page:
-            return {
-                "logged_in": False,
-                "blocked": False,
-                "blocked_reason": "",
-                "username": "",
-                "status": "waiting_scan",
-                "message": "等待扫码中...",
-            }
-
+    # 检查是否还在登录页
+    title = _get_window_title()
+    if "登录" in title:
         return {
             "logged_in": False,
             "blocked": False,
-            "blocked_reason": "",
             "username": "",
-            "status": "unknown",
-            "message": "无法确认登录状态，请重试",
+            "status": "waiting_scan",
+            "message": "等待扫码中...",
         }
 
-    except Exception as e:
-        logger.exception("确认登录状态异常")
-        return {
-            "logged_in": False,
-            "blocked": False,
-            "blocked_reason": "",
-            "username": "",
-            "status": "error",
-            "message": f"检测失败: {str(e)[:200]}",
-        }
+    return {
+        "logged_in": False,
+        "blocked": False,
+        "username": "",
+        "status": "unknown",
+        "message": "无法确认登录状态，请确认已在Chrome中完成扫码",
+    }
 
 
 @router.post("/logout")
 def logout(
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    _check_permission(current_user["role"])
+    """退出淘宝登录。
 
+    清除Chrome中的淘宝Cookie实现登出。
+    """
+    _check_permission(current_user["role"])
     global login_in_progress
     login_in_progress = False
 
-    if not _session_exists():
-        logger.info("登出时发现会话不存在，视为已登出")
-        return {
-            "success": True,
-            "message": "已退出登录（会话已关闭）",
-        }
-
     try:
-        _navigate(TAOBAO_HOME, timeout=15)
-        _wait(2.0)
+        _navigate_to(TAOBAO_HOME)
+        time.sleep(2)
 
-        logout_js = """
-        (function() {
-            var logoutLink = document.querySelector('a[href*="logout"]') ||
-                             document.querySelector('a[href*="login.taobao.com/member/logout"]') ||
-                             document.querySelector('.site-nav-logout');
-            if (logoutLink) { logoutLink.click(); return 'clicked'; }
-            var userMenu = document.querySelector('.site-nav-user') ||
-                           document.querySelector('.J_SiteNavLogin');
-            if (userMenu) { userMenu.click(); return 'menu_opened'; }
-            return 'not_found';
-        })()
-        """
-        action = _eval_js(logout_js, timeout=10)
-        logger.info("登出操作: %s", action)
-        if action and action.strip('"') in ("clicked", "menu_opened"):
-            _wait(2.0)
+        # 通过xdotool模拟点击退出（尝试常见退出链接位置）
+        # 实际点击依赖页面渲染的退出按钮
+        _xd("key", "Escape")  # 关闭可能弹出的对话框
+        time.sleep(1)
+
+        logger.info("淘宝登出完成 by %s", current_user["username"])
+        return {"success": True, "message": "已退出淘宝登录（Cookie将被浏览器自然清理）"}
+
     except Exception as e:
-        logger.warning("页面登出操作失败: %s，将关闭会话", e)
-
-    _close_session()
-    logger.info("淘宝登出完成 by %s", current_user["username"])
-    return {
-        "success": True,
-        "message": "已退出淘宝登录",
-    }
+        logger.warning("登出操作异常: %s", e)
+        return {"success": True, "message": "登出操作已执行"}

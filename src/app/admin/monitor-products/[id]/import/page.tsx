@@ -1,0 +1,291 @@
+'use client'
+
+import { apiFetch } from '@/lib/utils'
+import { useAuth } from '@/lib/auth-context'
+import { useParams, useRouter } from 'next/navigation'
+import { useState } from 'react'
+
+interface PreviewData { file_name: string; total_count: number; ad_count: number; dup_count: number; valid_count: number; preview_data: any[] }
+
+export default function ImportPage() {
+  const params = useParams(); const router = useRouter()
+  const mpId = parseInt(params.id as string)
+  const { user } = useAuth()
+
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [preview, setPreview] = useState<PreviewData | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [confirming, setConfirming] = useState(false)
+  const [importProgress, setImportProgress] = useState({ status: '', processed: 0, total: 0 })
+  const [result, setResult] = useState<string | null>(null)
+  const [step, setStep] = useState<'upload' | 'preview' | 'login' | 'done'>('upload')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [hoverImg, setHoverImg] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+
+  const handleUpload = async (file: File) => {
+    setUploading(true); setResult(null); setUploadProgress(0)
+    const token = localStorage.getItem('auth_token')
+    // Use XMLHttpRequest for upload progress
+    await new Promise<void>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `/api/monitor-products/${mpId}/import`)
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+      xhr.upload.onprogress = (e) => { if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100)) }
+      xhr.onload = () => {
+        try {
+          const json = JSON.parse(xhr.responseText)
+          if (xhr.status >= 400) throw new Error(json.detail || '解析失败')
+          const d = json.data as PreviewData
+          setPreview(d); setSelectedIds(new Set(d.preview_data.map((p: any) => p.product_id)))
+          setStep('preview'); setPage(1); resolve()
+        } catch (e: any) { reject(e) }
+      }
+      xhr.onerror = () => reject(new Error('网络错误'))
+      const fd = new FormData(); fd.append('file', file)
+      xhr.send(fd)
+    }).catch((err: any) => { alert(err.message) }).finally(() => setUploading(false))
+  }
+
+  const toggleAll = () => {
+    if (!preview) return
+    if (selectedIds.size === preview.preview_data.length) setSelectedIds(new Set())
+    else setSelectedIds(new Set(preview.preview_data.map(p => p.product_id)))
+  }
+
+  const toggleOne = (pid: string) => {
+    const next = new Set(selectedIds); next.has(pid) ? next.delete(pid) : next.add(pid); setSelectedIds(next)
+  }
+
+  const confirmImport = async () => {
+    if (!preview || selectedIds.size === 0) return
+    setConfirming(true); setImportProgress({ status: '提交中...', processed: 0, total: selectedIds.size })
+    try {
+      const token = localStorage.getItem('auth_token')
+      const res = await fetch(`/api/monitor-products/${mpId}/import/confirm`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ file_name: preview.file_name, selected_product_ids: Array.from(selectedIds), products_data: preview.preview_data }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.detail || '导入失败')
+
+      // Poll task progress every 500ms until complete
+      const taskId = json.data?.task_id
+      if (taskId) {
+        setImportProgress({ status: '导入中...', processed: 0, total: selectedIds.size })
+        for (let i = 0; i < 120; i++) {
+          await new Promise(r => setTimeout(r, 500))
+          try {
+            const tr = await fetch(`/api/monitor-products/import/tasks/${taskId}`, { headers: { Authorization: `Bearer ${token}` } })
+            if (tr.ok) {
+              const td = await tr.json()
+              const t = td.data
+              setImportProgress({ status: t.status === 'processing' ? '导入中...' : t.status, processed: t.processed || 0, total: t.total || selectedIds.size })
+              if (t.status === 'completed' || t.status === 'failed') break
+            }
+          } catch { /* continue polling */ }
+        }
+      }
+
+      setImportProgress({ status: 'completed', processed: selectedIds.size, total: selectedIds.size })
+      setResult(`导入完成！成功 ${json.data.import_result.success_count} 条（其中新增 ${json.data.import_result.new_count} 条），预警 ${json.data.alert_result.sent} 条`)
+      setStep('done')
+    } catch (err: any) { alert(err.message) } finally { setConfirming(false) }
+  }
+
+  // Sort & Pagination
+  const handleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const sortIndicator = (key: string) => sortKey === key ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''
+  const sortedData = preview ? [...preview.preview_data].sort((a: any, b: any) => {
+    if (!sortKey) return 0
+    const va = a[sortKey]; const vb = b[sortKey]
+    if (typeof va === 'number' && typeof vb === 'number') return sortDir === 'asc' ? va - vb : vb - va
+    const sa = String(va || ''); const sb = String(vb || '')
+    return sortDir === 'asc' ? sa.localeCompare(sb, 'zh-CN') : sb.localeCompare(sa, 'zh-CN')
+  }) : []
+  const totalItems = sortedData.length
+  const totalPages = Math.ceil(totalItems / pageSize)
+  const pagedData = sortedData.slice((page - 1) * pageSize, page * pageSize)
+
+  return (
+    <div style={{ padding: 24 }}>
+      <a href={`/admin/monitor-products/${mpId}`} style={{ color: '#1677ff', fontSize: 13 }}>← 返回商品详情</a>
+      <h1 style={{ fontSize: 22, fontWeight: 700, marginTop: 4, marginBottom: 20 }}>导入数据</h1>
+
+      {step === 'upload' && (
+        <div style={{ maxWidth: 500 }}>
+          <p style={{ color: '#666', fontSize: 14, marginBottom: 16 }}>上传店透视（DTS）导出的 Excel 文件，系统将自动清洗广告数据。</p>
+          <input type="file" accept=".xlsx,.xls" disabled={uploading}
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleUpload(f) }}
+            style={{ display: 'block', marginBottom: 12 }} />
+          {uploading && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ background: '#e5e7eb', borderRadius: 8, height: 10, overflow: 'hidden', marginBottom: 4 }}>
+                <div style={{ background: '#1677ff', height: '100%', width: `${uploadProgress}%`, transition: 'width 0.3s' }} />
+              </div>
+              <p style={{ color: '#1677ff', fontSize: 13 }}>上传中... {uploadProgress}%（上传完成后自动解析）</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {step === 'preview' && preview && (
+        <>
+          {/* Stats bar + action buttons in top right */}
+          <div style={{ display: 'flex', gap: 20, marginBottom: 8, fontSize: 14, flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
+              <span>📄 {preview.file_name}</span>
+              <span>总计 <b>{preview.total_count}</b></span>
+              <span style={{ color: '#fa8c16' }}>广告 <b>{preview.ad_count}</b></span>
+              <span style={{ color: '#8b5cf6' }}>去重 <b>{preview.dup_count || 0}</b></span>
+              <span style={{ color: '#16a34a' }}>有效 <b>{preview.valid_count}</b></span>
+              <span style={{ color: '#1677ff' }}>已选 <b>{selectedIds.size}</b></span>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => { setPreview(null); setStep('upload') }} style={btnSecondary}>重新选择</button>
+              {confirming && importProgress.total > 0 && (
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div style={{ background: '#e5e7eb', borderRadius: 8, height: 10, overflow: 'hidden', marginBottom: 4 }}>
+                    <div style={{ background: '#1677ff', height: '100%', width: `${Math.round((importProgress.processed / importProgress.total) * 100)}%`, transition: 'width 0.3s' }} />
+                  </div>
+                  <p style={{ color: '#666', fontSize: 12 }}>导入中... {importProgress.processed}/{importProgress.total}</p>
+                </div>
+              )}
+              <button onClick={confirmImport} disabled={confirming || selectedIds.size === 0} style={btnPrimary}>
+                {confirming ? '导入中...' : `确认导入 (${selectedIds.size}条)`}
+              </button>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div style={{ maxHeight: 'calc(100vh - 260px)', overflow: 'auto', marginBottom: 8, border: '1px solid #e5e7eb', borderRadius: 8 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+              <thead>
+                <tr style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
+                  <th style={thStyle}><input type="checkbox" checked={preview && selectedIds.size === preview.preview_data.length} onChange={toggleAll} /></th>
+                  <th style={{ ...thStyle, width: 40 }}>#</th>
+                  <th style={{ ...thStyle, width: 90 }}>图片</th>
+                  <th style={{ ...thStyle, width: 120 }}>商品ID</th>
+                  <th style={{ ...thStyle, minWidth: 200 }}>标题</th>
+                  <th style={{ ...thStyle, width: 80, cursor: 'pointer' }} onClick={() => handleSort('price')}>现价{sortIndicator('price')}</th>
+                  <th style={{ ...thStyle, width: 70, cursor: 'pointer' }} onClick={() => handleSort('sales')}>销量{sortIndicator('sales')}</th>
+                  <th style={{ ...thStyle, width: 60, cursor: 'pointer' }} onClick={() => handleSort('platform')}>平台{sortIndicator('platform')}</th>
+                  <th style={{ ...thStyle, width: 90, cursor: 'pointer' }} onClick={() => handleSort('shop_type')}>店铺类型{sortIndicator('shop_type')}</th>
+                  <th style={{ ...thStyle, width: 110, cursor: 'pointer' }} onClick={() => handleSort('seller_name')}>掌柜{sortIndicator('seller_name')}</th>
+                  <th style={{ ...thStyle, width: 150, cursor: 'pointer' }} onClick={() => handleSort('shop_name')}>店铺{sortIndicator('shop_name')}</th>
+                  <th style={{ ...thStyle, width: 100, cursor: 'pointer' }} onClick={() => handleSort('location')}>地址{sortIndicator('location')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedData.map((p: any, i: number) => (
+                  <tr key={p.product_id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                    <td style={tdStyle}><input type="checkbox" checked={selectedIds.has(p.product_id)} onChange={() => toggleOne(p.product_id)} /></td>
+                    <td style={{ ...tdStyle, color: '#999', fontSize: 12 }}>{(page - 1) * pageSize + i + 1}</td>
+                    <td style={tdStyle}>
+                      {(p.image_url || p.main_image_url) ? (
+                        <div style={{ position: 'relative' }}>
+                          <img src={p.image_url || p.main_image_url} alt=""
+                            style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0', cursor: 'pointer' }}
+                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                            onMouseEnter={() => setHoverImg(p.image_url || p.main_image_url)}
+                            onMouseLeave={() => setHoverImg(null)} />
+                          {hoverImg === (p.image_url || p.main_image_url) && (
+                            <div style={{
+                              position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 2000,
+                              border: '2px solid #e5e7eb', borderRadius: 8, background: '#fff',
+                              boxShadow: '0 4px 24px rgba(0,0,0,0.2)', padding: 8,
+                            }}>
+                              <img src={p.image_url || p.main_image_url} alt=""
+                                style={{ width: 300, height: 300, objectFit: 'contain', borderRadius: 4 }}
+                                onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                            </div>
+                          )}
+                        </div>
+                      ) : <div style={{ width: 72, height: 72, background: '#f5f5f5', borderRadius: 6 }} />}
+                    </td>
+                    <td style={{ ...tdStyle, fontFamily: 'monospace', fontSize: 12 }}>{p.product_id}</td>
+                    <td style={tdStyle}>
+                      {p.url ? <a href={p.url.startsWith('http') ? p.url : 'https:' + p.url} target="_blank" rel="noreferrer" style={{ color: '#1677ff' }}>{p.title}</a> : p.title}
+                    </td>
+                    <td style={{ ...tdStyle, color: '#dc2626', fontWeight: 600 }}>¥{(p.price || 0).toFixed(2)}</td>
+                    <td style={tdStyle}>{p.sales?.toLocaleString() || '-'}</td>
+                    <td style={tdStyle}>{p.platform || '-'}</td>
+                    <td style={tdStyle}>{p.shop_type || '-'}</td>
+                    <td style={tdStyle}>{p.seller_name || '-'}</td>
+                    <td style={{ ...tdStyle, fontSize: 12 }}>{p.shop_name || p.shop || '-'}</td>
+                    <td style={{ ...tdStyle, fontSize: 11, color: '#999' }}>{p.location || '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination + page size at bottom */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+              <div style={{ display: 'flex', gap: 4 }}>
+                <button onClick={() => setPage(1)} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>«</button>
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} style={pageBtnStyle(page <= 1)}>‹</button>
+                {(() => {
+                  const btns = []
+                  const start = Math.max(1, page - 2)
+                  const end = Math.min(totalPages, page + 2)
+                  if (start > 1) { btns.push(<span key="s" style={{ padding: '0 2px', color: '#999' }}>…</span>) }
+                  for (let i = start; i <= end; i++) {
+                    btns.push(
+                      <button key={i} onClick={() => setPage(i)}
+                        style={i === page ? { ...pageBtnStyle(false), background: '#1677ff', color: '#fff', borderColor: '#1677ff' } : pageBtnStyle(false)}>
+                        {i}
+                      </button>
+                    )
+                  }
+                  if (end < totalPages) { btns.push(<span key="e" style={{ padding: '0 2px', color: '#999' }}>…</span>) }
+                  return btns
+                })()}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>›</button>
+                <button onClick={() => setPage(totalPages)} disabled={page >= totalPages} style={pageBtnStyle(page >= totalPages)}>»</button>
+              </div>
+              <span style={{ fontSize: 12, color: '#999' }}>第 {page}/{totalPages || 1} 页 · 共 {totalItems} 条</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
+              <span style={{ color: '#666' }}>每页</span>
+              <select value={pageSize} onChange={e => { setPageSize(parseInt(e.target.value)); setPage(1) }}
+                style={{ padding: '3px 6px', border: '1px solid #d9d9d9', borderRadius: 4, fontSize: 13 }}>
+                {[20, 50, 100, 99999].map(s => <option key={s} value={s}>{s >= 99999 ? '全部' : s}</option>)}
+              </select>
+              <span style={{ color: '#666' }}>条</span>
+            </div>
+          </div>
+        </>
+      )}
+
+      {step === 'done' && (
+        <div style={{ maxWidth: 500, textAlign: 'center' }}>
+          <p style={{ fontSize: 18, color: '#16a34a', marginBottom: 12 }}>✅ 导入完成</p>
+          <p style={{ color: '#666', marginBottom: 16 }}>{result}</p>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'center' }}>
+            <button onClick={() => router.push(`/admin/monitor-products/${mpId}`)} style={btnPrimary}>查看商品详情</button>
+            <button onClick={() => { setPreview(null); setResult(null); setStep('upload') }} style={btnSecondary}>继续导入</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+const pageBtnStyle = (disabled: boolean): React.CSSProperties => ({
+  padding: '3px 10px', border: '1px solid #d9d9d9', borderRadius: 4, background: '#fff',
+  cursor: disabled ? 'not-allowed' : 'pointer', fontSize: 13, opacity: disabled ? 0.5 : 1,
+  minWidth: 32, textAlign: 'center',
+})
+const btnPrimary: React.CSSProperties = { padding: '8px 16px', background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }
+const btnSecondary: React.CSSProperties = { padding: '6px 12px', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 6, cursor: 'pointer', fontSize: 13 }
+const thStyle: React.CSSProperties = { textAlign: 'left', padding: '10px 12px', fontWeight: 600, fontSize: 12, color: '#666', whiteSpace: 'nowrap' }
+const tdStyle: React.CSSProperties = { padding: '8px 12px', color: '#555', fontSize: 13 }

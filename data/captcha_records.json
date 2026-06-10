@@ -1,0 +1,26 @@
+[
+  {
+    "timestamp": "2026-06-08T11:04:41.877160",
+    "window_title": "淘宝搜索 - Google Chrome",
+    "window_geometry": {
+      "x": 66,
+      "y": 32,
+      "w": 1214,
+      "h": 768
+    },
+    "captcha_type": "in_page_slider",
+    "detection_method": "title_check_only",
+    "note": "CDP port 9223 not available, using estimated coordinates",
+    "title_keywords": []
+  },
+  {
+    "timestamp": "2026-06-08T12:02:57.073778",
+    "window": {
+      "x": 66,
+      "y": 32,
+      "w": 1214,
+      "h": 768
+    },
+    "slider_detected": false
+  }
+]{"timestamp": "2026-06-08T13:27:54.349632", "window_title": "淘宝 - Google Chrome", "window_geometry": {"x": 66, "y": 32, "w": 1214, "h": 768}, "captcha_type": "taobao_slider_chevron", "features": {"hint_text_location": "above_track", "slider_marker": ">>", "button_color": "same_as_track_gray", "track_screenshot": {"y": 717, "x1": 726, "x2": 926, "width": 200}}, "operation_coords": {"screen_x": 802, "screen_y": 749, "distance": 180}}

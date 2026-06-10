@@ -59,6 +59,8 @@ def _get_push_config() -> dict[str, Any]:
                 "enabled_channels": json.loads(row.get("push_enabled_channels", '["feishu"]')),
                 "work_start_hour": row["work_start_hour"],
                 "work_end_hour": row["work_end_hour"],
+                "wechat_push_enabled": row.get("wechat_push_enabled", False),
+                "wechat_sendkey": row.get("wechat_sendkey") or "",
             }
     except Exception:
         logger.exception("读取推送配置失败")
@@ -68,6 +70,8 @@ def _get_push_config() -> dict[str, Any]:
             "enabled_channels": ["feishu"],
             "work_start_hour": 9,
             "work_end_hour": 18,
+            "wechat_push_enabled": False,
+            "wechat_sendkey": "",
         }
     finally:
         conn.close()
@@ -426,6 +430,23 @@ def send_price_alert(
         pc_results = _send_personal_wechat_to_all(content)
         results["personal_wechat"] = any(pc_results.values()) if pc_results else False
 
+    # ── Server酱 个人微信推送 ──
+    if config.get("wechat_push_enabled") and config.get("wechat_sendkey"):
+        try:
+            from services.wechat_push_service import send_wechat_alert
+            alert_info = {
+                "alert_type": "price",
+                "monitor_product_name": "",
+                "product_title": title,
+                "price": float(current_price),
+                "threshold": 0,
+                "shop_name": "",
+            }
+            ok, _ = send_wechat_alert(config["wechat_sendkey"], alert_info)
+            results["wechat_personal"] = ok
+        except Exception:
+            logger.exception("Server酱微信推送失败")
+
     return results
 
 
@@ -466,6 +487,23 @@ def send_sales_alert(
         content = f"🟠 销量预警\n商品: {title}\n商品ID: {product_id}\n今日销量: {today_sales} 单\n昨日销量: {yesterday_sales} 单\n当前售价: ¥{today_price}\n检测时间: {datetime.now().strftime('%m-%d %H:%M')}"
         pc_results = _send_personal_wechat_to_all(content)
         results["personal_wechat"] = any(pc_results.values()) if pc_results else False
+
+    # ── Server酱 个人微信推送 ──
+    if config.get("wechat_push_enabled") and config.get("wechat_sendkey"):
+        try:
+            from services.wechat_push_service import send_wechat_alert
+            alert_info = {
+                "alert_type": "sales",
+                "monitor_product_name": "",
+                "product_title": title,
+                "price": float(today_price),
+                "threshold": 0,
+                "shop_name": "",
+            }
+            ok, _ = send_wechat_alert(config["wechat_sendkey"], alert_info)
+            results["wechat_personal"] = ok
+        except Exception:
+            logger.exception("Server酱微信推送失败")
 
     return results
 

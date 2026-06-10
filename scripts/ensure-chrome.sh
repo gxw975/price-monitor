@@ -1,60 +1,93 @@
 #!/bin/bash
+# Chrome 守护进程 — 确保 Chrome 在 DISPLAY=:0 上运行
+# 使用纯物理操作模式（零CDP），永久禁用 --remote-debugging-port
+#
+# Chrome 启动参数（永久固化，只保留这6个）:
+#   --start-maximized
+#   --no-first-run
+#   --restore-last-session=false
+#   --disable-session-crashed-bubble
+#   --disable-crash-reporter
+#   --ozone-platform=x11
 
-CHROME_USER_DATA="/home/lab-admin/chrome-user-data"
+CHROME_USER_DATA="/home/lab-admin/.config/google-chrome"
 CHROME_BIN="/usr/bin/google-chrome-stable"
-OPENCLI_BIN="/home/lab-admin/.nvm/versions/node/v22.22.0/bin/opencli"
-PROFILE="zu4794g4"
-MAX_WAIT=60
+MAX_WAIT=30
+
+export DISPLAY=:0
+export XAUTHORITY="/run/user/1000/.mutter-Xwaylandauth.47UFP3"
 
 check_chrome_running() {
   pgrep -f "chrome.*${CHROME_USER_DATA}" > /dev/null 2>&1
 }
 
-check_profile_connected() {
-  "$OPENCLI_BIN" profile list 2>/dev/null | grep -q "$PROFILE.*connected"
+check_chrome_window() {
+  # 检查Chrome窗口是否已出现
+  xdotool search --class "google-chrome" > /dev/null 2>&1
 }
 
 launch_chrome() {
-  pkill -f "chrome.*${CHROME_USER_DATA}" 2>/dev/null || true
-  sleep 1
+  echo "$(date): [Chrome] Starting Chrome (no CDP mode)..."
 
+  # 优雅关闭旧实例
+  pkill -TERM -f "chrome.*${CHROME_USER_DATA}" 2>/dev/null || true
+  sleep 3
+  if pgrep -f "chrome.*${CHROME_USER_DATA}" > /dev/null 2>&1; then
+    echo "$(date): [Chrome] TERM failed, force killing..."
+    pkill -KILL -f "chrome.*${CHROME_USER_DATA}" 2>/dev/null || true
+    sleep 1
+  fi
+
+  # 清理临时文件
+  rm -rf /tmp/com.google.Chrome.* /tmp/.org.chromium.* 2>/dev/null
+  rm -f "${CHROME_USER_DATA}/SingletonLock" \
+        "${CHROME_USER_DATA}/SingletonCookie" \
+        "${CHROME_USER_DATA}/SingletonSocket" \
+        "${CHROME_USER_DATA}/Default/SingletonLock" \
+        "${CHROME_USER_DATA}/Default/SingletonCookie" \
+        "${CHROME_USER_DATA}/Default/SingletonSocket" 2>/dev/null
+
+  # 修复Preferences中的崩溃标记（防止"要恢复页面吗"弹窗）
+  if [ -f "${CHROME_USER_DATA}/Default/Preferences" ]; then
+    sed -i 's/"exit_type":"crashed"/"exit_type":"Normal"/' "${CHROME_USER_DATA}/Default/Preferences" 2>/dev/null
+    sed -i 's/"exited_cleanly":false/"exited_cleanly":true/' "${CHROME_USER_DATA}/Default/Preferences" 2>/dev/null
+  fi
+
+  # 修复权限
+  sudo chown -R lab-admin:lab-admin "${CHROME_USER_DATA}" 2>/dev/null
+
+  # ═══ 永久固化的6个启动参数（绝不含 --remote-debugging-port）═══
   "$CHROME_BIN" \
-    --headless=new \
-    --no-sandbox \
-    --disable-gpu \
-    --disable-dev-shm-usage \
-    --window-size=1920,1080 \
-    --remote-debugging-port=9222 \
     --user-data-dir="$CHROME_USER_DATA" \
-    --profile-directory=Default \
+    --start-maximized \
     --no-first-run \
-    --no-default-browser-check \
-    about:blank &
+    --restore-last-session=false \
+    --disable-session-crashed-bubble \
+    --disable-crash-reporter \
+    --ozone-platform=x11 \
+    "https://www.taobao.com" &
 
+  # 等待Chrome窗口出现
   for i in $(seq 1 $MAX_WAIT); do
     sleep 1
-    if check_profile_connected; then
-      echo "$(date): zu4794g4 connected after ${i}s"
+    if check_chrome_window; then
+      echo "$(date): [Chrome] Window ready after ${i}s"
       return 0
     fi
   done
-  echo "$(date): WARNING - Chrome started but extension not connected after ${MAX_WAIT}s"
+  echo "$(date): [Chrome] WARNING - Window not found after ${MAX_WAIT}s"
   return 1
 }
 
-# Initial launch
-if ! check_chrome_running || ! check_profile_connected; then
+# ── 主循环 ──
+if ! check_chrome_running; then
   launch_chrome
 fi
 
-# Monitor loop - check every 15 seconds
 while true; do
   sleep 15
   if ! check_chrome_running; then
-    echo "$(date): Chrome died, restarting..."
-    launch_chrome
-  elif ! check_profile_connected; then
-    echo "$(date): Profile disconnected, restarting Chrome..."
+    echo "$(date): [Chrome] Process died, restarting..."
     launch_chrome
   fi
 done

@@ -1,3 +1,8 @@
+# DEPRECATED: 此模块依赖CDP远程调试(Chrome --remote-debugging-port)，已被淘宝检测封锁。
+# 替代方案: src/services/xdotool_crawler.py (纯xdotool物理操作)
+# 保留此文件仅作历史参考，不再被任何生产代码导入。
+# 迁移日期: 2026-06-06
+
 """淘宝商品 SKU 抓取技能
 
 通过 OpenCLI 控制真实 Chrome 浏览器，访问商品详情页，
