@@ -45,7 +45,8 @@ export default function ImportPage() {
         } catch (e: any) { reject(e) }
       }
       xhr.onerror = () => reject(new Error('网络错误'))
-      const fd = new FormData(); fd.append('file', file)
+      const platform = localStorage.getItem('platform') || 'taobao'
+      const fd = new FormData(); fd.append('file', file); fd.append('platform', platform)
       xhr.send(fd)
     }).catch((err: any) => { alert(err.message) }).finally(() => setUploading(false))
   }

@@ -67,6 +67,7 @@ def _get_conn() -> Any:
 class MonitorProductCreate(BaseModel):
     name: str
     brand: str | None = None
+    platform: str = "taobao"
     description: str | None = None
     price_threshold_bag: float | None = None
     price_threshold_can: float | None = None
@@ -78,10 +79,12 @@ class MonitorProductUpdate(BaseModel):
     name: str | None = None
     brand: str | None = None
     description: str | None = None
+    platform: str | None = None
     price_threshold_bag: float | None = None
     price_threshold_can: float | None = None
     price_threshold_mix: float | None = None
     sales_threshold: float | None = None
+    whitelist_sellers: str | None = None
     whitelist_sellers: str | None = None
 
 class ConfirmImportRequest(BaseModel):
@@ -147,9 +150,9 @@ def create_monitor_product(
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                'INSERT INTO "MonitorProduct" (name, brand, description, price_threshold_bag, price_threshold_can, price_threshold_mix, sales_threshold) '
-                'VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *',
-                (body.name, body.brand, body.description, body.price_threshold_bag,
+                'INSERT INTO "MonitorProduct" (name, brand, description, platform, price_threshold_bag, price_threshold_can, price_threshold_mix, sales_threshold) '
+                'VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING *',
+                (body.name, body.brand, body.description, body.platform, body.price_threshold_bag,
                  body.price_threshold_can, body.price_threshold_mix, body.sales_threshold),
             )
             item = dict(cur.fetchone())
@@ -176,7 +179,7 @@ def update_monitor_product(
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             updates = []
             params = []
-            for field in ['name', 'brand', 'description', 'price_threshold_bag',
+            for field in ['name', 'brand', 'description', 'platform', 'price_threshold_bag',
                           'price_threshold_can', 'price_threshold_mix', 'sales_threshold',
                           'whitelist_sellers']:
                 val = getattr(body, field, None)

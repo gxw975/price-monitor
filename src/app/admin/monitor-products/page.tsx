@@ -10,6 +10,7 @@ interface MonitorProduct {
   price_threshold_bag: number | null; price_threshold_can: number | null
   price_threshold_mix: number | null; sales_threshold: number | null
   import_count: number; last_import_time: string | null; unhandled_alert_count: number
+  platform: string
 }
 
 interface SkuCategory { id: number; monitor_product_id: number; name: string; unit: string; conversion_factor: number }
@@ -182,7 +183,7 @@ export default function MonitorProductsPage() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ background: '#fafafa', borderBottom: '2px solid #e5e7eb' }}>
-                <th style={thStyle}>名称</th><th style={thStyle}>品牌</th>
+                <th style={thStyle}>名称</th><th style={thStyle}>平台</th><th style={thStyle}>品牌</th>
                 <th style={thStyle}>袋装红线</th><th style={thStyle}>罐装红线</th><th style={thStyle}>混合装红线</th>
                 <th style={thStyle}>销量红线</th><th style={thStyle}>导入</th><th style={thStyle}>预警</th>
                 <th style={thStyle}>操作</th>
@@ -193,6 +194,12 @@ export default function MonitorProductsPage() {
                 <tr key={p.id} style={{ borderBottom: '1px solid #f0f0f0' }}>
                   <td style={tdStyle}>
                     <a href={`/admin/monitor-products/${p.id}`} style={{ color: '#1677ff', fontWeight: 500 }}>{p.name}</a>
+                  </td>
+                  <td style={tdStyle}>
+                    <span style={{ padding: '1px 8px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                      background: (p.platform || 'taobao') === 'jd' ? '#fee2e2' : '#fff7ed',
+                      color: (p.platform || 'taobao') === 'jd' ? '#dc2626' : '#ea580c',
+                    }}>{(p.platform || 'taobao') === 'jd' ? '京东' : '淘天'}</span>
                   </td>
                   <td style={tdStyle}>{p.brand || '-'}</td>
                   <td style={tdStyle}>{p.price_threshold_bag != null ? `¥${p.price_threshold_bag}` : '-'}</td>
@@ -245,6 +252,14 @@ export default function MonitorProductsPage() {
         <div style={modalOverlay}>
           <div style={modalContent}>
             <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 16 }}>{editId ? '编辑' : '新增'}监控商品</h2>
+            <div key="platform" style={{ marginBottom: 10 }}>
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 500, marginBottom: 2, color: '#374151' }}>平台</label>
+              <select value={form['platform'] || 'taobao'} onChange={e => setForm({...form, platform: e.target.value})}
+                style={{ ...inputFull }}>
+                <option value="taobao">淘天（淘宝/天猫）</option>
+                <option value="jd">京东</option>
+              </select>
+            </div>
             {[['name','商品名称','text'],['brand','品牌','text'],['description','描述','text'],
               ['price_threshold_bag','袋装价格红线','number'],['price_threshold_can','罐装价格红线','number'],
               ['price_threshold_mix','混合装价格红线','number'],['sales_threshold','日均销量红线','number'],
