@@ -54,3 +54,4 @@ CLAUDE.md              # AI生成的项目文档
 *.png                  # 截图和调试图片（保留jpg等实际需要的）
 *.deb                  # 安装包
 price-monitor.code-workspace  # IDE配置
+.next/
