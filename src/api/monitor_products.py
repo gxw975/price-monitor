@@ -605,7 +605,9 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
                     price = float(pdata.get('price', 0) or 0)
                     sales = int(pdata.get('sales', 0) or 0)
                     url = (pdata.get('url') or '')[:500]
-                    platform = (pdata.get('platform') or '')[:50]
+                    platform_raw = (pdata.get('platform') or 'taobao')[:50]
+                    # Normalize: 淘宝/天猫 → taobao
+                    platform = 'taobao' if platform_raw in ('淘宝','天猫','','taobao') else platform_raw
                     shop_type = (pdata.get('shop_type') or '')[:50]
                     location = (pdata.get('location') or '')[:100]
                     with svc.cursor() as cur:
