@@ -43,10 +43,17 @@ export default function MonitorProductsPage() {
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 })
   const [batchResults, setBatchResults] = useState<any[]>([])
 
+  const [platform, setPlatform] = useState('taobao')
+  useEffect(() => {
+    const sync = () => setPlatform(localStorage.getItem('platform') || 'taobao')
+    sync(); window.addEventListener('storage', sync)
+    return () => window.removeEventListener('storage', sync)
+  }, [])
+
   const fetchAll = useCallback(async () => {
     setLoading(true)
-    try { const res = await apiFetch('/api/monitor-products/'); setProducts(res.items || []) } catch { /**/ } finally { setLoading(false) }
-  }, [])
+    try { const res = await apiFetch(`/api/monitor-products/?platform=${platform}`); setProducts(res.items || []) } catch { /**/ } finally { setLoading(false) }
+  }, [platform])
   useEffect(() => { fetchAll() }, [fetchAll])
 
   const openCreate = () => { setEditId(null); setForm({}); setShowForm(true) }

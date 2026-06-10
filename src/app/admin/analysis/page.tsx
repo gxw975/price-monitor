@@ -20,7 +20,7 @@ export default function AnalysisPage() {
   const [whitelistSellers, setWhitelistSellers] = useState<string[]>([])
 
   const fetchMPs = useCallback(async () => {
-    try { const r = await apiFetch('/api/monitor-products/'); setMonitorProducts(r.items||[]) } catch { /**/ }
+    try { const p = localStorage.getItem('platform') || 'taobao'; const r = await apiFetch(`/api/monitor-products/?platform=${p}`); setMonitorProducts(r.items||[]) } catch { /**/ }
   }, [])
   useEffect(() => { fetchMPs() }, [fetchMPs])
 

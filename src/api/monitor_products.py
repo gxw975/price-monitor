@@ -107,13 +107,16 @@ class SkuCategoryCreate(BaseModel):
 @router.get("/")
 @router.get("", include_in_schema=False)
 def list_monitor_products(
+    platform: str | None = None,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """获取所有监控商品（含导入批次计数）"""
+    """获取所有监控商品（含导入批次计数），可按平台筛选"""
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute("""
+            where_clause = "WHERE mp.platform = %s" if platform else ""
+            params = (platform,) if platform else ()
+            cur.execute(f"""
                 SELECT mp.*,
                     COUNT(DISTINCT ib.id) AS import_count,
                     MAX(ib.import_time) AS last_import_time,
@@ -121,9 +124,10 @@ def list_monitor_products(
                 FROM "MonitorProduct" mp
                 LEFT JOIN "ImportBatch" ib ON ib.monitor_product_id = mp.id
                 LEFT JOIN "Alert" a ON a.monitor_product_id = mp.id
+                {where_clause}
                 GROUP BY mp.id
                 ORDER BY mp.updated_at DESC
-            """)
+            """, params)
             items = [dict(r) for r in cur.fetchall()]
             for item in items:
                 if item.get("last_import_time"):
