@@ -84,6 +84,7 @@ def list_alerts(
     keyword: str | None = Query(None),
     monitor_product_id: int | None = Query(None),
     is_handled: bool | None = Query(None),
+    platform: str | None = Query(None),
 ) -> dict[str, Any]:
     conn = _get_conn()
     try:
@@ -106,6 +107,9 @@ def list_alerts(
             if is_handled is not None:
                 conditions.append("a.is_handled = %s")
                 params.append(is_handled)
+            if platform:
+                conditions.append("a.platform = %s")
+                params.append(platform)
             if keyword:
                 conditions.append("(a.message ILIKE %s OR a.product_id ILIKE %s OR p.title ILIKE %s)")
                 params.extend([f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"])

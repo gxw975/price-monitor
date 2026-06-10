@@ -9,7 +9,7 @@ import { apiFetch } from '@/lib/utils'
 function PlatformToggle() {
   const [platform, setPlatform] = useState('taobao')
   useEffect(() => { setPlatform(localStorage.getItem('platform') || 'taobao') }, [])
-  const switchTo = (p: string) => { setPlatform(p); localStorage.setItem('platform', p); window.dispatchEvent(new Event('storage')) }
+  const switchTo = (p: string) => { localStorage.setItem('platform', p); window.location.reload() }
   return (
     <div className="flex items-center rounded-lg bg-gray-100 p-0.5" title="切换平台后，新建和导入操作将标记为对应平台">
       <button onClick={() => switchTo('taobao')}

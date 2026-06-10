@@ -71,6 +71,7 @@ export default function AlertsPage() {
       const params = new URLSearchParams()
       params.set('page', String(page))
       params.set('page_size', '20')
+      if (typeof window !== 'undefined') { const p = localStorage.getItem('platform') || 'taobao'; params.set('platform', p) }
       if (filter.type) params.set('alert_type', filter.type)
       if (filter.read === 'unread') params.set('is_read', 'false')
       if (filter.read === 'read') params.set('is_read', 'true')
