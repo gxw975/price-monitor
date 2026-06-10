@@ -294,9 +294,8 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:70,cursor:'pointer'}} onClick={()=>toggleProdSort('sales')}>销量{prodSortIndicator('sales')}</th>
                 <th style={{...thStyle,width:60,cursor:'pointer'}} onClick={()=>toggleProdSort('platform')}>平台{prodSortIndicator('platform')}</th>
                 <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_type')}>店铺类型{prodSortIndicator('shop_type')}</th>
-                <th style={{...thStyle,width:110,cursor:'pointer'}} onClick={()=>toggleProdSort('seller_name')}>掌柜{prodSortIndicator('seller_name')}</th>
+                <th style={{...thStyle,width:110,cursor:'pointer'}} onClick={()=>toggleProdSort('seller_name')}>店铺ID{prodSortIndicator('seller_name')}</th>
                 <th style={{...thStyle,width:150,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺{prodSortIndicator('shop_name')}</th>
-                <th style={{...thStyle,width:100,cursor:'pointer'}} onClick={()=>toggleProdSort('location')}>地址{prodSortIndicator('location')}</th>
                 {canWrite && <th style={{...thStyle,width:50}}>操作</th>}
               </tr></thead>
               <tbody>
@@ -326,9 +325,8 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                     <td style={tdStyle}>{p.platform||'-'}</td>
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
-                    <td style={tdStyle}>{p.seller_name||'-'}</td>
+                    <td style={tdStyle}>{p.shop_id || p.seller_name || '-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
-                    <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
                     {canWrite && <td style={tdStyle}><div style={{display:'flex',gap:4}}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button><button onClick={() => setDelProduct(p)} style={{padding:'2px 6px',fontSize:11,color:'#dc2626',border:'1px solid #fecaca',borderRadius:4,background:'#fff',cursor:'pointer'}}>删除</button></div></td>}
                   </tr>
                 ))}

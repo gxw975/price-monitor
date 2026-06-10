@@ -377,35 +377,82 @@ class DtsDataParser:
 # ── 京东解析器 ────────────────────────────────────────────
 
 JD_COLUMN_PATTERNS: dict[str, list[str]] = {
-    "product_id": ["商品ID", "SKUID", "id", "商品编码"],
-    "title": ["商品标题", "标题", "商品名"],
-    "price": ["现价", "价格", "售价", "京东价"],
-    "sales": ["总销量", "销量", "累计销量"],
-    "shop_name": ["店铺名称", "店铺", "商家"],
-    "seller_name": ["掌柜名", "卖家", "供应商"],
-    "url": ["商品链接", "链接", "商品地址", "URL"],
-    "image_url": ["图片", "主图", "商品图片"],
-    "placeholder_type": ["占位类型", "广告位类型", "推广类型"],
-    "location": ["发货地", "所在地", "仓库"],
-    "shop_type": ["店铺类型", "类型"],
-    "daily_sales": ["日均销量", "日均付款人数"],
-    "category": ["类目", "商品类目"],
-    "is_tmall": ["是否自营", "自营"],
-    "tags": ["标签", "商品标签"],
+    "product_id": ["商品ID"],
+    "title": ["商品名称"],
+    "price": ["京东价"],
+    "original_price": ["原价"],
+    "sales": ["总销量"],
+    "sales_volume_display": ["总销量"],
+    "shop_name": ["店铺名称"],
+    "shop_id": ["店铺ID"],
+    "shop_type": ["店铺类型"],
+    "image_url": ["商品图片"],
+    "placeholder_type": ["促销"],
 }
 
 
 class JdDtsParser(DtsDataParser):
-    """京东DTS解析器——继承淘宝解析器，仅覆盖列映射。
+    """京东店透视解析器——适配真实Excel格式 + 核心字段调整。
 
-    复用父类全部逻辑（parse, clean_ad_data, filter_natural_products,
-    extract_product_id, _parse_price, _parse_sales, normalize_products 等），
-    只在初始化时替换列映射为京东版。
+    关键差异：
+    - 京东Excel列名与淘宝不同（商品名称/京东价/店铺ID/促销等）
+    - 总销量解析为可排序数值 + 保留原始显示字符串
+    - 商品链接由商品ID自动拼接（https://item.jd.com/{id}.html）
+    - 促销列有值=广告位，空=自然位
+    - 废弃location/seller_name字段
     """
 
     def __init__(self, output_dir=None):
         super().__init__(output_dir)
         self.column_patterns = dict(JD_COLUMN_PATTERNS)
+
+    def _parse_sales_volume(self, sales_str: str) -> int:
+        """销量字符串→排序数值：50万+→500000, 2.3万→23000, 1000+→1000"""
+        if not sales_str or str(sales_str).strip() in ("暂无", "0", ""):
+            return 0
+        s = str(sales_str).strip().replace("+", "")
+        if "万" in s:
+            try:
+                return int(float(s.replace("万", "")) * 10000)
+            except ValueError:
+                return 0
+        try:
+            return int(s)
+        except ValueError:
+            return 0
+
+    def parse(self, filepath):
+        """京东Excel解析：适配真实表头 + 核心字段处理"""
+        saved_patterns = self.column_patterns
+        self.column_patterns = dict(JD_COLUMN_PATTERNS)
+        try:
+            raw_data = super().parse(filepath)
+            processed = []
+            for item in raw_data:
+                # 销量排序辅助字段
+                sales_display = str(item.get("sales_volume_display") or item.get("sales") or "")
+                item["sales_volume_display"] = sales_display
+                item["sales_volume_sort"] = self._parse_sales_volume(sales_display)
+                # 自动拼接京东商品链接
+                pid = item.get("product_id")
+                if pid:
+                    item["product_url"] = f"https://item.jd.com/{pid}.html"
+                # 促销列 → 占位类型
+                item["placeholder_type"] = "广告位" if item.get("placeholder_type") else "自然位"
+                # 日均销量填充
+                if not item.get("daily_sales"):
+                    item["daily_sales"] = sales_display
+                # 彻底移除（JD无此概念）
+                item.pop("location", None)
+                item.pop("seller_name", None)
+                processed.append(item)
+            return processed
+        finally:
+            self.column_patterns = saved_patterns
+
+    def filter_natural_products(self, data):
+        """京东自然位过滤：只保留促销列为空的记录"""
+        return [item for item in data if item.get("placeholder_type") == "自然位"]
 
 
 # ── 便捷函数 ──────────────────────────────────────────────

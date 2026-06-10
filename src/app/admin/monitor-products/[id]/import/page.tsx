@@ -179,9 +179,8 @@ export default function ImportPage() {
                   <th style={{ ...thStyle, width: 70, cursor: 'pointer' }} onClick={() => handleSort('sales')}>销量{sortIndicator('sales')}</th>
                   <th style={{ ...thStyle, width: 60, cursor: 'pointer' }} onClick={() => handleSort('platform')}>平台{sortIndicator('platform')}</th>
                   <th style={{ ...thStyle, width: 90, cursor: 'pointer' }} onClick={() => handleSort('shop_type')}>店铺类型{sortIndicator('shop_type')}</th>
-                  <th style={{ ...thStyle, width: 110, cursor: 'pointer' }} onClick={() => handleSort('seller_name')}>掌柜{sortIndicator('seller_name')}</th>
+                  <th style={{ ...thStyle, width: 110, cursor: 'pointer' }} onClick={() => handleSort('seller_name')}>店铺ID{sortIndicator('seller_name')}</th>
                   <th style={{ ...thStyle, width: 150, cursor: 'pointer' }} onClick={() => handleSort('shop_name')}>店铺{sortIndicator('shop_name')}</th>
-                  <th style={{ ...thStyle, width: 100, cursor: 'pointer' }} onClick={() => handleSort('location')}>地址{sortIndicator('location')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -219,9 +218,8 @@ export default function ImportPage() {
                     <td style={tdStyle}>{p.sales?.toLocaleString() || '-'}</td>
                     <td style={tdStyle}>{p.platform || '-'}</td>
                     <td style={tdStyle}>{p.shop_type || '-'}</td>
-                    <td style={tdStyle}>{p.seller_name || '-'}</td>
+                    <td style={tdStyle}>{p.shop_id || p.seller_name || '-'}</td>
                     <td style={{ ...tdStyle, fontSize: 12 }}>{p.shop_name || p.shop || '-'}</td>
-                    <td style={{ ...tdStyle, fontSize: 11, color: '#999' }}>{p.location || '-'}</td>
                   </tr>
                 ))}
               </tbody>
