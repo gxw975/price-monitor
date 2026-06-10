@@ -18,6 +18,8 @@ export default function AnalysisPage() {
   const [sortDir, setSortDir] = useState<'asc'|'desc'>('asc')
   const [excludeWhitelist, setExcludeWhitelist] = useState(false)
   const [whitelistSellers, setWhitelistSellers] = useState<string[]>([])
+  const [hoverImg, setHoverImg] = useState<string | null>(null)
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
 
   const fetchMPs = useCallback(async () => {
     try { const p = localStorage.getItem('platform') || 'taobao'; const r = await apiFetch(`/api/monitor-products/?platform=${p}`); setMonitorProducts(r.items||[]) } catch { /**/ }
@@ -112,7 +114,7 @@ export default function AnalysisPage() {
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:8}}>
               {[...filtered].sort((a,b)=>(a.price||0)-(b.price||0)).slice(0,10).map(p=>(
                 <div key={p.product_id} style={{display:'flex',alignItems:'center',gap:8,padding:8,background:'#fff',border:'1px solid #e5e7eb',borderRadius:6}}>
-                  {(p.image_url||p.main_image_url)?<img src={p.image_url||p.main_image_url} alt="" style={{width:40,height:40,objectFit:'cover',borderRadius:4}}/>:<div style={{width:40,height:40,background:'#f5f5f5',borderRadius:4}}/>}
+                  {(p.image_url||p.main_image_url)?<img src={p.image_url||p.main_image_url} alt="" style={{width:40,height:40,objectFit:'cover',borderRadius:4,cursor:'pointer'}} onMouseEnter={(e) => {const r = e.currentTarget.getBoundingClientRect(); setHoverImg(p.image_url||p.main_image_url); setHoverPos({x: r.right + 8, y: r.top})}} onMouseLeave={() => setHoverImg(null)}/>:<div style={{width:40,height:40,background:'#f5f5f5',borderRadius:4}}/>}
                   <div style={{flex:1,minWidth:0}}>
                     <div style={{fontSize:12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.title}</div>
                     <div style={{fontSize:11,color:'#999'}}>{p.shop_name}</div>
@@ -134,18 +136,24 @@ export default function AnalysisPage() {
               </tr></thead>
               <tbody>{filtered.slice(0,200).map(p=>(
                 <tr key={p.product_id} style={{borderBottom:'1px solid #f0f0f0'}}>
-                  <td style={tdStyle}>{(p.image_url||p.main_image_url)?<img src={p.image_url||p.main_image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4}}/>:<div style={{width:36,height:36,background:'#f5f5f5',borderRadius:4}}/>}</td>
-                  <td style={tdStyle}>{p.url||p.product_url?<a href={(p.url||p.product_url||'').startsWith('http')?p.url||p.product_url:'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a>:p.title}</td>
+                  <td style={tdStyle}>{(p.image_url||p.main_image_url)?<img src={p.image_url||p.main_image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,cursor:'pointer'}} onMouseEnter={(e) => {const r = e.currentTarget.getBoundingClientRect(); setHoverImg(p.image_url||p.main_image_url); setHoverPos({x: r.right + 8, y: r.top})}} onMouseLeave={() => setHoverImg(null)}/>:<div style={{width:36,height:36,background:'#f5f5f5',borderRadius:4}}/>}</td>
+                  <td style={tdStyle}>{p.url||p.product_url?<a href={(p.url||p.product_url||'').startsWith('https')?p.url||p.product_url:'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a>:p.title}</td>
                   <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{(p.price||0).toFixed(0)}</td>
                   <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
-                  <td style={tdStyle}>{p.seller_name||'-'}</td>
-                  <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
+                  <td style={tdStyle}>{p.shop_id || p.seller_name || '-'}</td>
+                  <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.platform||'-'}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
         </>
+      )}
+      {/* Image hover preview */}
+      {hoverImg && (
+        <div style={{ position: 'fixed', left: hoverPos.x, top: Math.min(hoverPos.y, window.innerHeight - 320), zIndex: 9999, pointerEvents: 'none' }}>
+          <img src={hoverImg} alt="" style={{ width: 280, height: 280, objectFit: 'contain', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', background: '#fff', padding: 4 }} />
+        </div>
       )}
     </div>
   )
