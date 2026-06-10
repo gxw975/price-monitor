@@ -29,6 +29,7 @@ export default function MonitorProductsPage() {
   const [catUnit, setCatUnit] = useState('')
   const [catFactor, setCatFactor] = useState('1.0')
   const [categories, setCategories] = useState<SkuCategory[]>([])
+  const [deleteTarget, setDeleteTarget] = useState<{id: number; name: string} | null>(null)
 
   // Batch import
   const [batchVisible, setBatchVisible] = useState(false)
@@ -68,9 +69,10 @@ export default function MonitorProductsPage() {
       setShowForm(false); fetchAll()
     } catch (err: any) { alert('保存失败: ' + (err?.message || err)) } finally { setSaving(false) }
   }
-  const deleteMp = async (id: number) => {
-    if (!confirm('确定删除？')) return
-    try { await apiFetch(`/api/monitor-products/${id}`, { method: 'DELETE' }); fetchAll() } catch { /**/ }
+  const deleteMp = async () => {
+    if (!deleteTarget) return
+    const id = deleteTarget.id
+    try { await apiFetch(`/api/monitor-products/${id}`, { method: 'DELETE' }); fetchAll(); setDeleteTarget(null) } catch { /**/ }
   }
   const toggleExpand = async (id: number) => {
     if (expandedId === id) { setExpandedId(null); return }
@@ -207,7 +209,7 @@ export default function MonitorProductsPage() {
                       <button onClick={() => router.push(`/admin/monitor-products/${p.id}`)} style={btnSmall}>详情</button>
                       <button onClick={() => toggleExpand(p.id)} style={btnSmall}>分类</button>
                       {canWrite && <button onClick={() => openEdit(p)} style={btnSmall}>编辑</button>}
-                      {canWrite && <button onClick={() => deleteMp(p.id)} style={{ ...btnSmall, color: '#dc2626' }}>删除</button>}
+                      {canWrite && <button onClick={() => setDeleteTarget({id: p.id, name: p.name})} style={{ ...btnSmall, color: '#dc2626' }}>删除</button>}
                     </div>
                   </td>
                 </tr>
@@ -356,6 +358,21 @@ export default function MonitorProductsPage() {
                 )}
               </>
             )}
+          </div>
+        </div>
+      )}
+      {/* ── 删除确认弹窗 ── */}
+      {deleteTarget && (
+        <div style={modalOverlay}>
+          <div style={{ ...modalContent, width: 400 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>确认删除</h3>
+            <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 16 }}>
+              确定要删除监控商品「<b>{deleteTarget.name}</b>」吗？此操作不可撤销。
+            </p>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onClick={() => setDeleteTarget(null)} style={btnSecondary}>取消</button>
+              <button onClick={deleteMp} style={{ ...btnPrimary, background: '#dc2626' }}>确认删除</button>
+            </div>
           </div>
         </div>
       )}
