@@ -418,21 +418,28 @@ def list_products(
     product_id: int,
     keyword: str | None = None,
     limit: int = 200,
+    platform: str | None = None,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """获取监控商品下的所有淘宝商品"""
+    """获取监控商品下的商品列表（按平台筛选）"""
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if not platform:
+                cur.execute('SELECT platform FROM "MonitorProduct" WHERE id=%s', (product_id,))
+                row = cur.fetchone()
+                platform = row['platform'] if row else 'taobao'
+            base_where = 'monitor_product_id=%s AND platform=%s'
+            base_params = [product_id, platform]
             if keyword:
                 cur.execute(
-                    'SELECT *, sales_volume AS sales FROM "Product" WHERE monitor_product_id=%s AND (title ILIKE %s OR shop_name ILIKE %s OR product_id ILIKE %s) ORDER BY last_updated_at DESC LIMIT %s',
-                    (product_id, f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", limit),
+                    f'SELECT *, sales_volume AS sales FROM "Product" WHERE {base_where} AND (title ILIKE %s OR shop_name ILIKE %s OR product_id ILIKE %s) ORDER BY last_updated_at DESC LIMIT %s',
+                    (*base_params, f"%{keyword}%", f"%{keyword}%", f"%{keyword}%", limit),
                 )
             else:
                 cur.execute(
-                    'SELECT *, sales_volume AS sales FROM "Product" WHERE monitor_product_id=%s ORDER BY last_updated_at DESC LIMIT %s',
-                    (product_id, limit),
+                    f'SELECT *, sales_volume AS sales FROM "Product" WHERE {base_where} ORDER BY last_updated_at DESC LIMIT %s',
+                    (*base_params, limit),
                 )
             items = [dict(r) for r in cur.fetchall()]
             for item in items:
