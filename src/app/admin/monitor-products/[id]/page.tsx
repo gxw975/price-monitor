@@ -145,7 +145,7 @@ export default function MonitorProductDetail() {
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {canWrite && <button onClick={() => router.push(`/admin/monitor-products/${id}/import`)} style={btnPrimary}>导入数据</button>}
-          {canWrite && !editing && <button onClick={() => setEditing(true)} style={btnSecondary}>编辑</button>}
+          {canWrite && !editing && tab === 'info' && <button onClick={() => setEditing(true)} style={btnSecondary}>编辑</button>}
         </div>
       </div>
 
