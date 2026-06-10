@@ -43,7 +43,7 @@ export default function SkuReviewPage() {
     try {
       // 通过直接 SQL 更新（简化版：使用 product_keywords 或直接 fetch）
       const token = localStorage.getItem('auth_token')
-      const res = await fetch(`/api/taobao-products/${productId}/skus/verify`, {
+      const res = await fetch(`/api/products/${productId}/skus/${skuId}/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ sku_ids: [skuId], sku_category_id: catId }),
@@ -56,7 +56,7 @@ export default function SkuReviewPage() {
     if (!bulkCatId || selectedIds.size === 0) return
     try {
       const token = localStorage.getItem('auth_token')
-      const res = await fetch(`/api/taobao-products/${productId}/skus/verify`, {
+      const res = await fetch(`/api/products/${productId}/skus/batch-verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ sku_ids: Array.from(selectedIds), sku_category_id: bulkCatId }),

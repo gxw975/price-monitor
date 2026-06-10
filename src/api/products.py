@@ -18,8 +18,14 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from services.auth_service import get_current_user
+
+
+class BatchVerifyRequest(BaseModel):
+    sku_ids: list[int]
+    sku_category_id: int | None = None
 
 load_dotenv()
 logger = logging.getLogger("api.products")
@@ -149,6 +155,78 @@ def get_product_detail(
     except Exception:
         logger.exception("查询商品详情失败: %s", product_id)
         raise HTTPException(status_code=500, detail="查询商品详情失败")
+    finally:
+        conn.close()
+
+
+def _check_write_permission(role: str) -> None:
+    if role not in ("admin", "manager"):
+        raise HTTPException(status_code=403, detail="权限不足，仅管理员和主管可操作")
+
+
+@router.post("/{product_id}/skus/batch-verify")
+def batch_verify_skus(
+    product_id: str,
+    data: BatchVerifyRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """批量审核SKU分类"""
+    _check_write_permission(current_user["role"])
+    if not data.sku_ids:
+        raise HTTPException(status_code=400, detail="未选择任何SKU")
+
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            if data.sku_category_id:
+                # 批量设置分类并标记为已审核
+                cur.execute(
+                    'UPDATE "ProductSku" SET sku_category_id=%s, is_verified=TRUE, updated_at=NOW() WHERE id=ANY(%s)',
+                    (data.sku_category_id, data.sku_ids),
+                )
+            else:
+                # 仅标记为已审核（保持现有分类不变）
+                cur.execute(
+                    'UPDATE "ProductSku" SET is_verified=TRUE, updated_at=NOW() WHERE id=ANY(%s)',
+                    (data.sku_ids,),
+                )
+            affected = cur.rowcount
+            conn.commit()
+        logger.info("批量审核SKU: product=%s sku_ids=%s cat_id=%s affected=%d by %s",
+                     product_id, data.sku_ids, data.sku_category_id, affected, current_user["username"])
+        return {"code": 200, "msg": f"已审核 {affected} 个SKU", "affected": affected}
+    except Exception:
+        logger.exception("批量审核SKU失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="审核失败")
+    finally:
+        conn.close()
+
+
+@router.post("/{product_id}/skus/{sku_id}/verify")
+def verify_single_sku(
+    product_id: str,
+    sku_id: int,
+    data: BatchVerifyRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """审核单个SKU分类"""
+    _check_write_permission(current_user["role"])
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'UPDATE "ProductSku" SET sku_category_id=%s, is_verified=TRUE, updated_at=NOW() WHERE id=%s',
+                (data.sku_category_id, sku_id),
+            )
+            conn.commit()
+        logger.info("审核单个SKU: product=%s sku=%d cat=%s by %s",
+                     product_id, sku_id, data.sku_category_id, current_user["username"])
+        return {"code": 200, "msg": "审核成功"}
+    except Exception:
+        logger.exception("审核SKU失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="审核失败")
     finally:
         conn.close()
 
