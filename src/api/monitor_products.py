@@ -515,6 +515,7 @@ def list_alerts_for_product(
 async def import_excel_preview(
     product_id: int,
     file: UploadFile = File(...),
+    platform: str = Form("taobao"),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     """阶段A — 上传DTS Excel，返回清洗后的预览数据"""
@@ -532,8 +533,12 @@ async def import_excel_preview(
             content = await file.read()
             f.write(content)
 
-        from services.dts_parser import DtsDataParser
-        parser = DtsDataParser()
+        if platform == "jd":
+            from services.dts_parser import JdDtsParser
+            parser = JdDtsParser()
+        else:
+            from services.dts_parser import DtsDataParser
+            parser = DtsDataParser()
         parsed = parser.parse(temp_path)
         if not parsed:
             raise HTTPException(status_code=400, detail="Excel解析失败")

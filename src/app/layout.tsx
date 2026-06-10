@@ -6,6 +6,24 @@ import { useRouter, usePathname } from 'next/navigation'
 import { useEffect, useCallback, useState, useRef } from 'react'
 import { apiFetch } from '@/lib/utils'
 
+function PlatformToggle() {
+  const [platform, setPlatform] = useState('taobao')
+  useEffect(() => { setPlatform(localStorage.getItem('platform') || 'taobao') }, [])
+  const switchTo = (p: string) => { setPlatform(p); localStorage.setItem('platform', p); window.location.reload() }
+  return (
+    <div className="flex items-center rounded-lg bg-gray-100 p-0.5">
+      <button onClick={() => switchTo('taobao')}
+        className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+          platform === 'taobao' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+        }`}>淘宝/天猫</button>
+      <button onClick={() => switchTo('jd')}
+        className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+          platform === 'jd' ? 'bg-red-500 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
+        }`}>京东</button>
+    </div>
+  )
+}
+
 function NotificationBell() {
   const { isAuthenticated } = useAuth()
   const pathname = usePathname()
@@ -193,6 +211,8 @@ function TopBar() {
           ))}
         </div>
         <div className="flex items-center gap-4">
+          {/* Platform Selector */}
+          <PlatformToggle />
           <NotificationBell />
           <div className="flex items-center gap-2 text-sm">
             <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-xs font-medium text-blue-700">

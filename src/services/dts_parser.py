@@ -86,6 +86,8 @@ class DtsDataParser:
     def __init__(self, output_dir: str | Path | None = None):
         self.output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        # 实例变量拷贝，允许子类覆盖列映射
+        self.column_patterns = dict(COLUMN_PATTERNS)
 
     # ── 主入口 ───────────────────────────────────────────
 
@@ -195,7 +197,7 @@ class DtsDataParser:
         """
         mapping: dict[str, str] = {}
 
-        for std_field, patterns in COLUMN_PATTERNS.items():
+        for std_field, patterns in self.column_patterns.items():
             for pattern in patterns:
                 for h in headers:
                     h_lower = h.lower()
@@ -370,6 +372,40 @@ class DtsDataParser:
         logger.info("数据清洗: 总计=%d 广告=%d 去重=%d 有效=%d",
                      stats["total_rows"], stats["total_ad_count"], stats["total_dup_count"], len(valid))
         return valid, stats["total_rows"], stats["total_ad_count"], stats["total_dup_count"]
+
+
+# ── 京东解析器 ────────────────────────────────────────────
+
+JD_COLUMN_PATTERNS: dict[str, list[str]] = {
+    "product_id": ["商品ID", "SKUID", "id", "商品编码"],
+    "title": ["商品标题", "标题", "商品名"],
+    "price": ["现价", "价格", "售价", "京东价"],
+    "sales": ["总销量", "销量", "累计销量"],
+    "shop_name": ["店铺名称", "店铺", "商家"],
+    "seller_name": ["掌柜名", "卖家", "供应商"],
+    "url": ["商品链接", "链接", "商品地址", "URL"],
+    "image_url": ["图片", "主图", "商品图片"],
+    "placeholder_type": ["占位类型", "广告位类型", "推广类型"],
+    "location": ["发货地", "所在地", "仓库"],
+    "shop_type": ["店铺类型", "类型"],
+    "daily_sales": ["日均销量", "日均付款人数"],
+    "category": ["类目", "商品类目"],
+    "is_tmall": ["是否自营", "自营"],
+    "tags": ["标签", "商品标签"],
+}
+
+
+class JdDtsParser(DtsDataParser):
+    """京东DTS解析器——继承淘宝解析器，仅覆盖列映射。
+
+    复用父类全部逻辑（parse, clean_ad_data, filter_natural_products,
+    extract_product_id, _parse_price, _parse_sales, normalize_products 等），
+    只在初始化时替换列映射为京东版。
+    """
+
+    def __init__(self, output_dir=None):
+        super().__init__(output_dir)
+        self.column_patterns = dict(JD_COLUMN_PATTERNS)
 
 
 # ── 便捷函数 ──────────────────────────────────────────────
