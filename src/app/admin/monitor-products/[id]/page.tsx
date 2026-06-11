@@ -76,7 +76,14 @@ export default function MonitorProductDetail() {
   useEffect(() => { fetchMp() }, [fetchMp])
 
   // Reload products when category filter changes
-  useEffect(() => { if(id && tab === 'products') { const params = new URLSearchParams({limit:'2000'}); if(catFilter) params.set('sku_category_id', String(catFilter)); apiFetch(`/api/monitor-products/${id}/products?${params}`).then(r => setProducts(r.items||[])).catch(()=>{}) } }, [catFilter, id])
+  const refreshProducts = async (filterId?: number | null) => {
+    const cid = filterId !== undefined ? filterId : catFilter
+    const params = new URLSearchParams({limit:'2000', _t: String(Date.now())})
+    if (cid != null && cid !== undefined) params.set('sku_category_id', String(cid))
+    const r = await apiFetch(`/api/monitor-products/${id}/products?${params}`).catch(() => ({items:[]}))
+    setProducts(r.items||[])
+  }
+  useEffect(() => { if(id && tab === 'products') { refreshProducts() } }, [catFilter, id])
 
   // Load categories on mount + auto-create 混合装 if missing
   const fetchCategories = async () => { if(!id) return
@@ -289,7 +296,7 @@ export default function MonitorProductDetail() {
             ))}
             <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类({(products||[]).length})</button>
             {catFilter === 0 && canWrite && (
-              <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); const params = new URLSearchParams({limit:'2000'}); if(catFilter) params.set('sku_category_id',String(catFilter)); const res = await apiFetch(`/api/monitor-products/${id}/products?${params}`); setProducts(res.items||[]) }}
+              <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); await refreshProducts() }}
                 style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #16a34a',background:'#16a34a',color:'#fff',cursor:'pointer' }}>⚡一键应用推荐</button>
             )}
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', marginLeft:8 }}>筛选:</span>
