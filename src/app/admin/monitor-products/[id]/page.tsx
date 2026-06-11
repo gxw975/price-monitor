@@ -76,11 +76,12 @@ export default function MonitorProductDetail() {
   }, [id])
   useEffect(() => { fetchMp() }, [fetchMp])
 
-  // Fetch counts on mount (lightweight)
-  useEffect(() => { if(id) {
-    apiFetch(`/api/monitor-products/${id}/products?limit=1`).then(r => setTotalProductCount((r as any)._total || r.items?.length || 0)).catch(()=>{})
-    apiFetch(`/api/monitor-products/${id}/products?limit=1&sku_category_id=0`).then(r => setUnclassifiedCount((r as any)._total || r.items?.length || 0)).catch(()=>{})
-  } }, [id])
+  // Fetch counts on mount + after changes
+  const fetchCounts = async () => { if(!id) return
+    const r = await apiFetch(`/api/monitor-products/${id}/products/counts`).catch(() => ({}))
+    setTotalProductCount(r.total || 0); setUnclassifiedCount(r.unclassified || 0)
+  }
+  useEffect(() => { fetchCounts() }, [id])
 
   // Reload products when category filter changes
   const refreshProducts = async (filterId?: number | null) => {
@@ -303,7 +304,7 @@ export default function MonitorProductDetail() {
             ))}
             <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类({unclassifiedCount})</button>
             {catFilter === 0 && canWrite && (
-              <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); await refreshProducts(); setUnclassifiedCount(prev => Math.max(0, prev - (r.applied || 0))); setTotalProductCount(prev => prev) }}
+              <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); await refreshProducts(); fetchCounts() }}
                 style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #16a34a',background:'#16a34a',color:'#fff',cursor:'pointer' }}>⚡一键应用推荐</button>
             )}
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', marginLeft:8 }}>筛选:</span>

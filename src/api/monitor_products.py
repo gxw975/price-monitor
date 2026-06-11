@@ -523,6 +523,21 @@ def delete_import_batch(
 # ═══════════════════════════════════════════════
 
 @router.get("/{product_id}/products")
+@router.get("/{product_id}/products/counts")
+def get_product_counts(product_id: int):
+    """获取商品分类计数"""
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute('SELECT platform FROM "MonitorProduct" WHERE id=%s', (product_id,))
+            row = cur.fetchone()
+            platform = row['platform'] if row else 'taobao'
+            cur.execute('SELECT COUNT(*) as total, COUNT(sku_category_id) as classified FROM "Product" WHERE monitor_product_id=%s AND platform=%s', (product_id, platform))
+            r = cur.fetchone()
+        return {"total": r['total'], "classified": r['classified'], "unclassified": r['total'] - r['classified']}
+    finally: conn.close()
+
+
 def list_products(
     product_id: int,
     keyword: str | None = None,
