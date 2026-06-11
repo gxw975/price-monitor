@@ -123,7 +123,7 @@ export default function MonitorProductDetail() {
   const filteredProds = sortedProds.filter(p => {
     if (catFilter) { const cat = categories.find((c:any) => c.id === catFilter); if (cat) { const kw = (cat.unit || cat.name.split(/[\s(（]/)[0]); if (!(p.title||'').includes(kw)) return false } }
     const f = filters
-    if (excludeWhitelist && whitelistSellers.includes(p.seller_name || '')) return false
+    if (excludeWhitelist && whitelistSellers.length > 0) { const wv = (mp?.platform === 'jd') ? (p.shop_name || '') : (p.seller_name || ''); if (whitelistSellers.includes(wv)) return false }
     if (onlyNew && latestBatchId && (p as any).import_batch_id !== latestBatchId) return false
     if (f.title && !(p.title||'').toLowerCase().includes(f.title.toLowerCase())) return false
     if (f.pid && !(p.product_id||'').includes(f.pid)) return false
