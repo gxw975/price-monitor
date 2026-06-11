@@ -346,7 +346,7 @@ def batch_handle_alerts(
     try:
         with conn.cursor() as cur:
             cur.execute(
-                'UPDATE "Alert" SET is_handled = TRUE, handled_at = NOW() WHERE id = ANY(%s)',
+                'UPDATE "Alert" SET is_handled = TRUE, is_read = TRUE, handled_at = NOW() WHERE id = ANY(%s)',
                 (ids,),
             )
             affected = cur.rowcount

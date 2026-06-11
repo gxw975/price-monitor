@@ -51,7 +51,7 @@ def notification_count(
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
                 'SELECT COUNT(*)::int AS cnt FROM "Alert" '
-                "WHERE is_read = FALSE AND status = 'unprocessed'"
+                "WHERE is_read = FALSE AND is_handled = FALSE"
             )
             unread_alerts = cur.fetchone()["cnt"]
 
