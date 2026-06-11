@@ -54,8 +54,12 @@ export default function MonitorProductDetail() {
       const found = (res.items || []).find((m: any) => m.id === id)
       if (found) {
         const selectedPlatform = localStorage.getItem('platform') || 'taobao'
-        if (selectedPlatform !== 'taobao' && found.platform !== selectedPlatform) {
-          router.replace('/admin/monitor-products'); return
+        // 平台不一致：自动找到同名异平台的监控商品并跳转
+        if (found.platform !== selectedPlatform) {
+          const alt = (res.items || []).find((m: any) => m.name === found.name && m.platform === selectedPlatform)
+          if (alt) { router.replace(`/admin/monitor-products/${alt.id}`) }
+          else { router.replace('/admin/monitor-products') }
+          return
         }
         setMp(found); setEditData(found); setWhitelistInput(found.whitelist_sellers || '')
       }
