@@ -267,6 +267,34 @@ def list_sku_categories(
 
 
 @router.post("/{product_id}/sku-categories", dependencies=[Depends(require_write_permission)])
+def _recalc_unit_prices(monitor_product_id: int, category_name: str):
+    """分类变更后重算匹配商品的价格"""
+    try:
+        import re
+        from services.sku_normalizer import DEFAULT_CATEGORY_RULES
+        keywords = DEFAULT_CATEGORY_RULES.get(category_name, [category_name])
+        conn = _get_conn()
+        with conn.cursor() as cur:
+            cur.execute('SELECT conversion_factor FROM "SkuCategory" WHERE monitor_product_id=%s AND name=%s', (monitor_product_id, category_name))
+            row = cur.fetchone()
+            factor = float(row[0] or 1.0) if row else 1.0
+            cur.execute('SELECT product_id, title, price FROM "Product" WHERE monitor_product_id=%s AND price > 0', (monitor_product_id,))
+            updated = 0
+            for pid, title, price in cur.fetchall():
+                if not any(kw in (title or '') for kw in keywords): continue
+                qty = int(re.search(r'(\d+)\s*(袋|罐|条|盒|瓶)', title or '').group(1)) if re.search(r'(\d+)\s*(袋|罐|条|盒|瓶)', title or '') else 1
+                tw = qty * factor * 25
+                up = round(float(price or 0) / tw, 4) if tw > 0 else 0
+                cur.execute('UPDATE "Product" SET unit_price=%s WHERE product_id=%s', (up, pid))
+                updated += 1
+            conn.commit()
+            if updated: logger.info('Unit price recalc: cat=%s updated=%d products', category_name, updated)
+    except Exception:
+        logger.exception('Unit price recalc failed')
+    finally:
+        conn.close()
+
+
 def create_sku_category(
     product_id: int,
     body: SkuCategoryCreate,
@@ -284,6 +312,7 @@ def create_sku_category(
             item = dict(cur.fetchone())
             conn.commit()
         logger.info("创建SKU分类: id=%d name=%s by %s", item["id"], body.name, current_user["username"])
+        _recalc_unit_prices(product_id, body.name)
         return {"success": True, "data": item}
     except Exception:
         logger.exception("创建SKU分类失败")
@@ -301,8 +330,12 @@ def delete_sku_category(
 ) -> dict[str, Any]:
     """删除SKU分类"""
     conn = _get_conn()
+    cat_name = ""
     try:
         with conn.cursor() as cur:
+            cur.execute('SELECT name FROM "SkuCategory" WHERE id=%s AND monitor_product_id=%s', (cat_id, product_id))
+            row = cur.fetchone()
+            if row: cat_name = row[0]
             cur.execute(
                 'DELETE FROM "SkuCategory" WHERE id = %s AND monitor_product_id = %s',
                 (cat_id, product_id),
@@ -310,6 +343,7 @@ def delete_sku_category(
             if cur.rowcount == 0:
                 raise HTTPException(status_code=404, detail="SKU分类不存在")
             conn.commit()
+        if cat_name: _recalc_unit_prices(product_id, cat_name)
         logger.info("删除SKU分类: id=%d by %s", cat_id, current_user["username"])
         return {"success": True}
     except HTTPException:
