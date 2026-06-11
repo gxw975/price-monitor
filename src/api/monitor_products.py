@@ -322,6 +322,30 @@ def create_sku_category(
         conn.close()
 
 
+@router.put("/{product_id}/sku-categories/{cat_id}", dependencies=[Depends(require_write_permission)])
+def update_product_category(
+    product_id: int, cat_id: int,
+    data: dict[str, Any],
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """为单个商品设置分类"""
+    pid = data.get('product_id')
+    cid = data.get('sku_category_id') if data.get('sku_category_id') is not None else None
+    if not pid and cat_id == 0: pid = data.get('product_id'); cid = None
+    elif cat_id > 0: cid = cat_id
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute('UPDATE "Product" SET sku_category_id=%s WHERE product_id=%s', (cid, pid))
+            conn.commit()
+        logger.info("商品分类更新: pid=%s cat=%s by %s", pid, cid, current_user["username"])
+        return {"success": True}
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="更新失败")
+    finally: conn.close()
+
+
 @router.delete("/{product_id}/sku-categories/{cat_id}", dependencies=[Depends(require_write_permission)])
 def delete_sku_category(
     product_id: int,
