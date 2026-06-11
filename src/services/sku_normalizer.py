@@ -136,24 +136,6 @@ class SkuNormalizer:
 
         return 1
 
-    def match_sku_category(self, sku_name: str) -> dict | None:
-        """根据SKU名称匹配分类。
-
-        Returns:
-            匹配的 SkuCategory dict，无法匹配则返回 None
-        """
-        if not sku_name:
-            return None
-
-        for cat in self._categories:
-            cat_name = cat["name"]
-            keywords = self._rules.get(cat_name, [cat_name])
-            for kw in keywords:
-                if kw in sku_name:
-                    return cat
-
-        return None
-
     def calculate_unit_price(
         self, sku_price: float, quantity: int, conversion_factor: float = 1.0
     ) -> float:
