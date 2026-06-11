@@ -121,7 +121,7 @@ export default function MonitorProductDetail() {
   const whitelistSellers = (mp?.whitelist_sellers || '').split(',').map(s => s.trim()).filter(Boolean)
   const latestBatchId = imports.length > 0 ? imports[0].id : null
   const filteredProds = sortedProds.filter(p => {
-    if (catFilter && (p as any).sku_category_id !== catFilter) return false
+    if (catFilter) { const cat = categories.find((c:any) => c.id === catFilter); if (cat) { const kw = (cat.unit || cat.name.split(/[\s(（]/)[0]); if (!(p.title||'').includes(kw)) return false } }
     const f = filters
     if (excludeWhitelist && whitelistSellers.includes(p.seller_name || '')) return false
     if (onlyNew && latestBatchId && (p as any).import_batch_id !== latestBatchId) return false
