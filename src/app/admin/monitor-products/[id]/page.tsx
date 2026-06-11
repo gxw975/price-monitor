@@ -38,6 +38,8 @@ export default function MonitorProductDetail() {
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
   const [hoverEditPid, setHoverEditPid] = useState<string | null>(null)
+  const [hoverTitlePid, setHoverTitlePid] = useState<string | null>(null)
+  const [hoverTitlePos, setHoverTitlePos] = useState({ x: 0, y: 0 })
   const [jumpPage, setJumpPage] = useState('')
   const [catFilter, setCatFilter] = useState<number | null>(null)
   const [filters, setFilters] = useState({ title: '', pid: '', minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
@@ -74,8 +76,14 @@ export default function MonitorProductDetail() {
   // Reload products when category filter changes
   useEffect(() => { if(id && tab === 'products') { const params = new URLSearchParams({limit:'2000'}); if(catFilter) params.set('sku_category_id', String(catFilter)); apiFetch(`/api/monitor-products/${id}/products?${params}`).then(r => setProducts(r.items||[])).catch(()=>{}) } }, [catFilter, id])
 
-  // Load categories on mount (needed for filter bar)
-  useEffect(() => { if(id) { apiFetch(`/api/monitor-products/${id}/sku-categories`).then(r => setCategories(r.items||[])).catch(()=>{}) } }, [id])
+  // Load categories on mount (auto-create 混合装 if missing)
+  useEffect(() => { if(id) { apiFetch(`/api/monitor-products/${id}/sku-categories`).then(async r => {
+    const cats = r.items||[]
+    if (!cats.find((c:any) => c.name.includes('混合装'))) {
+      await apiFetch(`/api/monitor-products/${id}/sku-categories`, {method:'POST', body:JSON.stringify({name:'混合装',unit:'组',conversion_factor:1})})
+      const r2 = await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r2.items||[])
+    } else setCategories(cats)
+  }).catch(()=>{}) } }, [id])
 
   useEffect(() => {
     if (!id) return
@@ -274,6 +282,10 @@ export default function MonitorProductDetail() {
               <button key={c.id} onClick={() => setCatFilter(c.id)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===c.id?'#1677ff':'#fff',color:catFilter===c.id?'#fff':'#666',cursor:'pointer' }}>{c.name}</button>
             ))}
             <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类</button>
+            {catFilter === 0 && canWrite && (
+              <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); const res = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(res.items||[]) }}
+                style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #16a34a',background:'#16a34a',color:'#fff',cursor:'pointer' }}>⚡一键应用推荐</button>
+            )}
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', marginLeft:8 }}>筛选:</span>
             <input placeholder="标题" value={filters.title} onChange={e => setFilter('title', e.target.value)}
               style={filterInput} />
@@ -351,7 +363,9 @@ export default function MonitorProductDetail() {
                     </td>
                     <td style={{...tdStyle,fontFamily:'monospace',fontSize:12}}>{p.product_id}</td>
                     <td style={tdStyle}>
-                      {(() => { const link = p.url || p.product_url || ((p.platform||'')==='jd'?`https://item.jd.com/${p.product_id}.html`:`https://item.taobao.com/item.htm?id=${p.product_id}`); return <a href={link.startsWith('http')?link:'https:'+link} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> })()}
+                      <div style={{position:'relative'}} onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoverTitlePid(p.product_id); setHoverTitlePos({x: r.right + 8, y: r.top}) }} onMouseLeave={() => setHoverTitlePid(null)}>
+                        {(() => { const link = p.url || p.product_url || ((p.platform||'')==='jd'?`https://item.jd.com/${p.product_id}.html`:`https://item.taobao.com/item.htm?id=${p.product_id}`); return <a href={link.startsWith('http')?link:'https:'+link} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> })()}
+                      </div>
                     </td>
                     <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
@@ -438,6 +452,17 @@ export default function MonitorProductDetail() {
           </p>
         </div>
       )}
+
+      {/* Title hover preview card */}
+      {hoverTitlePid && (() => { const hp = products.find((pr:any) => pr.product_id === hoverTitlePid); if (!hp) return null;
+        return <div style={{position:'fixed',left:hoverTitlePos.x,top:Math.min(hoverTitlePos.y, window.innerHeight-260),zIndex:9999,pointerEvents:'none',background:'#fff',borderRadius:8,boxShadow:'0 4px 20px rgba(0,0,0,0.2)',padding:12,width:280}}>
+          {(hp.image_url||hp.main_image_url) && <img src={hp.image_url||hp.main_image_url} alt="" style={{width:'100%',maxHeight:160,objectFit:'contain',borderRadius:4,marginBottom:8}} />}
+          <div style={{fontSize:12,color:'#dc2626',fontWeight:600,marginBottom:4}}>¥{Number(hp.price||0).toFixed(2)}</div>
+          <div style={{fontSize:11,color:'#666'}}>销量: {hp.sales?.toLocaleString()||'-'}</div>
+          <div style={{fontSize:11,color:'#999',marginTop:2}}>店铺: {hp.shop_name||'-'}</div>
+          <div style={{fontSize:11,color:'#3730a3',marginTop:4}}>推荐分类: {categories.find((c:any)=>c.id===(hp as any).sku_category_id)?.name || '未分类'}</div>
+        </div>
+      })()}
 
       {/* Alerts Tab */}
       {tab === 'alerts' && (

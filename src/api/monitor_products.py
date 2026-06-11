@@ -363,6 +363,40 @@ def update_product_category(
     finally: conn.close()
 
 
+@router.post("/{product_id}/apply-recommendations", dependencies=[Depends(require_write_permission)])
+def apply_recommendations(
+    product_id: int,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """一键应用推荐分类：对未分类商品自动匹配并保存"""
+    import re
+    from services.sku_normalizer import SkuNormalizer, DEFAULT_CATEGORY_RULES
+    normalizer = SkuNormalizer(product_id)
+    conn = _get_conn()
+    applied = 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute('SELECT product_id, title, price FROM "Product" WHERE monitor_product_id=%s AND sku_category_id IS NULL AND price > 0', (product_id,))
+            products = cur.fetchall()
+            for pid, title, price in products:
+                if not title: continue
+                cat = normalizer.match_sku_category(title)
+                if not cat or not cat.get('id'): continue
+                qty = normalizer.extract_quantity(title)
+                factor = float(cat.get('conversion_factor', 1.0))
+                tw = qty * factor * 25
+                up = round(float(price or 0) / tw, 4) if tw > 0 else 0
+                cur.execute('UPDATE "Product" SET sku_category_id=%s, unit_price=%s WHERE product_id=%s', (cat['id'], up, pid))
+                applied += 1
+            conn.commit()
+        logger.info("一键推荐: mp_id=%d applied=%d total=%d by %s", product_id, applied, len(products), current_user["username"])
+        return {"code": 200, "msg": f"已应用 {applied} 条推荐（共 {len(products)} 条未分类）", "applied": applied, "total": len(products)}
+    except Exception:
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="应用推荐失败")
+    finally: conn.close()
+
+
 @router.delete("/{product_id}/sku-categories/{cat_id}", dependencies=[Depends(require_write_permission)])
 def delete_sku_category(
     product_id: int,
