@@ -453,7 +453,7 @@ export default function MonitorProductDetail() {
       {/* History chart modal */}
       {chartPid && (
         <div style={modalOverlay}>
-          <div style={{...modalContent,width:960}}>
+          <div style={{...modalContent,width:'92vw',maxWidth:1140,maxHeight:'90vh',overflow:'auto'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
               <h3 style={{fontSize:16,fontWeight:600}}>历史趋势 — {chartPid}</h3>
               <button onClick={() => setChartPid(null)} style={btnSecondary}>关闭</button>
@@ -535,46 +535,51 @@ const modalContent:React.CSSProperties={background:'#fff',borderRadius:8,padding
 function HistoryChart({ data }: { data: any[] }) {
   const [hoverX, setHoverX] = useState<number | null>(null)
   if (!data.length) return null
-  const W=880, H=280, padL=55, padR=30, padT=20, padB=40
-  const chartW=W-padL-padR, chartH=H-padT-padB
-  const prices=data.map((d:any)=>d.avg_price||d.min_price||0).reverse()
-  const sales=data.map((d:any)=>d.entries||0).reverse()
-  const labels=data.map((d:any)=>d.date||'').reverse()
+  // Date ascending (old→new, left→right)
+  const sorted = [...data].sort((a:any,b:any) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  const prices=sorted.map((d:any)=>d.avg_price||d.min_price||0)
+  const sales=sorted.map((d:any)=>d.entries||0)
+  const labels=sorted.map((d:any)=>d.date||'')
   const maxP=Math.max(...prices,1), minP=Math.min(...prices.filter((p:number)=>p>0),maxP)
   const rangeP=maxP-minP||1; const maxS=Math.max(...sales,1)
+  // Responsive sizing using viewport
+  const W=Math.min(window.innerWidth*0.85, 1100), H=Math.min(window.innerHeight*0.55, 420)
+  const padL=70, padR=80, padT=30, padB=50
+  const chartW=W-padL-padR, chartH=H-padT-padB
   const px=(i:number)=>padL+(i/(prices.length-1||1))*chartW
   const pyP=(v:number)=>padT+chartH-((v-minP)/rangeP)*chartH
   const pyS=(v:number)=>padT+chartH-((v/maxS)*chartH)
   const line=(vals:number[],fn:(v:number)=>number)=>vals.map((v,i)=>`${i===0?'M':'L'}${px(i)},${fn(v)}`).join(' ')
-  // Find closest data point to hoverX
   let hoverIdx=-1, hoverPrice=0, hoverSales=0, hoverLabel=''
   if (hoverX!==null) { hoverIdx=Math.round(((hoverX-padL)/chartW)*(prices.length-1)); hoverIdx=Math.max(0,Math.min(prices.length-1,hoverIdx)); hoverPrice=prices[hoverIdx]; hoverSales=sales[hoverIdx]; hoverLabel=labels[hoverIdx] }
-  return <div style={{position:'relative'}}>
-    <svg width={W} height={H} style={{fontSize:10,cursor:'crosshair'}} onMouseMove={e=>{const r=e.currentTarget.getBoundingClientRect();setHoverX(e.clientX-r.left)}} onMouseLeave={()=>setHoverX(null)}>
-      <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#dc2626" stopOpacity={0.12}/><stop offset="100%" stopColor="#dc2626" stopOpacity={0}/></linearGradient></defs>
-      {/* Grid lines */}
-      {[0,0.25,0.5,0.75,1].map(r=><g key={'g'+r}><line x1={padL} y1={pyP(minP+rangeP*r)} x2={W-padR} y2={pyP(minP+rangeP*r)} stroke="#f0f0f0" strokeWidth={1}/><text x={padL-6} y={pyP(minP+rangeP*r)+3} fill="#999" fontSize={10} textAnchor="end">¥{Math.round(minP+rangeP*r)}</text></g>)}
-      {/* Area fill for price */}
+  return <div style={{position:'relative',width:W,height:H}}>
+    <svg width={W} height={H} style={{fontSize:11,cursor:'crosshair'}} onMouseMove={e=>{const r=e.currentTarget.getBoundingClientRect();setHoverX(e.clientX-r.left)}} onMouseLeave={()=>setHoverX(null)}>
+      <defs><linearGradient id="pg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#dc2626" stopOpacity={0.15}/><stop offset="100%" stopColor="#dc2626" stopOpacity={0}/></linearGradient></defs>
+      {/* Grid + Y-axis labels for PRICE (left) */}
+      {[0,0.25,0.5,0.75,1].map(r=><g key={'gp'+r}><line x1={padL} y1={pyP(minP+rangeP*r)} x2={W-padR} y2={pyP(minP+rangeP*r)} stroke="#f0f0f0" strokeWidth={1}/><text x={padL-10} y={pyP(minP+rangeP*r)+4} fill="#dc2626" fontSize={11} textAnchor="end">¥{Math.round(minP+rangeP*r)}</text></g>)}
+      {/* Grid for SALES (right Y-axis, positions only) */}
+      {[0,0.5,1].map(r=><text key={'gs'+r} x={W-padR+30} y={pyS(maxS*r)+4} fill="#3b82f6" fontSize={11} textAnchor="start">{Math.round(maxS*r)}单</text>)}
+      {/* Area fill */}
       <path d={`${line(prices,pyP)} L${px(prices.length-1)},${padT+chartH} L${px(0)},${padT+chartH} Z`} fill="url(#pg)"/>
       {/* Price line */}
       <path d={line(prices,pyP)} fill="none" stroke="#dc2626" strokeWidth={2.5}/>
-      {prices.map((v,i)=><circle key={'p'+i} cx={px(i)} cy={pyP(v)} r={3} fill="#fff" stroke="#dc2626" strokeWidth={2}/>)}
+      {prices.length<=60 && prices.map((v,i)=><circle key={'p'+i} cx={px(i)} cy={pyP(v)} r={3} fill="#fff" stroke="#dc2626" strokeWidth={2}/>)}
       {/* Sales line */}
       <path d={line(sales,pyS)} fill="none" stroke="#3b82f6" strokeWidth={2} strokeDasharray="6,3"/>
-      {/* X-axis labels */}
-      {labels.filter((_:any,i:number)=>i%Math.ceil(labels.length/10)===0||i===labels.length-1).map((l:string,i:number)=><text key={l} x={px(i*Math.ceil(labels.length/10))} y={H-6} fill="#999" fontSize={10} textAnchor="middle">{l.slice(5)}</text>)}
+      {/* X-axis labels (show ~10 evenly spaced) */}
+      {labels.filter((_:any,i:number)=>i%Math.max(1,Math.ceil(labels.length/10))===0||i===labels.length-1).map((l:string,i:number)=><text key={l} x={px(i*Math.max(1,Math.ceil(labels.length/10)))} y={H-8} fill="#999" fontSize={11} textAnchor="middle">{l.slice(5)}</text>)}
       {/* Axes */}
       <line x1={padL} y1={padT} x2={padL} y2={padT+chartH} stroke="#e5e7eb"/><line x1={padL} y1={padT+chartH} x2={W-padR} y2={padT+chartH} stroke="#e5e7eb"/>
       {/* Crosshair */}
       {hoverIdx>=0 && <><line x1={px(hoverIdx)} y1={padT} x2={px(hoverIdx)} y2={padT+chartH} stroke="#999" strokeWidth={1} strokeDasharray="3,3"/>
-        <circle cx={px(hoverIdx)} cy={pyP(hoverPrice)} r={5} fill="#dc2626" stroke="#fff" strokeWidth={2}/>
-        <circle cx={px(hoverIdx)} cy={pyS(hoverSales)} r={4} fill="#3b82f6" stroke="#fff" strokeWidth={2}/></>}
+        <circle cx={px(hoverIdx)} cy={pyP(hoverPrice)} r={6} fill="#dc2626" stroke="#fff" strokeWidth={2}/>
+        <circle cx={px(hoverIdx)} cy={pyS(hoverSales)} r={5} fill="#3b82f6" stroke="#fff" strokeWidth={2}/></>}
     </svg>
     {/* Tooltip */}
-    {hoverIdx>=0 && <div style={{position:'absolute',top:padT+4,left:px(hoverIdx)>W/2?px(hoverIdx)-140:px(hoverIdx)+16,background:'rgba(0,0,0,0.8)',color:'#fff',fontSize:12,padding:'6px 10px',borderRadius:6,pointerEvents:'none',whiteSpace:'nowrap'}}>
-      <div>{hoverLabel}</div><div style={{color:'#fca5a5'}}>💰 ¥{hoverPrice.toFixed(2)}</div><div style={{color:'#93c5fd'}}>📈 {hoverSales}单</div></div>}
+    {hoverIdx>=0 && <div style={{position:'absolute',top:padT+4,left:px(hoverIdx)>W/2?px(hoverIdx)-150:px(hoverIdx)+16,background:'rgba(0,0,0,0.85)',color:'#fff',fontSize:13,padding:'8px 12px',borderRadius:8,pointerEvents:'none',whiteSpace:'nowrap',zIndex:10}}>
+      <div style={{fontWeight:600,marginBottom:4}}>{hoverLabel}</div><div style={{color:'#fca5a5'}}>💰 价格 ¥{hoverPrice.toFixed(2)}</div><div style={{color:'#93c5fd'}}>📈 销量 {hoverSales}单</div></div>}
     {/* Legend */}
-    <div style={{position:'absolute',top:padT,right:padR,display:'flex',gap:12,fontSize:11,background:'#fff',padding:'2px 8px',borderRadius:4}}>
+    <div style={{position:'absolute',top:padT+2,right:padR-10,display:'flex',gap:16,fontSize:12,background:'rgba(255,255,255,0.9)',padding:'4px 12px',borderRadius:4,border:'1px solid #e5e7eb'}}>
       <span style={{color:'#dc2626'}}>● 价格</span><span style={{color:'#3b82f6'}}>● 销量</span></div>
   </div>
 }
