@@ -641,6 +641,28 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
         finally:
             svc.close()
 
+        # ── SKU auto-classification ──
+        try:
+            from services.sku_normalizer import SkuNormalizer
+            normalizer = SkuNormalizer(product_id)
+            for pid in selected_ids:
+                pdata = products_map.get(pid, {})
+                title = (pdata.get('title') or '')
+                price = float(pdata.get('price', 0) or 0)
+                if not title or price <= 0: continue
+                cat = normalizer.match_sku_category(title)
+                if cat:
+                    qty = normalizer.extract_quantity(title)
+                    total_weight = qty * cat.get('conversion_factor', 1.0) * 25
+                    up = round(price / total_weight, 4) if total_weight > 0 else 0
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            'UPDATE "Product" SET sku_category_id=%s, unit_price=%s WHERE product_id=%s',
+                            (cat['id'], up, pid))
+                    conn.commit()
+        except Exception:
+            logger.exception("SKU auto-classification failed")
+
         with conn.cursor() as cur:
             cur.execute('UPDATE "ImportBatch" SET valid_count=%s WHERE id=%s', (inserted, batch_id))
             conn.commit()
