@@ -37,6 +37,7 @@ export default function MonitorProductDetail() {
   const [prodSort, setProdSort] = useState<string | null>(null); const [prodSortDir, setProdSortDir] = useState<'asc'|'desc'>('asc')
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
+  const [hoverEditPid, setHoverEditPid] = useState<string | null>(null)
   const [jumpPage, setJumpPage] = useState('')
   const [catFilter, setCatFilter] = useState<number | null>(null)
   const [filters, setFilters] = useState({ title: '', pid: '', minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
@@ -359,16 +360,23 @@ export default function MonitorProductDetail() {
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
                     <td style={tdStyle}>
-                      <select value={(p as any).sku_category_id || 0} onChange={async e => {
-                        const cid = parseInt(e.target.value) || null
-                        const pid = p.product_id
-                        if (!cid) { await apiFetch(`/api/monitor-products/${id}/sku-categories/0`, {method:'PUT', body:JSON.stringify({product_id: pid, sku_category_id: null})}) }
-                        else { await apiFetch(`/api/monitor-products/${id}/sku-categories/${cid}`, {method:'PUT', body:JSON.stringify({product_id: pid, sku_category_id: cid})}) }
-                        const r = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(r.items||[])
-                      }} style={{fontSize:10,padding:'1px 2px',border:'1px solid #d9d9d9',borderRadius:3,maxWidth:80}}>
-                        <option value={0}>未分类</option>
-                        {categories.map((c:any) => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
+                      <div style={{position:'relative'}} onMouseEnter={() => setHoverEditPid(p.product_id)} onMouseLeave={() => setHoverEditPid(null)}>
+                        {hoverEditPid === p.product_id ? (
+                          <select value={(p as any).sku_category_id || 0} onChange={async e => {
+                            const cid = parseInt(e.target.value) || null
+                            const lnk = cid ? `/api/monitor-products/${id}/sku-categories/${cid}` : `/api/monitor-products/${id}/sku-categories/0`
+                            await apiFetch(lnk, {method:'PUT', body:JSON.stringify({product_id: p.product_id, sku_category_id: cid || null})})
+                            const r = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(r.items||[]); setHoverEditPid(null)
+                          }} style={{fontSize:10,padding:'1px 2px',border:'1px solid #d9d9d9',borderRadius:3,maxWidth:80}} autoFocus>
+                            <option value={0}>未分类</option>
+                            {categories.map((c:any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                        ) : (
+                          <span style={{fontSize:11,color:(p as any).sku_category_id?'#3730a3':'#999',cursor:'pointer',borderBottom:'1px dashed #d9d9d9'}}>
+                            {categories.find((c:any) => c.id === (p as any).sku_category_id)?.name || '未分类'}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     {canWrite && <td style={tdStyle}><div style={{display:'flex',gap:4}}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button><button onClick={() => setDelProduct(p)} style={{padding:'2px 6px',fontSize:11,color:'#dc2626',border:'1px solid #fecaca',borderRadius:4,background:'#fff',cursor:'pointer'}}>删除</button></div></td>}
                   </tr>
