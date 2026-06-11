@@ -20,6 +20,7 @@ export default function AnalysisPage() {
   const [whitelistSellers, setWhitelistSellers] = useState<string[]>([])
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
+  const [currentPlatform, setCurrentPlatform] = useState('taobao')
   const [chartPid, setChartPid] = useState<string | null>(null)
   const [chartData, setChartData] = useState<any[]>([])
   const [chartLoading, setChartLoading] = useState(false)
@@ -138,7 +139,7 @@ export default function AnalysisPage() {
               <thead><tr style={{background:'#fafafa'}}>
                 <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('price');setSortDir(d=>d==='asc'?'desc':'asc')}}>现价{sortKey==='price'?(sortDir==='asc'?'▲':'▼'):''}</th>
                 <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('sales');setSortDir(d=>d==='asc'?'desc':'asc')}}>销量{sortKey==='sales'?(sortDir==='asc'?'▲':'▼'):''}</th>
-                <th style={thStyle}>店铺</th><th style={thStyle}>操作</th>
+                <th style={thStyle}>店铺</th><th style={thStyle}>掌柜名</th><th style={thStyle}>地址</th><th style={thStyle}>操作</th>
               </tr></thead>
               <tbody>{filtered.slice(0,200).map(p=>(
                 <tr key={p.product_id} style={{borderBottom:'1px solid #f0f0f0'}}>
@@ -147,6 +148,8 @@ export default function AnalysisPage() {
                   <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{(p.price||0).toFixed(0)}</td>
                   <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
+                  <td style={tdStyle}>{p.seller_name||'-'}</td>
+                  <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
                   <td style={tdStyle}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button></td>
                 </tr>
               ))}</tbody>
