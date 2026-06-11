@@ -36,7 +36,7 @@ export default function MonitorProductDetail() {
   const [prodSort, setProdSort] = useState<string | null>(null); const [prodSortDir, setProdSortDir] = useState<'asc'|'desc'>('asc')
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [jumpPage, setJumpPage] = useState('')
-  const [filters, setFilters] = useState({ minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
+  const [filters, setFilters] = useState({ title: '', minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
   const [onlyNew, setOnlyNew] = useState(false)
   const [excludeWhitelist, setExcludeWhitelist] = useState(false)
   const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
@@ -119,6 +119,7 @@ export default function MonitorProductDetail() {
     const f = filters
     if (excludeWhitelist && whitelistSellers.includes(p.seller_name || '')) return false
     if (onlyNew && latestBatchId && (p as any).import_batch_id !== latestBatchId) return false
+    if (f.title && !(p.title||'').toLowerCase().includes(f.title.toLowerCase())) return false
     if (f.minPrice && (p.price||0) < parseFloat(f.minPrice)) return false
     if (f.maxPrice && (p.price||0) > parseFloat(f.maxPrice)) return false
     if (f.minSales && (p.sales||0) < parseInt(f.minSales)) return false
@@ -257,6 +258,8 @@ export default function MonitorProductDetail() {
           {/* Filter bar */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center', padding: 8, background: '#f9fafb', borderRadius: 6, border: '1px solid #e5e7eb' }}>
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>筛选:</span>
+            <input placeholder="标题" value={filters.title} onChange={e => setFilter('title', e.target.value)}
+              style={filterInput} />
             <input placeholder="现价≥" value={filters.minPrice} onChange={e => setFilter('minPrice', e.target.value)}
               style={filterInput} type="number" />
             <input placeholder="现价≤" value={filters.maxPrice} onChange={e => setFilter('maxPrice', e.target.value)}
@@ -289,7 +292,7 @@ export default function MonitorProductDetail() {
                 🛡️ 去除白名单({whitelistSellers.length})
               </label>
             )}
-            <button onClick={() => { setFilters({ minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setOnlyNew(false); setExcludeWhitelist(false); setProdPage(1) }}
+            <button onClick={() => { setFilters({ title:'',minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setOnlyNew(false); setExcludeWhitelist(false); setProdPage(1) }}
               style={{ ...btnSecondary, fontSize: 12, padding: '3px 10px' }}>清除</button>
             <span style={{ fontSize: 11, color: '#999', marginLeft: 'auto' }}>筛选后 {filteredProds.length} 条</span>
           </div>
