@@ -89,15 +89,26 @@ class SkuNormalizer:
             conn.close()
 
     def match_sku_category(self, sku_name: str) -> dict | None:
-        """根据SKU名称匹配分类（含默认规则）"""
+        """根据SKU名称匹配分类（含默认规则+重量推断）"""
         if not sku_name or not self._rules:
             return None
+        # 1. Keyword matching
         for cat in self._categories:
             name = cat["name"]
             keywords = self._rules.get(name, [name])
             for kw in keywords:
                 if kw in sku_name:
                     return cat
+        # 2. Weight fallback: 300g→袋装, 800g→罐装
+        weight_cat = {'300':'袋装','400':'袋装','25g':'条装','800':'罐装','900':'罐装'}
+        import re as _re
+        m = _re.search(r'(\d+)\s*g', sku_name.lower())
+        if m:
+            base = weight_cat.get(m.group(1))
+            if base:
+                for cat in self._categories:
+                    if cat['name'].startswith(base):
+                        return cat
         return None
 
     def extract_quantity(self, sku_name: str) -> int:
