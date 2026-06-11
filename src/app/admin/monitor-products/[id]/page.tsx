@@ -272,6 +272,7 @@ export default function MonitorProductDetail() {
             {categories.map((c:any) => (
               <button key={c.id} onClick={() => setCatFilter(c.id)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===c.id?'#1677ff':'#fff',color:catFilter===c.id?'#fff':'#666',cursor:'pointer' }}>{c.name}</button>
             ))}
+            <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类</button>
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', marginLeft:8 }}>筛选:</span>
             <input placeholder="标题" value={filters.title} onChange={e => setFilter('title', e.target.value)}
               style={filterInput} />
