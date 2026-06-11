@@ -72,17 +72,28 @@ def _get_conn() -> Any:
 @router.get("/{product_id}")
 def get_product_detail(
     product_id: str,
+    platform: str | None = None,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute(
-                'SELECT product_id, title, main_image_url, shop_name, shop_type, '
-                "shipping_area, is_approved, is_whitelist, created_at, last_updated_at, "
-                'last_sku_crawled_at FROM "Product" WHERE product_id = %s',
-                (product_id,),
-            )
+            if platform:
+                cur.execute(
+                    'SELECT product_id, title, main_image_url, shop_name, shop_type, '
+                    "shipping_area, is_approved, is_whitelist, created_at, last_updated_at, "
+                    'last_sku_crawled_at, platform, price, sales_volume, image_url, seller_name, product_url '
+                    'FROM "Product" WHERE product_id = %s AND platform = %s',
+                    (product_id, platform),
+                )
+            else:
+                cur.execute(
+                    'SELECT product_id, title, main_image_url, shop_name, shop_type, '
+                    "shipping_area, is_approved, is_whitelist, created_at, last_updated_at, "
+                    'last_sku_crawled_at, platform, price, sales_volume, image_url, seller_name, product_url '
+                    'FROM "Product" WHERE product_id = %s',
+                    (product_id,),
+                )
             product = cur.fetchone()
             if not product:
                 raise HTTPException(status_code=404, detail="商品不存在")

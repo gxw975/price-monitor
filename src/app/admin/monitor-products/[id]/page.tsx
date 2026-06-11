@@ -55,6 +55,9 @@ export default function MonitorProductDetail() {
       if (found) { setMp(found); setEditData(found); setWhitelistInput(found.whitelist_sellers || '') }
     } catch { /**/ } finally { setLoading(false) }
   }, [id])
+  const [currentPlatform, setCurrentPlatform] = useState('taobao')
+  useEffect(() => { setCurrentPlatform(localStorage.getItem('platform') || 'taobao') }, [])
+
   useEffect(() => { fetchMp() }, [fetchMp])
 
   useEffect(() => {
