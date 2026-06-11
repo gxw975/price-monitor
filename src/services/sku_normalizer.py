@@ -100,7 +100,7 @@ class SkuNormalizer:
                 if kw in sku_name:
                     return cat
         # 2. Weight fallback: 300g→袋装, 800g→罐装
-        weight_cat = {'300':'袋装','400':'袋装','25g':'条装','800':'罐装','900':'罐装'}
+        weight_cat = {'25':'条装','300':'袋装','400':'袋装','500':'袋装','800':'罐装','900':'罐装','1000':'罐装','1100':'罐装','1200':'罐装'}
         import re as _re
         m = _re.search(r'(\d+)\s*g', sku_name.lower())
         if m:
