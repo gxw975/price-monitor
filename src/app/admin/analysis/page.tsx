@@ -126,7 +126,7 @@ export default function AnalysisPage() {
                     <div style={{fontSize:12,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.title}</div>
                     <div style={{fontSize:11,color:'#999'}}>{p.shop_name}</div>
                   </div>
-                  <div style={{fontSize:14,fontWeight:700,color:'#dc2626'}}>¥{(p.price||0).toFixed(0)}</div>
+                  <div style={{fontSize:14,fontWeight:700,color:'#dc2626'}}>¥{Number(p.price||0).toFixed(0)}</div>
                 </div>
               ))}
             </div>
@@ -145,7 +145,7 @@ export default function AnalysisPage() {
                 <tr key={p.product_id} style={{borderBottom:'1px solid #f0f0f0'}}>
                   <td style={tdStyle}>{(p.image_url||p.main_image_url)?<img src={p.image_url||p.main_image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,cursor:'pointer'}} onMouseEnter={(e) => {const r = e.currentTarget.getBoundingClientRect(); setHoverImg(p.image_url||p.main_image_url); setHoverPos({x: r.right + 8, y: r.top})}} onMouseLeave={() => setHoverImg(null)}/>:<div style={{width:36,height:36,background:'#f5f5f5',borderRadius:4}}/>}</td>
                   <td style={tdStyle}>{p.url||p.product_url?<a href={(p.url||p.product_url||'').startsWith('https')?p.url||p.product_url:'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a>:p.title}</td>
-                  <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{(p.price||0).toFixed(0)}</td>
+                  <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(0)}</td>
                   <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
                   <td style={tdStyle}>{p.seller_name||'-'}</td>
