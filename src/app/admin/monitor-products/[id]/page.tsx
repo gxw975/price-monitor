@@ -35,6 +35,7 @@ export default function MonitorProductDetail() {
   const [prodPage, setProdPage] = useState(1); const [prodPageSize, setProdPageSize] = useState(20)
   const [prodSort, setProdSort] = useState<string | null>(null); const [prodSortDir, setProdSortDir] = useState<'asc'|'desc'>('asc')
   const [hoverImg, setHoverImg] = useState<string | null>(null)
+  const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
   const [jumpPage, setJumpPage] = useState('')
   const [catFilter, setCatFilter] = useState<number | null>(null)
   const [filters, setFilters] = useState({ title: '', pid: '', minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
@@ -330,11 +331,11 @@ export default function MonitorProductDetail() {
                         <div style={{ position: 'relative' }}>
                           <img src={p.image_url || p.main_image_url} alt="" style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, border: '1px solid #f0f0f0', cursor: 'pointer' }}
                             onError={e => { (e.target as HTMLImageElement).style.display = 'none' }}
-                            onMouseEnter={() => setHoverImg(p.image_url || p.main_image_url)}
+                            onMouseEnter={(e) => { const r = e.currentTarget.getBoundingClientRect(); setHoverImg(p.image_url || p.main_image_url); setHoverPos({x: r.right + 8, y: r.top}) }}
                             onMouseLeave={() => setHoverImg(null)} />
                           {hoverImg === (p.image_url || p.main_image_url) && (
-                            <div style={{ position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%,-50%)', zIndex: 2000, border: '2px solid #e5e7eb', borderRadius: 8, background: '#fff', boxShadow: '0 4px 24px rgba(0,0,0,0.2)', padding: 8 }}>
-                              <img src={p.image_url || p.main_image_url} alt="" style={{ width: 300, height: 300, objectFit: 'contain', borderRadius: 4 }} />
+                            <div style={{ position: 'fixed', left: hoverPos.x, top: Math.min(hoverPos.y, window.innerHeight - 320), zIndex: 9999, pointerEvents: 'none' }}>
+                              <img src={p.image_url || p.main_image_url} alt="" style={{ width: 260, height: 260, objectFit: 'contain', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', background: '#fff', padding: 4 }} />
                             </div>
                           )}
                         </div>
