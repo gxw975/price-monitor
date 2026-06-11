@@ -76,14 +76,18 @@ export default function MonitorProductDetail() {
   // Reload products when category filter changes
   useEffect(() => { if(id && tab === 'products') { const params = new URLSearchParams({limit:'2000'}); if(catFilter) params.set('sku_category_id', String(catFilter)); apiFetch(`/api/monitor-products/${id}/products?${params}`).then(r => setProducts(r.items||[])).catch(()=>{}) } }, [catFilter, id])
 
-  // Load categories on mount (auto-create 混合装 if missing)
-  useEffect(() => { if(id) { apiFetch(`/api/monitor-products/${id}/sku-categories`).then(async r => {
-    const cats = r.items||[]
-    if (!cats.find((c:any) => c.name.includes('混合装'))) {
-      await apiFetch(`/api/monitor-products/${id}/sku-categories`, {method:'POST', body:JSON.stringify({name:'混合装',unit:'组',conversion_factor:1})})
-      const r2 = await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r2.items||[])
-    } else setCategories(cats)
-  }).catch(()=>{}) } }, [id])
+  // Load categories on mount + auto-create 混合装 if missing
+  const fetchCategories = async () => { if(!id) return
+    const r = await apiFetch(`/api/monitor-products/${id}/sku-categories`).catch(() => ({items:[]}))
+    setCategories(r.items||[])
+    // Auto-create 混合装 in background
+    if (!(r.items||[]).find((c:any) => (c.name||'').includes('混合装'))) {
+      await apiFetch(`/api/monitor-products/${id}/sku-categories`, {method:'POST', body:JSON.stringify({name:'混合装',unit:'组',conversion_factor:1})}).catch(()=>{})
+      const r2 = await apiFetch(`/api/monitor-products/${id}/sku-categories`).catch(() => ({items:[]}))
+      setCategories(r2.items||[])
+    }
+  }
+  useEffect(() => { fetchCategories() }, [id])
 
   useEffect(() => {
     if (!id) return
@@ -374,7 +378,7 @@ export default function MonitorProductDetail() {
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
                     <td style={tdStyle}>
-                      <div style={{position:'relative'}} onMouseEnter={() => setHoverEditPid(p.product_id)} onMouseLeave={() => setHoverEditPid(null)}>
+                      <div style={{position:'relative'}}>
                         {hoverEditPid === p.product_id ? (
                           <select value={(p as any).sku_category_id || 0} onChange={async e => {
                             const cid = parseInt(e.target.value) || null
@@ -386,7 +390,7 @@ export default function MonitorProductDetail() {
                             {categories.map((c:any) => <option key={c.id} value={c.id}>{c.name}</option>)}
                           </select>
                         ) : (
-                          <span style={{fontSize:11,color:(p as any).sku_category_id?'#3730a3':'#999',cursor:'pointer',borderBottom:'1px dashed #d9d9d9'}}>
+                          <span onClick={() => setHoverEditPid(p.product_id)} style={{fontSize:11,color:(p as any).sku_category_id?'#3730a3':'#999',cursor:'pointer',borderBottom:'1px dashed #d9d9d9'}}>
                             {categories.find((c:any) => c.id === (p as any).sku_category_id)?.name || '未分类'}
                           </span>
                         )}
