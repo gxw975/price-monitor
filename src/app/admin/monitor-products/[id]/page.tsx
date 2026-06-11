@@ -281,11 +281,11 @@ export default function MonitorProductDetail() {
           {/* Filter bar */}
           <div style={{ display: 'flex', gap: 8, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center', padding: 8, background: '#f9fafb', borderRadius: 6, border: '1px solid #e5e7eb' }}>
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>规格:</span>
-            <button onClick={() => setCatFilter(null)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===null?'#1677ff':'#fff',color:catFilter===null?'#fff':'#666',cursor:'pointer' }}>全部</button>
+            <button onClick={() => setCatFilter(null)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===null?'#1677ff':'#fff',color:catFilter===null?'#fff':'#666',cursor:'pointer' }}>全部({(products||[]).length})</button>
             {categories.map((c:any) => (
               <button key={c.id} onClick={() => setCatFilter(c.id)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===c.id?'#1677ff':'#fff',color:catFilter===c.id?'#fff':'#666',cursor:'pointer' }}>{c.name}</button>
             ))}
-            <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类</button>
+            <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类({products.filter((p:any) => !(p as any).sku_category_id).length})</button>
             {catFilter === 0 && canWrite && (
               <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); const res = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(res.items||[]) }}
                 style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #16a34a',background:'#16a34a',color:'#fff',cursor:'pointer' }}>⚡一键应用推荐</button>
