@@ -396,8 +396,12 @@ export default function MonitorProductDetail() {
           ) : (
             <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:16}}>
               {categories.map(c => (
-                <span key={c.id} style={{padding:'6px 14px',background:'#e0e7ff',color:'#3730a3',borderRadius:16,fontSize:13,border:'1px solid #c7d2fe'}}>
-                  {c.name}（{c.unit||'单位未设'}，折算系数 ×{c.conversion_factor}）
+                <span key={c.id} style={{padding:'6px 14px',background:'#e0e7ff',color:'#3730a3',borderRadius:16,fontSize:13,border:'1px solid #c7d2fe',display:'flex',alignItems:'center',gap:6}}>
+                  {c.name}（{c.unit||'单位未设'}，×{c.conversion_factor}）
+                  {canWrite && (
+                    <button onClick={async () => { if(!confirm('删除分类？')) return; await apiFetch(`/api/monitor-products/${id}/sku-categories/${c.id}`,{method:'DELETE'}); const r=await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r.items||[]) }}
+                      style={{marginLeft:2,background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:14,lineHeight:1}}>×</button>
+                  )}
                 </span>
               ))}
             </div>
