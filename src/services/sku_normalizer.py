@@ -52,7 +52,7 @@ class SkuNormalizer:
         self._load_categories()
 
     def _load_categories(self):
-        """加载监控商品的预定义SKU分类"""
+        """加载监控商品的预定义SKU分类。无自定义分类时回退到默认规则。"""
         conn = _get_conn()
         try:
             with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -62,27 +62,42 @@ class SkuNormalizer:
                 )
                 self._categories = [dict(r) for r in cur.fetchall()]
 
-            # 构建关键词规则：优先使用自定义分类，回退到默认规则
-            for cat in self._categories:
-                name = cat["name"]
-                # 从默认规则中匹配关键词
-                for rule_name, keywords in DEFAULT_CATEGORY_RULES.items():
-                    if rule_name in name or name in rule_name:
-                        self._rules[name] = keywords
-                        break
-                else:
-                    # 自定义分类：从名称中提取关键词
-                    self._rules[name] = [name]
+            if self._categories:
+                # 有自定义分类：构建关键词规则
+                for cat in self._categories:
+                    name = cat["name"]
+                    for rule_name, keywords in DEFAULT_CATEGORY_RULES.items():
+                        if rule_name in name or name in rule_name:
+                            self._rules[name] = keywords
+                            break
+                    else:
+                        self._rules[name] = [name]
+            else:
+                # 无自定义分类：使用所有默认规则
+                for name, keywords in DEFAULT_CATEGORY_RULES.items():
+                    self._categories.append({"id": 0, "name": name, "unit": name, "conversion_factor": 1.0})
+                    self._rules[name] = keywords
 
-            logger.debug("SKU分类加载: monitor_id=%d categories=%d rules=%s",
-                          self.monitor_product_id, len(self._categories),
-                          {k: v[:3] for k, v in self._rules.items()})
+            logger.debug("SKU分类加载: monitor_id=%d categories=%d",
+                          self.monitor_product_id, len(self._categories))
         except Exception:
             logger.exception("加载SKU分类失败")
             self._categories = []
             self._rules = {}
         finally:
             conn.close()
+
+    def match_sku_category(self, sku_name: str) -> dict | None:
+        """根据SKU名称匹配分类（含默认规则）"""
+        if not sku_name or not self._rules:
+            return None
+        for cat in self._categories:
+            name = cat["name"]
+            keywords = self._rules.get(name, [name])
+            for kw in keywords:
+                if kw in sku_name:
+                    return cat
+        return None
 
     def extract_quantity(self, sku_name: str) -> int:
         """从SKU名称中提取数量信息。

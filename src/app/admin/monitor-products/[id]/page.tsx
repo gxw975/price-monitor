@@ -318,7 +318,6 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:60,cursor:'pointer'}} onClick={()=>toggleProdSort('platform')}>平台{prodSortIndicator('platform')}</th>
                 <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_type')}>店铺类型{prodSortIndicator('shop_type')}</th>
                 <th style={{...thStyle,width:160,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺名称{prodSortIndicator('shop_name')}</th>
-                <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('location')}>发货地{prodSortIndicator('location')}</th>
                 <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('unit_price')}>单克价{prodSortIndicator('unit_price')}</th>
                 {canWrite && <th style={{...thStyle,width:50}}>操作</th>}
               </tr></thead>
@@ -350,7 +349,6 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.platform||'-'}</td>
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
-                    <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
                     <td style={{...tdStyle,fontWeight:600,color:(p as any).unit_price > 0 && (p as any).unit_price < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${(p as any).unit_price?.toFixed(4)}/g` : '-'}</td>
                     {canWrite && <td style={tdStyle}><div style={{display:'flex',gap:4}}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button><button onClick={() => setDelProduct(p)} style={{padding:'2px 6px',fontSize:11,color:'#dc2626',border:'1px solid #fecaca',borderRadius:4,background:'#fff',cursor:'pointer'}}>删除</button></div></td>}
                   </tr>
