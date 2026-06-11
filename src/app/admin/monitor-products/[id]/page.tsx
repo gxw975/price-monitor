@@ -69,6 +69,9 @@ export default function MonitorProductDetail() {
   }, [id])
   useEffect(() => { fetchMp() }, [fetchMp])
 
+  // Load categories on mount (needed for filter bar)
+  useEffect(() => { if(id) { apiFetch(`/api/monitor-products/${id}/sku-categories`).then(r => setCategories(r.items||[])).catch(()=>{}) } }, [id])
+
   useEffect(() => {
     if (!id) return
     const f: Record<Tab, (() => Promise<void>) | null> = {
