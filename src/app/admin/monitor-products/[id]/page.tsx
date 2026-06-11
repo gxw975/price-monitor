@@ -342,7 +342,7 @@ export default function MonitorProductDetail() {
                     </td>
                     <td style={{...tdStyle,fontFamily:'monospace',fontSize:12}}>{p.product_id}</td>
                     <td style={tdStyle}>
-                      {(p.url || p.product_url) ? <a href={(p.url||p.product_url||'').startsWith('http')?(p.url||p.product_url):'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> : p.title}
+                      {(() => { const link = p.url || p.product_url || ((p.platform||'')==='jd'?`https://item.jd.com/${p.product_id}.html`:`https://item.taobao.com/item.htm?id=${p.product_id}`); return <a href={link.startsWith('http')?link:'https:'+link} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> })()}
                     </td>
                     <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{(p.price||0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
