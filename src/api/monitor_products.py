@@ -576,6 +576,18 @@ async def import_excel_preview(
 def _do_import(product_id: int, file_name: str, selected_ids: list[str],
                products_data: list[dict], user_id: int, task_id: str = "") -> dict:
     """共用导入入库逻辑，供单文件和批量导入调用。"""
+    # Look up monitor product's platform
+    mp_conn = _get_conn()
+    mp_platform = 'taobao'
+    try:
+        with mp_conn.cursor() as cur:
+            cur.execute('SELECT platform FROM "MonitorProduct" WHERE id=%s', (product_id,))
+            row = cur.fetchone()
+            if row: mp_platform = row[0] or 'taobao'
+    finally:
+        mp_conn.close()
+    logger.info("_do_import: mp_id=%d platform=%s files=%s products=%d", product_id, mp_platform, file_name, len(selected_ids))
+
     def _update_task(status, processed, total):
         if not task_id: return
         with _import_tasks_lock:
@@ -613,8 +625,8 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
                     sales = int(pdata.get('sales', 0) or 0)
                     url = (pdata.get('url') or '')[:500]
                     platform_raw = (pdata.get('platform') or 'taobao')[:50]
-                    # Normalize: 淘宝/天猫 → taobao
-                    platform = 'taobao' if platform_raw in ('淘宝','天猫','','taobao') else platform_raw
+                    # Use monitor product's platform (ignoring Excel's platform column)
+                    platform = mp_platform
                     shop_type = (pdata.get('shop_type') or '')[:50]
                     location = (pdata.get('location') or '')[:100]
                     with svc.cursor() as cur:
