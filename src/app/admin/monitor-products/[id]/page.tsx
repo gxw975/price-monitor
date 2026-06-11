@@ -317,9 +317,8 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:70,cursor:'pointer'}} onClick={()=>toggleProdSort('sales')}>销量{prodSortIndicator('sales')}</th>
                 <th style={{...thStyle,width:60,cursor:'pointer'}} onClick={()=>toggleProdSort('platform')}>平台{prodSortIndicator('platform')}</th>
                 <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_type')}>店铺类型{prodSortIndicator('shop_type')}</th>
-                <th style={{...thStyle,width:110,cursor:'pointer'}} onClick={()=>toggleProdSort('seller_name')}>店铺ID{prodSortIndicator('seller_name')}</th>
-                <th style={{...thStyle,width:150,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺{prodSortIndicator('shop_name')}</th>
-                <th style={{...thStyle,width:80,cursor:'pointer'}} onClick={()=>toggleProdSort('location')}>地址{prodSortIndicator('location')}</th>
+                <th style={{...thStyle,width:160,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺名称{prodSortIndicator('shop_name')}</th>
+                <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('location')}>发货地{prodSortIndicator('location')}</th>
                 <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('unit_price')}>单克价{prodSortIndicator('unit_price')}</th>
                 {canWrite && <th style={{...thStyle,width:50}}>操作</th>}
               </tr></thead>
@@ -350,7 +349,6 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                     <td style={tdStyle}>{p.platform||'-'}</td>
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
-                    <td style={tdStyle}>{p.shop_id || p.seller_name || '-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
                     <td style={{...tdStyle,fontWeight:600,color:(p as any).unit_price > 0 && (p as any).unit_price < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${(p as any).unit_price?.toFixed(4)}/g` : '-'}</td>
