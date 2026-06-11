@@ -44,7 +44,7 @@ export default function AnalysisPage() {
   }
 
   const filtered = products
-    .filter(p => excludeWhitelist ? !whitelistSellers.includes(p.seller_name||'') : true)
+    .filter(p => excludeWhitelist ? !(whitelistSellers.includes(p.seller_name||'') || whitelistSellers.includes(p.shop_name||'')) : true)
     .filter(p => !search || p.title?.includes(search) || p.shop_name?.includes(search) || p.seller_name?.includes(search))
     .sort((a,b) => {
       if (sortKey==='price') return sortDir==='asc'?(a.price||0)-(b.price||0):(b.price||0)-(a.price||0)
