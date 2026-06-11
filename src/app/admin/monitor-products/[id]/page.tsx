@@ -353,7 +353,7 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.platform||'-'}</td>
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
-                    <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}/g` : '-'}</td>
+                    <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
                     {canWrite && <td style={tdStyle}><div style={{display:'flex',gap:4}}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button><button onClick={() => setDelProduct(p)} style={{padding:'2px 6px',fontSize:11,color:'#dc2626',border:'1px solid #fecaca',borderRadius:4,background:'#fff',cursor:'pointer'}}>删除</button></div></td>}
                   </tr>
                 ))}
