@@ -406,23 +406,9 @@ export default function MonitorProductDetail() {
               ))}
             </div>
           )}
-          {canWrite && (
-            <div style={{marginTop:20,padding:16,border:'1px solid #e5e7eb',borderRadius:8}}>
-              <h4 style={{fontSize:14,fontWeight:600,marginBottom:12}}>添加分类</h4>
-              <div style={{display:'flex',gap:8,alignItems:'center'}}>
-                <input id="catName" placeholder="分类名(如袋装)" style={filterInput} />
-                <input id="catUnit" placeholder="单位(如袋)" style={{...filterInput,width:80}} />
-                <input id="catFactor" placeholder="系数" style={{...filterInput,width:60}} defaultValue="1.0" />
-                <button onClick={async () => {
-                  const n = (document.getElementById('catName') as HTMLInputElement)?.value
-                  const u = (document.getElementById('catUnit') as HTMLInputElement)?.value
-                  const f = (document.getElementById('catFactor') as HTMLInputElement)?.value
-                  if (!n) return
-                  try { await apiFetch(`/api/monitor-products/${id}/sku-categories`, { method: 'POST', body: JSON.stringify({ name: n, unit: u||'', conversion_factor: parseFloat(f)||1 }) }); const r = await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r.items||[]); (document.getElementById('catName') as HTMLInputElement).value=''; (document.getElementById('catUnit') as HTMLInputElement).value=''; (document.getElementById('catFactor') as HTMLInputElement).value='1.0' } catch { /**/ }
-                }} style={btnPrimary}>添加</button>
-              </div>
-            </div>
-          )}
+          <p style={{color:'#6b7280',fontSize:12,padding:12,textAlign:'center'}}>
+            分类管理请前往 <a href="/admin/monitor-products" style={{color:'#1677ff'}}>商品监控列表页</a> — 展开商品对应的「分类」面板增删
+          </p>
         </div>
       )}
 
