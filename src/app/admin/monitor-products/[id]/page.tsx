@@ -70,6 +70,9 @@ export default function MonitorProductDetail() {
   }, [id])
   useEffect(() => { fetchMp() }, [fetchMp])
 
+  // Reload products when category filter changes
+  useEffect(() => { if(id && tab === 'products') { const params = new URLSearchParams({limit:'2000'}); if(catFilter) params.set('sku_category_id', String(catFilter)); apiFetch(`/api/monitor-products/${id}/products?${params}`).then(r => setProducts(r.items||[])).catch(()=>{}) } }, [catFilter, id])
+
   // Load categories on mount (needed for filter bar)
   useEffect(() => { if(id) { apiFetch(`/api/monitor-products/${id}/sku-categories`).then(r => setCategories(r.items||[])).catch(()=>{}) } }, [id])
 
@@ -78,7 +81,7 @@ export default function MonitorProductDetail() {
     const f: Record<Tab, (() => Promise<void>) | null> = {
       info: null,
       imports: async () => { const r = await apiFetch(`/api/monitor-products/${id}/imports`); setImports(r.items||[]) },
-      products: async () => { const r = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(r.items||[]); setProdPage(1) },
+      products: async () => { const params = new URLSearchParams({limit:'2000'}); if(catFilter) params.set('sku_category_id', String(catFilter)); const r = await apiFetch(`/api/monitor-products/${id}/products?${params}`); setProducts(r.items||[]); setProdPage(1) },
       skus: async () => { const r = await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r.items||[]) },
       alerts: async () => { const r = await apiFetch(`/api/monitor-products/${id}/alerts?limit=100`); setAlerts(r.items||[]) },
     }
@@ -122,7 +125,6 @@ export default function MonitorProductDetail() {
   const whitelistSellers = (mp?.whitelist_sellers || '').split(',').map(s => s.trim()).filter(Boolean)
   const latestBatchId = imports.length > 0 ? imports[0].id : null
   const filteredProds = sortedProds.filter(p => {
-    if (catFilter) { const cat = categories.find((c:any) => c.id === catFilter); if (cat) { const kw = (cat.unit || cat.name.split(/[\s(（]/)[0]); if (!(p.title||'').includes(kw)) return false } }
     const f = filters
     if (excludeWhitelist && whitelistSellers.length > 0) { if (whitelistSellers.includes(p.seller_name||'') || whitelistSellers.includes(p.shop_name||'')) return false }
     if (onlyNew && latestBatchId && (p as any).import_batch_id !== latestBatchId) return false

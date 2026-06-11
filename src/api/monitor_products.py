@@ -452,10 +452,11 @@ def list_products(
     product_id: int,
     keyword: str | None = None,
     limit: int = 200,
+    sku_category_id: int | None = None,
     platform: str | None = None,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """获取监控商品下的商品列表（按平台筛选）"""
+    """获取监控商品下的商品列表（按平台+分类筛选）"""
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -465,6 +466,12 @@ def list_products(
                 platform = row['platform'] if row else 'taobao'
             base_where = 'monitor_product_id=%s AND platform=%s'
             base_params = [product_id, platform]
+            if sku_category_id is not None:
+                if sku_category_id == 0:
+                    base_where += ' AND sku_category_id IS NULL'
+                else:
+                    base_where += ' AND sku_category_id = %s'
+                    base_params.append(sku_category_id)
             if keyword:
                 cur.execute(
                     f'SELECT *, sales_volume AS sales FROM "Product" WHERE {base_where} AND (title ILIKE %s OR shop_name ILIKE %s OR product_id ILIKE %s) ORDER BY last_updated_at DESC LIMIT %s',
