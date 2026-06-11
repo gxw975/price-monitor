@@ -40,9 +40,11 @@ export default function MonitorProductDetail() {
   const [hoverEditPid, setHoverEditPid] = useState<string | null>(null)
   const [hoverTitlePid, setHoverTitlePid] = useState<string | null>(null)
   const [hoverTitlePos, setHoverTitlePos] = useState({ x: 0, y: 0 })
+  const [savingCat, setSavingCat] = useState<string | null>(null)
   const [jumpPage, setJumpPage] = useState('')
   const [catFilter, setCatFilter] = useState<number | null>(null)
-  const [filters, setFilters] = useState({ title: '', pid: '', minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
+  const [catCounts, setCatCounts] = useState<Record<string,number>>({})
+  const [filters, setFilters] = useState({title: '', pid: '', minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
   const [onlyNew, setOnlyNew] = useState(false)
   const [excludeWhitelist, setExcludeWhitelist] = useState(false)
   const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
@@ -285,7 +287,7 @@ export default function MonitorProductDetail() {
             {categories.map((c:any) => (
               <button key={c.id} onClick={() => setCatFilter(c.id)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===c.id?'#1677ff':'#fff',color:catFilter===c.id?'#fff':'#666',cursor:'pointer' }}>{c.name}</button>
             ))}
-            <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类({products.filter((p:any) => !(p as any).sku_category_id).length})</button>
+            <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类({(products||[]).length})</button>
             {catFilter === 0 && canWrite && (
               <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); const res = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(res.items||[]) }}
                 style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #16a34a',background:'#16a34a',color:'#fff',cursor:'pointer' }}>⚡一键应用推荐</button>
