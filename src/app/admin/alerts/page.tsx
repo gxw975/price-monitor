@@ -241,6 +241,7 @@ export default function AlertsPage() {
                       onChange={handleSelectAll} className="rounded" />
                   </th>
                   <th className="px-3 py-2 font-medium text-xs">类型</th>
+                  <th className="px-3 py-2 font-medium text-xs">平台</th>
                   <th className="px-3 py-2 font-medium text-xs">商品</th>
                   <th className="px-3 py-2 font-medium text-xs">现价</th>
                   <th className="px-3 py-2 font-medium text-xs">销量</th>
@@ -271,6 +272,12 @@ export default function AlertsPage() {
                           alert.alert_type === 'price' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700')}>
                           {alert.alert_type === 'price' ? '💰' : '📈'}
                         </span>
+                      </td>
+                      <td className="px-3 py-2">
+                        <span style={{ padding: '1px 6px', borderRadius: 10, fontSize: 11, fontWeight: 500,
+                          background: (alert.platform || 'taobao') === 'jd' ? '#fee2e2' : '#fff7ed',
+                          color: (alert.platform || 'taobao') === 'jd' ? '#dc2626' : '#ea580c',
+                        }}>{(alert.platform || 'taobao') === 'jd' ? '京东' : '淘天'}</span>
                       </td>
                       <td className="px-3 py-2 max-w-[180px] truncate" title={alert.product_title}>
                         {alert.product_url ? (
