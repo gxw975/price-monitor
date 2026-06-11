@@ -20,6 +20,12 @@ export default function AnalysisPage() {
   const [whitelistSellers, setWhitelistSellers] = useState<string[]>([])
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [hoverPos, setHoverPos] = useState({ x: 0, y: 0 })
+  const [chartPid, setChartPid] = useState<string | null>(null)
+  const [chartData, setChartData] = useState<any[]>([])
+  const [chartLoading, setChartLoading] = useState(false)
+
+  const fetchChart = async (pid: string) => { setChartPid(pid); setChartLoading(true)
+    try { const r = await apiFetch(`/api/products/${pid}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) } }
 
   const fetchMPs = useCallback(async () => {
     try { const p = localStorage.getItem('platform') || 'taobao'; const r = await apiFetch(`/api/monitor-products/?platform=${p}`); setMonitorProducts(r.items||[]) } catch { /**/ }
@@ -132,7 +138,7 @@ export default function AnalysisPage() {
               <thead><tr style={{background:'#fafafa'}}>
                 <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('price');setSortDir(d=>d==='asc'?'desc':'asc')}}>现价{sortKey==='price'?(sortDir==='asc'?'▲':'▼'):''}</th>
                 <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('sales');setSortDir(d=>d==='asc'?'desc':'asc')}}>销量{sortKey==='sales'?(sortDir==='asc'?'▲':'▼'):''}</th>
-                <th style={thStyle}>店铺</th><th style={thStyle}>掌柜</th><th style={thStyle}>地址</th>
+                <th style={thStyle}>店铺</th><th style={thStyle}>店铺ID</th><th style={thStyle}>发货地</th><th style={thStyle}>操作</th>
               </tr></thead>
               <tbody>{filtered.slice(0,200).map(p=>(
                 <tr key={p.product_id} style={{borderBottom:'1px solid #f0f0f0'}}>
@@ -142,7 +148,8 @@ export default function AnalysisPage() {
                   <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
                   <td style={tdStyle}>{p.shop_id || p.seller_name || '-'}</td>
-                  <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.platform||'-'}</td>
+                  <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
+                  <td style={tdStyle}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button></td>
                 </tr>
               ))}</tbody>
             </table>
@@ -155,8 +162,57 @@ export default function AnalysisPage() {
           <img src={hoverImg} alt="" style={{ width: 280, height: 280, objectFit: 'contain', borderRadius: 8, boxShadow: '0 4px 20px rgba(0,0,0,0.3)', background: '#fff', padding: 4 }} />
         </div>
       )}
+      {/* History chart modal */}
+      {chartPid && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.45)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1000}}>
+          <div style={{background:'#fff',borderRadius:8,padding:24,width:'92vw',maxWidth:1140,maxHeight:'90vh',overflow:'auto'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+              <h3 style={{fontSize:16,fontWeight:600}}>历史趋势 — {chartPid}</h3>
+              <button onClick={() => setChartPid(null)} style={{padding:'6px 12px',background:'#fff',border:'1px solid #d9d9d9',borderRadius:6,cursor:'pointer',fontSize:13}}>关闭</button>
+            </div>
+            {chartLoading ? <p style={{color:'#999',textAlign:'center',padding:40}}>加载中...</p> :
+            chartData.length===0 ? <p style={{color:'#999',textAlign:'center',padding:40}}>暂无历史数据</p> :
+            <div style={{background:'#f9fafb',borderRadius:8,padding:16,overflow:'auto'}}>
+              <HistChart data={chartData} />
+            </div>}
+          </div>
+        </div>
+      )}
     </div>
   )
+}
+
+function HistChart({ data }: { data: any[] }) {
+  const [hx, setHx] = useState<number | null>(null)
+  if (!data.length) return null
+  const sorted=[...data].sort((a:any,b:any)=>new Date(a.date).getTime()-new Date(b.date).getTime())
+  const prices=sorted.map((d:any)=>d.avg_price||d.min_price||0)
+  const sales=sorted.map((d:any)=>d.entries||0)
+  const labels=sorted.map((d:any)=>d.date||'')
+  const maxP=Math.max(...prices,1),minP=Math.min(...prices.filter((p:number)=>p>0),maxP)
+  const W=Math.min(window.innerWidth*0.82,1050),H=Math.min(window.innerHeight*0.5,380)
+  const pL=70,pR=80,pT=30,pB=50,cW=W-pL-pR,cH=H-pT-pB
+  const px=(i:number)=>pL+(i/(prices.length-1||1))*cW
+  const pyP=(v:number)=>pT+cH-((v-minP)/(maxP-minP||1))*cH
+  const pyS=(v:number)=>pT+cH-((v/Math.max(...sales,1))*cH)
+  const line=(v:number[],f:(v:number)=>number)=>v.map((v,i)=>`${i?'L':'M'}${px(i)},${f(v)}`).join(' ')
+  let hi=-1,hp=0,hs=0,hl=''
+  if(hx!==null){hi=Math.round(((hx-pL)/cW)*(prices.length-1));hi=Math.max(0,Math.min(prices.length-1,hi));hp=prices[hi];hs=sales[hi];hl=labels[hi]}
+  return<div style={{position:'relative',width:W,height:H}}>
+    <svg width={W} height={H} style={{fontSize:11,cursor:'crosshair'}} onMouseMove={e=>{const r=e.currentTarget.getBoundingClientRect();setHx(e.clientX-r.left)}} onMouseLeave={()=>setHx(null)}>
+      <defs><linearGradient id="ahg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#dc2626" stopOpacity={0.15}/><stop offset="100%" stopColor="#dc2626" stopOpacity={0}/></linearGradient></defs>
+      {[0,0.25,0.5,0.75,1].map(r=><g key={'p'+r}><line x1={pL} y1={pyP(minP+(maxP-minP)*r)} x2={W-pR} y2={pyP(minP+(maxP-minP)*r)} stroke="#f0f0f0" strokeWidth={1}/><text x={pL-10} y={pyP(minP+(maxP-minP)*r)+4} fill="#dc2626" fontSize={11} textAnchor="end">¥{Math.round(minP+(maxP-minP)*r)}</text></g>)}
+      {[0,0.5,1].map(r=><text key={'s'+r} x={W-pR+30} y={pyS(Math.max(...sales,1)*r)+4} fill="#3b82f6" fontSize={11} textAnchor="start">{Math.round(Math.max(...sales,1)*r)}单</text>)}
+      <path d={`${line(prices,pyP)} L${px(prices.length-1)},${pT+cH} L${px(0)},${pT+cH} Z`} fill="url(#ahg)"/>
+      <path d={line(prices,pyP)} fill="none" stroke="#dc2626" strokeWidth={2.5}/>
+      {prices.length<=60&&prices.map((v,i)=><circle key={'p'+i} cx={px(i)} cy={pyP(v)} r={3} fill="#fff" stroke="#dc2626" strokeWidth={2}/>)}
+      <path d={line(sales,pyS)} fill="none" stroke="#3b82f6" strokeWidth={2} strokeDasharray="6,3"/>
+      {labels.filter((_:any,i:number)=>i%Math.max(1,Math.ceil(labels.length/10))===0||i===labels.length-1).map((l:string,i:number)=><text key={l} x={px(i*Math.max(1,Math.ceil(labels.length/10)))} y={H-8} fill="#999" fontSize={11} textAnchor="middle">{l.slice(5)}</text>)}
+      {hi>=0&&<><line x1={px(hi)} y1={pT} x2={px(hi)} y2={pT+cH} stroke="#999" strokeWidth={1} strokeDasharray="3,3"/><circle cx={px(hi)} cy={pyP(hp)} r={6} fill="#dc2626" stroke="#fff" strokeWidth={2}/><circle cx={px(hi)} cy={pyS(hs)} r={5} fill="#3b82f6" stroke="#fff" strokeWidth={2}/></>}
+    </svg>
+    {hi>=0&&<div style={{position:'absolute',top:pT+4,left:px(hi)>W/2?px(hi)-150:px(hi)+16,background:'rgba(0,0,0,0.85)',color:'#fff',fontSize:13,padding:'8px 12px',borderRadius:8,pointerEvents:'none',whiteSpace:'nowrap',zIndex:10}}><div style={{fontWeight:600,marginBottom:4}}>{hl}</div><div style={{color:'#fca5a5'}}>💰 价格 ¥{hp.toFixed(2)}</div><div style={{color:'#93c5fd'}}>📈 销量 {hs}单</div></div>}
+    <div style={{position:'absolute',top:pT+2,right:pR-10,display:'flex',gap:16,fontSize:12,background:'rgba(255,255,255,0.9)',padding:'4px 12px',borderRadius:4,border:'1px solid #e5e7eb'}}><span style={{color:'#dc2626'}}>● 价格</span><span style={{color:'#3b82f6'}}>● 销量</span></div>
+  </div>
 }
 
 function StatCard({label,value,unit,color}:{label:string;value:string|number;unit:string;color:string}) {
