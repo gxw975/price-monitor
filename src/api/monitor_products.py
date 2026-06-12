@@ -522,7 +522,6 @@ def delete_import_batch(
 # 商品列表 + 预警
 # ═══════════════════════════════════════════════
 
-@router.get("/{product_id}/products")
 @router.get("/{product_id}/products/counts")
 def get_product_counts(product_id: int):
     """获取商品分类计数"""
