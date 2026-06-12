@@ -506,8 +506,8 @@ export default function MonitorProductDetail() {
 
       {/* Title hover preview card */}
       {hoverTitlePid && (() => { const hp = products.find((pr:any) => pr.product_id === hoverTitlePid); if (!hp) return null;
-        return <div style={{position:'fixed',left:hoverTitlePos.x,top:Math.min(hoverTitlePos.y, window.innerHeight-260),zIndex:9999,pointerEvents:'none',background:'#fff',borderRadius:8,boxShadow:'0 4px 20px rgba(0,0,0,0.2)',padding:12,width:280}}>
-          {(hp.image_url||hp.main_image_url) && <img src={hp.image_url||hp.main_image_url} alt="" style={{width:'100%',maxHeight:160,objectFit:'contain',borderRadius:4,marginBottom:8}} />}
+        return <div style={{position:'fixed',left:Math.max(10, hoverTitlePos.x - 400),top:Math.min(hoverTitlePos.y, window.innerHeight-310),zIndex:9999,pointerEvents:'none',background:'#fff',borderRadius:8,boxShadow:'0 4px 20px rgba(0,0,0,0.2)',padding:12,width:280}}>
+          {(hp.image_url||hp.main_image_url) && <img src={hp.image_url||hp.main_image_url} alt="" style={{width:250,height:250,objectFit:'contain',borderRadius:4,marginBottom:8}} />}
           <div style={{fontSize:12,color:'#dc2626',fontWeight:600,marginBottom:4}}>¥{Number(hp.price||0).toFixed(2)}</div>
           <div style={{fontSize:11,color:'#666'}}>销量: {hp.sales?.toLocaleString()||'-'}</div>
           <div style={{fontSize:11,color:'#999',marginTop:2}}>店铺: {hp.shop_name||'-'}</div>
