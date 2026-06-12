@@ -537,6 +537,7 @@ def get_product_counts(product_id: int):
     finally: conn.close()
 
 
+@router.get("/{product_id}/products")
 def list_products(
     product_id: int,
     keyword: str | None = None,
