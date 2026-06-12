@@ -104,7 +104,7 @@ export default function MonitorProductDetail() {
     const r = await apiFetch(`/api/monitor-products/${id}/products?${params}`).catch(() => ({items:[]}))
     setProducts(r.items||[])
   }
-  useEffect(() => { if(id && tab === 'products') { refreshProducts() } }, [catFilter, id])
+  useEffect(() => { if(id && tab === 'products') { refreshProducts() } }, [catFilter, statusFilter, id])
 
   // Load categories on mount + auto-create 混合装 if missing
   const fetchCategories = async () => { if(!id) return
@@ -372,6 +372,7 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:90}}>图片</th>
                 <th style={{...thStyle,width:120}}>商品ID</th>
                 <th style={{...thStyle,minWidth:200}}>标题</th>
+                <th style={{...thStyle,width:55,cursor:'pointer'}} onClick={()=>toggleProdSort('is_on_sale')}>状态{prodSortIndicator('is_on_sale')}</th>
                 <th style={{...thStyle,width:80,cursor:'pointer'}} onClick={()=>toggleProdSort('price')}>现价{prodSortIndicator('price')}</th>
                 <th style={{...thStyle,width:70,cursor:'pointer'}} onClick={()=>toggleProdSort('sales')}>销量{prodSortIndicator('sales')}</th>
                 <th style={{...thStyle,width:60,cursor:'pointer'}} onClick={()=>toggleProdSort('platform')}>平台{prodSortIndicator('platform')}</th>
@@ -406,17 +407,17 @@ export default function MonitorProductDetail() {
                         {(() => { const link = p.url || p.product_url || ((p.platform||'')==='jd'?`https://item.jd.com/${p.product_id}.html`:`https://item.taobao.com/item.htm?id=${p.product_id}`); return <a href={link.startsWith('http')?link:'https:'+link} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> })()}
                       </div>
                     </td>
+                    <td style={tdStyle}>
+                      <span style={{padding:'1px 6px',borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? '#dcfce7' : '#fee2e2',color:(p as any).is_on_sale !== false ? '#16a34a' : '#dc2626'}}>
+                        {(p as any).is_on_sale !== false ? '上架' : '下架'}
+                      </span>
+                    </td>
                     <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                     <td style={tdStyle}>{p.platform||'-'}</td>
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
-                    <td style={tdStyle}>
-                      <span style={{padding:'1px 6px',borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? '#dcfce7' : '#fee2e2',color:(p as any).is_on_sale !== false ? '#16a34a' : '#dc2626'}}>
-                        {(p as any).is_on_sale !== false ? '上架' : '下架'}
-                      </span>
-                    </td>
                     <td style={tdStyle}>
                       <div style={{position:'relative'}}>
                         {hoverEditPid === p.product_id ? (
