@@ -592,9 +592,12 @@ def list_products(
 def export_products(
     product_id: int,
     keyword: str | None = None,
+    sku_category_id: int | None = None,
+    is_on_sale: bool | None = None,
+    platform: str | None = None,
     current_user: dict[str, Any] = Depends(get_current_user),
 ):
-    """导出监控商品下的所有商品数据为Excel"""
+    """导出当前筛选结果的商品数据为Excel"""
     from io import BytesIO
     from openpyxl import Workbook
     from fastapi.responses import StreamingResponse
@@ -602,13 +605,25 @@ def export_products(
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            if not platform:
+                cur.execute('SELECT platform FROM "MonitorProduct" WHERE id=%s', (product_id,))
+                row = cur.fetchone()
+                platform = row['platform'] if row else 'taobao'
+            where = 'monitor_product_id=%s AND platform=%s'
+            params = [product_id, platform]
+            if sku_category_id is not None:
+                if sku_category_id == 0:
+                    where += ' AND sku_category_id IS NULL'
+                else:
+                    where += ' AND sku_category_id = %s'
+                    params.append(sku_category_id)
+            if is_on_sale is not None:
+                where += ' AND is_on_sale = %s'
+                params.append(is_on_sale)
             if keyword:
-                cur.execute(
-                    'SELECT * FROM "Product" WHERE monitor_product_id=%s AND (title ILIKE %s OR shop_name ILIKE %s OR seller_name ILIKE %s) ORDER BY price ASC',
-                    (product_id, f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"),
-                )
-            else:
-                cur.execute('SELECT * FROM "Product" WHERE monitor_product_id=%s ORDER BY price ASC', (product_id,))
+                where += ' AND (title ILIKE %s OR shop_name ILIKE %s OR seller_name ILIKE %s)'
+                params.extend([f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"])
+            cur.execute(f'SELECT * FROM "Product" WHERE {where} ORDER BY price ASC', params)
             rows = cur.fetchall()
     finally:
         conn.close()

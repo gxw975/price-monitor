@@ -349,7 +349,10 @@ export default function MonitorProductDetail() {
             <span style={{ flex: 1 }} />
             <button onClick={async () => {
               const token = localStorage.getItem('auth_token')
-              const res = await fetch(`/api/monitor-products/${id}/products/export`, { headers: { Authorization: `Bearer ${token}` } })
+              const ep = new URLSearchParams()
+              if (catFilter != null && catFilter !== undefined) ep.set('sku_category_id', String(catFilter))
+              if (statusFilter !== null) ep.set('is_on_sale', String(statusFilter))
+              const res = await fetch(`/api/monitor-products/${id}/products/export?${ep}`, { headers: { Authorization: `Bearer ${token}` } })
               const blob = await res.blob()
               const url = URL.createObjectURL(blob)
               const a = document.createElement('a'); a.href = url; a.download = `products_${id}_${new Date().toISOString().slice(0,10)}.xlsx`
