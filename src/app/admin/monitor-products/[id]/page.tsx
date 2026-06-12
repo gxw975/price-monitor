@@ -376,6 +376,7 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:90}}>图片</th>
                 <th style={{...thStyle,width:120}}>商品ID</th>
                 <th style={{...thStyle,minWidth:200}}>标题</th>
+                <th style={{...thStyle,width:35}}>新</th>
                 <th style={{...thStyle,width:55,cursor:'pointer'}} onClick={()=>toggleProdSort('is_on_sale')}>状态{prodSortIndicator('is_on_sale')}</th>
                 <th style={{...thStyle,width:80,cursor:'pointer'}} onClick={()=>toggleProdSort('price')}>现价{prodSortIndicator('price')}</th>
                 <th style={{...thStyle,width:70,cursor:'pointer'}} onClick={()=>toggleProdSort('sales')}>销量{prodSortIndicator('sales')}</th>
@@ -411,6 +412,7 @@ export default function MonitorProductDetail() {
                         {(() => { const link = p.url || p.product_url || ((p.platform||'')==='jd'?`https://item.jd.com/${p.product_id}.html`:`https://item.taobao.com/item.htm?id=${p.product_id}`); return <a href={link.startsWith('http')?link:'https:'+link} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> })()}
                       </div>
                     </td>
+                    <td style={tdStyle}>{latestBatchId && (p as any).import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
                     <td style={tdStyle}>
                       <span style={{padding:'1px 6px',borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? '#dcfce7' : '#fee2e2',color:(p as any).is_on_sale !== false ? '#16a34a' : '#dc2626'}}>
                         {(p as any).is_on_sale !== false ? '上架' : '下架'}
