@@ -117,6 +117,7 @@ export default function MonitorProductDetail() {
       setCategories(r2.items||[])
     }
   }
+  useEffect(() => { if(id) apiFetch(`/api/monitor-products/${id}/imports`).then(r => setImports(r.items||[])).catch(()=>{}) }, [id])
   useEffect(() => { fetchCategories() }, [id])
 
   useEffect(() => {
