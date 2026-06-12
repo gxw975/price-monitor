@@ -171,7 +171,7 @@ export default function MonitorProductDetail() {
   const filteredProds = sortedProds.filter(p => {
     const f = filters
     if (excludeWhitelist && whitelistSellers.length > 0) { if (whitelistSellers.includes(p.seller_name||'') || whitelistSellers.includes(p.shop_name||'')) return false }
-    if (onlyNew && latestBatchId && (p as any).import_batch_id !== latestBatchId) return false
+    if (onlyNew && !(p as any).is_new_link) return false
     if (f.title && !(p.title||'').toLowerCase().includes(f.title.toLowerCase())) return false
     if (f.pid && !(p.product_id||'').includes(f.pid)) return false
     if (f.minPrice && (p.price||0) < parseFloat(f.minPrice)) return false
@@ -344,7 +344,7 @@ export default function MonitorProductDetail() {
               style={filterInput} />
             <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={onlyNew} onChange={e => { setOnlyNew(e.target.checked); setProdPage(1) }} />
-              仅看新增({products.filter((p:any)=>latestBatchId && p.import_batch_id===latestBatchId).length})
+              仅看新链接({products.filter((p:any)=>(p as any).is_new_link).length})
             </label>
             <span style={{ flex: 1 }} />
             <button onClick={async () => {
@@ -376,7 +376,7 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:90}}>图片</th>
                 <th style={{...thStyle,width:120}}>商品ID</th>
                 <th style={{...thStyle,minWidth:200}}>标题</th>
-                <th style={{...thStyle,width:35}}>新</th>
+                <th style={{...thStyle,width:55}}>新链接</th>
                 <th style={{...thStyle,width:80,cursor:'pointer'}} onClick={()=>toggleProdSort('price')}>现价{prodSortIndicator('price')}</th>
                 <th style={{...thStyle,width:70,cursor:'pointer'}} onClick={()=>toggleProdSort('sales')}>销量{prodSortIndicator('sales')}</th>
                 <th style={{...thStyle,width:60,cursor:'pointer'}} onClick={()=>toggleProdSort('platform')}>平台{prodSortIndicator('platform')}</th>
@@ -412,7 +412,7 @@ export default function MonitorProductDetail() {
                         {(() => { const link = p.url || p.product_url || ((p.platform||'')==='jd'?`https://item.jd.com/${p.product_id}.html`:`https://item.taobao.com/item.htm?id=${p.product_id}`); return <a href={link.startsWith('http')?link:'https:'+link} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a> })()}
                       </div>
                     </td>
-                    <td style={tdStyle}>{latestBatchId && (p as any).import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
+                    <td style={tdStyle}>{(p as any).is_new_link ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
                     <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                     <td style={tdStyle}>{p.platform||'-'}</td>

@@ -780,15 +780,19 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
                     shop_type = (pdata.get('shop_type') or '')[:50]
                     location = (pdata.get('location') or '')[:100]
                     with svc.cursor() as cur:
-                        cur.execute('SELECT product_id FROM "Product" WHERE product_id=%s', (pid,))
-                        if cur.fetchone():
+                        cur.execute('SELECT product_id, is_on_sale FROM "Product" WHERE product_id=%s', (pid,))
+                        existing = cur.fetchone()
+                        if existing:
+                            was_offline = not existing[1] if len(existing) > 1 else False
                             cur.execute(
-                                'UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, title=%s, main_image_url=%s, image_url=%s, shop_name=%s, seller_name=%s, product_url=%s, platform=%s, shop_type=%s, location=%s, price=%s, sales_volume=%s, last_updated_at=NOW() WHERE product_id=%s',
-                                (product_id, batch_id, title, image_url, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, pid))
+                                'UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, title=%s, main_image_url=%s, image_url=%s, shop_name=%s, seller_name=%s, product_url=%s, platform=%s, shop_type=%s, location=%s, price=%s, sales_volume=%s, is_on_sale=TRUE, is_new_link=%s, last_updated_at=NOW() WHERE product_id=%s',
+                                (product_id, batch_id, title, image_url, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, was_offline, pid))
+                            if was_offline:
+                                new_count += 1
                         else:
                             cur.execute(
-                                'INSERT INTO "Product" (product_id, title, main_image_url, image_url, shop_name, seller_name, product_url, platform, shop_type, location, price, sales_volume, monitor_product_id, import_batch_id, is_approved, is_whitelist, created_at, last_updated_at) '
-                                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE,NOW(),NOW())',
+                                'INSERT INTO "Product" (product_id, title, main_image_url, image_url, shop_name, seller_name, product_url, platform, shop_type, location, price, sales_volume, monitor_product_id, import_batch_id, is_approved, is_whitelist, is_new_link, created_at, last_updated_at) '
+                                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE,TRUE,NOW(),NOW())',
                                 (pid, title, image_url, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, product_id, batch_id))
                             new_count += 1
                         if price > 0:
