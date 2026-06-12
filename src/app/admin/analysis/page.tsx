@@ -140,8 +140,7 @@ export default function AnalysisPage() {
           <div style={{overflow:'auto',border:'1px solid #e5e7eb',borderRadius:8}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
               <thead><tr style={{background:'#fafafa'}}>
-                <th style={{...thStyle,width:55}}>状态</th>
-                <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('price');setSortDir(d=>d==='asc'?'desc':'asc')}}>现价{sortKey==='price'?(sortDir==='asc'?'▲':'▼'):''}</th>
+                <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={{...thStyle,width:55}}>状态</th><th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('price');setSortDir(d=>d==='asc'?'desc':'asc')}}>现价{sortKey==='price'?(sortDir==='asc'?'▲':'▼'):''}</th>
                 <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('sales');setSortDir(d=>d==='asc'?'desc':'asc')}}>销量{sortKey==='sales'?(sortDir==='asc'?'▲':'▼'):''}</th>
                 <th style={{...thStyle,width:55}}>新链接</th>
                 <th style={thStyle}>店铺</th><th style={thStyle}>掌柜名</th><th style={thStyle}>地址</th><th style={thStyle}>操作</th>
