@@ -105,7 +105,7 @@ export default function MonitorProductDetail() {
     const r = await apiFetch(`/api/monitor-products/${id}/products?${params}`).catch(() => ({items:[]}))
     setProducts(r.items||[])
   }
-  useEffect(() => { if(id && tab === 'products') { refreshProducts() } }, [catFilter, statusFilter, id])
+  useEffect(() => { if(id && tab === 'products') { refreshProducts() } }, [catFilter, statusFilter, onlyNew, id])
 
   // Load categories on mount + auto-create 混合装 if missing
   const fetchCategories = async () => { if(!id) return
@@ -326,7 +326,6 @@ export default function MonitorProductDetail() {
             <button onClick={() => setStatusFilter(null)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===null?'#16a34a':'#fff',color:statusFilter===null?'#fff':'#666',cursor:'pointer' }}>全部</button>
             <button onClick={() => setStatusFilter(true)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===true?'#16a34a':'#fff',color:statusFilter===true?'#fff':'#666',cursor:'pointer' }}>上架</button>
             <button onClick={() => setStatusFilter(false)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===false?'#dc2626':'#fff',color:statusFilter===false?'#fff':'#666',cursor:'pointer' }}>下架</button>
-            <button onClick={() => setOnlyNew(!onlyNew)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:onlyNew?'#1d4ed8':'#fff',color:onlyNew?'#fff':'#666',cursor:'pointer' }}>新链接({products.filter((p:any)=>(p as any).is_new_link).length})</button>
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', marginLeft:8 }}>筛选:</span>
             <input placeholder="标题" value={filters.title} onChange={e => setFilter('title', e.target.value)}
               style={filterInput} />
@@ -346,7 +345,7 @@ export default function MonitorProductDetail() {
               style={filterInput} />
             <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
               <input type="checkbox" checked={onlyNew} onChange={e => { setOnlyNew(e.target.checked); setProdPage(1) }} />
-              仅看新链接({products.filter((p:any)=>(p as any).is_new_link).length})
+              仅看新增({products.filter((p:any)=>(p as any).is_new_link).length})
             </label>
             <span style={{ flex: 1 }} />
             <button onClick={async () => {
