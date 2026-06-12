@@ -147,7 +147,7 @@ export default function AnalysisPage() {
                 <th style={{...thStyle,width:80}}>单克价</th>
                 <th style={{...thStyle,width:70}}>分类</th>
                 <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('sales');setSortDir(d=>d==='asc'?'desc':'asc')}}>销量{sortKey==='sales'?(sortDir==='asc'?'▲':'▼'):''}</th>
-                <th style={thStyle}>店铺</th>{currentPlatform !== 'jd' && <th style={thStyle}>掌柜名</th>}{currentPlatform !== 'jd' && <th style={thStyle}>地址</th>}<th style={thStyle}>操作</th>
+                <th style={thStyle}>店铺</th>{currentPlatform !== 'jd' && <th style={thStyle}>掌柜名</th>}{currentPlatform !== 'jd' && <th style={thStyle}>地址</th>}<th style={{...thStyle,width:80}}>店铺类型</th><th style={{...thStyle,width:60}}>平台</th><th style={thStyle}>操作</th>
               </tr></thead>
               <tbody>{filtered.slice(0,200).map(p=>(
                 <tr key={p.product_id} style={{borderBottom:'1px solid #f0f0f0'}}>
@@ -162,6 +162,8 @@ export default function AnalysisPage() {
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
                   {currentPlatform !== 'jd' && <td style={tdStyle}>{p.seller_name||'-'}</td>}
                   {currentPlatform !== 'jd' && <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>}
+                  <td style={tdStyle}>{p.shop_type||'-'}</td>
+                  <td style={tdStyle}>{(p.platform||'') === 'jd' ? '京东' : '淘天'}</td>
                   <td style={tdStyle}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button></td>
                 </tr>
               ))}</tbody>
