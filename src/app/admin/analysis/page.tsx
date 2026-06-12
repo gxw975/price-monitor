@@ -142,6 +142,8 @@ export default function AnalysisPage() {
               <thead><tr style={{background:'#fafafa'}}>
                 <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={{...thStyle,width:55}}>新链接</th><th style={{...thStyle,width:55}}>状态</th>
                 <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('price');setSortDir(d=>d==='asc'?'desc':'asc')}}>现价{sortKey==='price'?(sortDir==='asc'?'▲':'▼'):''}</th>
+                <th style={{...thStyle,width:80}}>单克价</th>
+                <th style={{...thStyle,width:70}}>分类</th>
                 <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('sales');setSortDir(d=>d==='asc'?'desc':'asc')}}>销量{sortKey==='sales'?(sortDir==='asc'?'▲':'▼'):''}</th>
                 <th style={thStyle}>店铺</th><th style={thStyle}>掌柜名</th><th style={thStyle}>地址</th><th style={thStyle}>操作</th>
               </tr></thead>
@@ -152,6 +154,8 @@ export default function AnalysisPage() {
                   <td style={tdStyle}>{latestBatchId && p.import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
                   <td style={tdStyle}><span style={{padding:"1px 6px",borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? "#dcfce7" : "#fee2e2",color:(p as any).is_on_sale !== false ? "#16a34a" : "#dc2626"}}>{(p as any).is_on_sale !== false ? "上架" : "下架"}</span></td>
                   <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(0)}</td>
+                  <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
+                  <td style={tdStyle}>{selectedMp ? (() => { const mp = monitorProducts.find(m => m.id === selectedMp); return mp ? (mp as any).name?.split(' ')[0] : '-' })() : '-'}</td>
                   <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
                   <td style={tdStyle}>{p.seller_name||'-'}</td>
