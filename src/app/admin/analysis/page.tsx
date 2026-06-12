@@ -25,6 +25,7 @@ export default function AnalysisPage() {
   const [chartData, setChartData] = useState<any[]>([])
   const [chartLoading, setChartLoading] = useState(false)
   const [latestBatchId, setLatestBatchId] = useState<number | null>(null)
+  const [skuCategories, setSkuCategories] = useState<SkuCategory[]>([])
 
   const fetchChart = async (pid: string) => { setChartPid(pid); setChartLoading(true)
     try { const r = await apiFetch(`/api/products/${pid}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) } }
@@ -43,6 +44,7 @@ export default function AnalysisPage() {
       setWhitelistSellers((mp?.whitelist_sellers||'').split(',').map((s:string)=>s.trim()).filter(Boolean))
       // Load latest batch for NEW badge
       apiFetch(`/api/monitor-products/${mpId}/imports`).then(r => { const imps = r.items||[]; if(imps.length>0) setLatestBatchId(imps[0].id) }).catch(()=>{})
+      apiFetch(`/api/monitor-products/${mpId}/sku-categories`).then(r => { setSkuCategories(r.items||[]) }).catch(()=>{})
     } catch { /**/ } finally { setLoading(false) }
   }
 
@@ -155,7 +157,7 @@ export default function AnalysisPage() {
                   <td style={tdStyle}><span style={{padding:"1px 6px",borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? "#dcfce7" : "#fee2e2",color:(p as any).is_on_sale !== false ? "#16a34a" : "#dc2626"}}>{(p as any).is_on_sale !== false ? "上架" : "下架"}</span></td>
                   <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(0)}</td>
                   <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
-                  <td style={tdStyle}>{selectedMp ? (() => { const mp = monitorProducts.find(m => m.id === selectedMp); return mp ? (mp as any).name?.split(' ')[0] : '-' })() : '-'}</td>
+                  <td style={tdStyle}>{skuCategories.find((c:any) => c.id === (p as any).sku_category_id)?.name || '-'}</td>
                   <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
                   <td style={tdStyle}>{p.seller_name||'-'}</td>
