@@ -543,6 +543,7 @@ def list_products(
     keyword: str | None = None,
     limit: int = 200,
     sku_category_id: int | None = None,
+    is_on_sale: bool | None = None,
     platform: str | None = None,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
@@ -562,6 +563,9 @@ def list_products(
                 else:
                     base_where += ' AND sku_category_id = %s'
                     base_params.append(sku_category_id)
+            if is_on_sale is not None:
+                base_where += ' AND is_on_sale = %s'
+                base_params.append(is_on_sale)
             if keyword:
                 cur.execute(
                     f'SELECT *, sales_volume AS sales FROM "Product" WHERE {base_where} AND (title ILIKE %s OR shop_name ILIKE %s OR product_id ILIKE %s) ORDER BY last_updated_at DESC LIMIT %s',
