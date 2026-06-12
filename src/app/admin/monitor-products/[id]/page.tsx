@@ -381,14 +381,14 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:120}}>商品ID</th>
                 <th style={{...thStyle,minWidth:200}}>标题</th>
                 <th style={{...thStyle,width:55}}>新链接</th>
-                <th style={{...thStyle,width:80}}>状态</th>
+                <th style={{...thStyle,width:80}}>分类</th>
                 <th style={{...thStyle,width:80,cursor:'pointer'}} onClick={()=>toggleProdSort('price')}>现价{prodSortIndicator('price')}</th>
                 <th style={{...thStyle,width:70,cursor:'pointer'}} onClick={()=>toggleProdSort('sales')}>销量{prodSortIndicator('sales')}</th>
                 <th style={{...thStyle,width:60,cursor:'pointer'}} onClick={()=>toggleProdSort('platform')}>平台{prodSortIndicator('platform')}</th>
                 <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_type')}>店铺类型{prodSortIndicator('shop_type')}</th>
                 <th style={{...thStyle,width:160,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺名称{prodSortIndicator('shop_name')}</th>
                 <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('unit_price')}>单克价{prodSortIndicator('unit_price')}</th>
-                <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('is_on_sale')}>规格{prodSortIndicator('is_on_sale')}</th>
+                <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('is_on_sale')}>状态{prodSortIndicator('is_on_sale')}</th>
                 {canWrite && <th style={{...thStyle,width:50}}>操作</th>}
               </tr></thead>
               <tbody>
