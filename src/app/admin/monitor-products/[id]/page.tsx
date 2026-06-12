@@ -412,11 +412,6 @@ export default function MonitorProductDetail() {
                       </div>
                     </td>
                     <td style={tdStyle}>{latestBatchId && (p as any).import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
-                    <td style={tdStyle}>
-                      <span style={{padding:'1px 6px',borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? '#dcfce7' : '#fee2e2',color:(p as any).is_on_sale !== false ? '#16a34a' : '#dc2626'}}>
-                        {(p as any).is_on_sale !== false ? '上架' : '下架'}
-                      </span>
-                    </td>
                     <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(2)}</td>
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                     <td style={tdStyle}>{p.platform||'-'}</td>
