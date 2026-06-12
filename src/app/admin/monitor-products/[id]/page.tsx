@@ -48,6 +48,7 @@ export default function MonitorProductDetail() {
   const [unclassifiedCount, setUnclassifiedCount] = useState(0)
   const [filters, setFilters] = useState({title: '', pid: '', minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
   const [onlyNew, setOnlyNew] = useState(false)
+  const [onlyLatest, setOnlyLatest] = useState(false)
   const [excludeWhitelist, setExcludeWhitelist] = useState(false)
   const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
   const [delProduct, setDelProduct] = useState<Product | null>(null)
@@ -171,6 +172,7 @@ export default function MonitorProductDetail() {
   const latestBatchId = imports.length > 0 ? imports[0].id : null
   const filteredProds = sortedProds.filter(p => {
     const f = filters
+    if (onlyLatest && latestBatchId && (p as any).import_batch_id !== latestBatchId) return false
     if (excludeWhitelist && whitelistSellers.length > 0) { if (whitelistSellers.includes(p.seller_name||'') || whitelistSellers.includes(p.shop_name||'')) return false }
     if (onlyNew && !(p as any).is_new_link) return false
     if (f.title && !(p.title||'').toLowerCase().includes(f.title.toLowerCase())) return false
@@ -326,6 +328,7 @@ export default function MonitorProductDetail() {
             <button onClick={() => setStatusFilter(null)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===null?'#16a34a':'#fff',color:statusFilter===null?'#fff':'#666',cursor:'pointer' }}>全部</button>
             <button onClick={() => setStatusFilter(true)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===true?'#16a34a':'#fff',color:statusFilter===true?'#fff':'#666',cursor:'pointer' }}>上架</button>
             <button onClick={() => setStatusFilter(false)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===false?'#dc2626':'#fff',color:statusFilter===false?'#fff':'#666',cursor:'pointer' }}>下架</button>
+            <button onClick={() => setOnlyNew(!onlyNew)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:onlyNew?'#1d4ed8':'#fff',color:onlyNew?'#fff':'#666',cursor:'pointer' }}>新链接({products.filter((p:any)=>(p as any).is_new_link).length})</button>
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', marginLeft:8 }}>筛选:</span>
             <input placeholder="标题" value={filters.title} onChange={e => setFilter('title', e.target.value)}
               style={filterInput} />
@@ -344,8 +347,8 @@ export default function MonitorProductDetail() {
             <input placeholder="地址" value={filters.location} onChange={e => setFilter('location', e.target.value)}
               style={filterInput} />
             <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              <input type="checkbox" checked={onlyNew} onChange={e => { setOnlyNew(e.target.checked); setProdPage(1) }} />
-              仅看新增({products.filter((p:any)=>(p as any).is_new_link).length})
+              <input type="checkbox" checked={onlyLatest} onChange={e => { setOnlyLatest(e.target.checked); setProdPage(1) }} />
+              仅看新增({products.filter((p:any)=>latestBatchId && (p as any).import_batch_id===latestBatchId).length})
             </label>
             <span style={{ flex: 1 }} />
             <button onClick={async () => {
