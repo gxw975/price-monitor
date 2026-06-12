@@ -346,10 +346,6 @@ export default function MonitorProductDetail() {
               style={filterInput} />
             <input placeholder="地址" value={filters.location} onChange={e => setFilter('location', e.target.value)}
               style={filterInput} />
-            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              <input type="checkbox" checked={onlyLatest} onChange={e => { setOnlyLatest(e.target.checked); setProdPage(1) }} />
-              仅看新增({products.filter((p:any)=>latestBatchId && (p as any).import_batch_id===latestBatchId).length})
-            </label>
             <span style={{ flex: 1 }} />
             <button onClick={async () => {
               const token = localStorage.getItem('auth_token')
@@ -363,15 +359,21 @@ export default function MonitorProductDetail() {
               a.click(); URL.revokeObjectURL(url)
             }}
               style={{ padding: '4px 10px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: 4, cursor: 'pointer', fontSize: 12, whiteSpace: 'nowrap' }}>📥 导出Excel</button>
+            <span style={{ fontSize: 11, color: '#999', marginLeft: 'auto' }}>筛选后 {filteredProds.length} 条</span>
+          </div>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+            <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              <input type="checkbox" checked={onlyLatest} onChange={e => { setOnlyLatest(e.target.checked); setProdPage(1) }} />
+              仅看新增({products.filter((p:any)=>latestBatchId && (p as any).import_batch_id===latestBatchId).length})
+            </label>
             {whitelistSellers.length>0 && (
               <label style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <input type="checkbox" checked={excludeWhitelist} onChange={e => { setExcludeWhitelist(e.target.checked); setProdPage(1) }} />
                 🛡️ 去除白名单({whitelistSellers.length})
               </label>
             )}
-            <button onClick={() => { setFilters({ title:'',pid:'',minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setOnlyNew(false); setExcludeWhitelist(false); setProdPage(1) }}
-              style={{ ...btnSecondary, fontSize: 12, padding: '3px 10px' }}>清除</button>
-            <span style={{ fontSize: 11, color: '#999', marginLeft: 'auto' }}>筛选后 {filteredProds.length} 条</span>
+            <button onClick={() => { setFilters({ title:'',pid:'',minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setOnlyNew(false); setOnlyLatest(false); setExcludeWhitelist(false); setProdPage(1) }}
+              style={{ ...btnSecondary, fontSize: 12, padding: '3px 10px' }}>清除筛选</button>
           </div>
           <div style={{ maxHeight: 'calc(100vh - 370px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
