@@ -101,6 +101,7 @@ export default function MonitorProductDetail() {
     const params = new URLSearchParams({limit:'2000', _t: String(Date.now())})
     if (cid != null && cid !== undefined) params.set('sku_category_id', String(cid))
     if (statusFilter !== null) params.set('is_on_sale', String(statusFilter))
+    if (onlyNew) params.set('only_new', 'true')
     const r = await apiFetch(`/api/monitor-products/${id}/products?${params}`).catch(() => ({items:[]}))
     setProducts(r.items||[])
   }
@@ -325,6 +326,7 @@ export default function MonitorProductDetail() {
             <button onClick={() => setStatusFilter(null)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===null?'#16a34a':'#fff',color:statusFilter===null?'#fff':'#666',cursor:'pointer' }}>全部</button>
             <button onClick={() => setStatusFilter(true)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===true?'#16a34a':'#fff',color:statusFilter===true?'#fff':'#666',cursor:'pointer' }}>上架</button>
             <button onClick={() => setStatusFilter(false)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===false?'#dc2626':'#fff',color:statusFilter===false?'#fff':'#666',cursor:'pointer' }}>下架</button>
+            <button onClick={() => setOnlyNew(!onlyNew)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:onlyNew?'#1d4ed8':'#fff',color:onlyNew?'#fff':'#666',cursor:'pointer' }}>新链接({products.filter((p:any)=>(p as any).is_new_link).length})</button>
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', marginLeft:8 }}>筛选:</span>
             <input placeholder="标题" value={filters.title} onChange={e => setFilter('title', e.target.value)}
               style={filterInput} />
