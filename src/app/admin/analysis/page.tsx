@@ -151,10 +151,10 @@ export default function AnalysisPage() {
                   <td style={tdStyle}>{p.url||p.product_url?<a href={(p.url||p.product_url||'').startsWith('https')?p.url||p.product_url:'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a>:p.title}</td>
                   <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(0)}</td>
                   <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
+                  <td style={tdStyle}>{latestBatchId && p.import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
                   <td style={tdStyle}>{p.seller_name||'-'}</td>
                   <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
-                  <td style={tdStyle}>{latestBatchId && p.import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
                   <td style={tdStyle}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button></td>
                 </tr>
               ))}</tbody>
