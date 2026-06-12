@@ -140,6 +140,7 @@ export default function AnalysisPage() {
           <div style={{overflow:'auto',border:'1px solid #e5e7eb',borderRadius:8}}>
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
               <thead><tr style={{background:'#fafafa'}}>
+                <th style={{...thStyle,width:55}}>状态</th>
                 <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('price');setSortDir(d=>d==='asc'?'desc':'asc')}}>现价{sortKey==='price'?(sortDir==='asc'?'▲':'▼'):''}</th>
                 <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('sales');setSortDir(d=>d==='asc'?'desc':'asc')}}>销量{sortKey==='sales'?(sortDir==='asc'?'▲':'▼'):''}</th>
                 <th style={{...thStyle,width:55}}>新链接</th>
@@ -149,6 +150,7 @@ export default function AnalysisPage() {
                 <tr key={p.product_id} style={{borderBottom:'1px solid #f0f0f0'}}>
                   <td style={tdStyle}>{(p.image_url||p.main_image_url)?<img src={p.image_url||p.main_image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,cursor:'pointer'}} onMouseEnter={(e) => {const r = e.currentTarget.getBoundingClientRect(); setHoverImg(p.image_url||p.main_image_url); setHoverPos({x: r.right + 8, y: r.top})}} onMouseLeave={() => setHoverImg(null)}/>:<div style={{width:36,height:36,background:'#f5f5f5',borderRadius:4}}/>}</td>
                   <td style={tdStyle}>{p.url||p.product_url?<a href={(p.url||p.product_url||'').startsWith('https')?p.url||p.product_url:'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a>:p.title}</td>
+                  <td style={tdStyle}><span style={{padding:"1px 6px",borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? "#dcfce7" : "#fee2e2",color:(p as any).is_on_sale !== false ? "#16a34a" : "#dc2626"}}>{(p as any).is_on_sale !== false ? "上架" : "下架"}</span></td>
                   <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(0)}</td>
                   <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                   <td style={tdStyle}>{latestBatchId && p.import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
