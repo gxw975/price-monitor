@@ -383,6 +383,7 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_type')}>店铺类型{prodSortIndicator('shop_type')}</th>
                 <th style={{...thStyle,width:160,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺名称{prodSortIndicator('shop_name')}</th>
                 <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('unit_price')}>单克价{prodSortIndicator('unit_price')}</th>
+                <th style={{...thStyle,width:80}}>分类</th>
                 <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('is_on_sale')}>规格{prodSortIndicator('is_on_sale')}</th>
                 {canWrite && <th style={{...thStyle,width:50}}>操作</th>}
               </tr></thead>
@@ -418,6 +419,11 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
+                    <td style={tdStyle}>
+                      <span style={{padding:'1px 6px',borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? '#dcfce7' : '#fee2e2',color:(p as any).is_on_sale !== false ? '#16a34a' : '#dc2626'}}>
+                        {(p as any).is_on_sale !== false ? '上架' : '下架'}
+                      </span>
+                    </td>
                     <td style={tdStyle}>
                       <div style={{position:'relative'}}>
                         {hoverEditPid === p.product_id ? (
