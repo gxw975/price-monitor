@@ -5,7 +5,7 @@ import { useCallback, useEffect, useState } from 'react'
 
 interface MonitorProduct { id: number; name: string; whitelist_sellers?: string }
 interface SkuCategory { id: number; name: string; unit: string; conversion_factor: number }
-interface ProductItem { product_id: string; title: string; shop_name: string; seller_name: string; shop_id?: string; main_image_url: string; image_url: string; price: number; sales: number; platform: string; shop_type: string; location?: string; url?: string; product_url?: string }
+interface ProductItem { product_id: string; title: string; shop_name: string; seller_name: string; shop_id?: string; main_image_url: string; image_url: string; price: number; sales: number; platform: string; shop_type: string; location?: string; url?: string; product_url?: string; import_batch_id?: number }
 
 export default function AnalysisPage() {
   const [monitorProducts, setMonitorProducts] = useState<MonitorProduct[]>([])
@@ -24,6 +24,7 @@ export default function AnalysisPage() {
   const [chartPid, setChartPid] = useState<string | null>(null)
   const [chartData, setChartData] = useState<any[]>([])
   const [chartLoading, setChartLoading] = useState(false)
+  const [latestBatchId, setLatestBatchId] = useState<number | null>(null)
 
   const fetchChart = async (pid: string) => { setChartPid(pid); setChartLoading(true)
     try { const r = await apiFetch(`/api/products/${pid}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) } }
@@ -40,6 +41,8 @@ export default function AnalysisPage() {
       setProducts(r.items||[])
       const mp = monitorProducts.find(m=>m.id===mpId); setMpName(mp?.name||'')
       setWhitelistSellers((mp?.whitelist_sellers||'').split(',').map((s:string)=>s.trim()).filter(Boolean))
+      // Load latest batch for NEW badge
+      apiFetch(`/api/monitor-products/${mpId}/imports`).then(r => { const imps = r.items||[]; if(imps.length>0) setLatestBatchId(imps[0].id) }).catch(()=>{})
     } catch { /**/ } finally { setLoading(false) }
   }
 
@@ -139,6 +142,7 @@ export default function AnalysisPage() {
               <thead><tr style={{background:'#fafafa'}}>
                 <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('price');setSortDir(d=>d==='asc'?'desc':'asc')}}>现价{sortKey==='price'?(sortDir==='asc'?'▲':'▼'):''}</th>
                 <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('sales');setSortDir(d=>d==='asc'?'desc':'asc')}}>销量{sortKey==='sales'?(sortDir==='asc'?'▲':'▼'):''}</th>
+                <th style={{...thStyle,width:35}}>新</th>
                 <th style={thStyle}>店铺</th><th style={thStyle}>掌柜名</th><th style={thStyle}>地址</th><th style={thStyle}>操作</th>
               </tr></thead>
               <tbody>{filtered.slice(0,200).map(p=>(
@@ -150,6 +154,7 @@ export default function AnalysisPage() {
                   <td style={tdStyle}>{p.shop_name||'-'}</td>
                   <td style={tdStyle}>{p.seller_name||'-'}</td>
                   <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>
+                  <td style={tdStyle}>{latestBatchId && p.import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
                   <td style={tdStyle}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button></td>
                 </tr>
               ))}</tbody>
