@@ -401,7 +401,7 @@ export default function MonitorProductDetail() {
                             const cid = parseInt(e.target.value) || null
                             const lnk = cid ? `/api/monitor-products/${id}/sku-categories/${cid}` : `/api/monitor-products/${id}/sku-categories/0`
                             await apiFetch(lnk, {method:'PUT', body:JSON.stringify({product_id: p.product_id, sku_category_id: cid || null})})
-                            const r = await apiFetch(`/api/monitor-products/${id}/products?limit=2000`); setProducts(r.items||[]); setHoverEditPid(null)
+                            await refreshProducts(catFilter); setHoverEditPid(null); fetchCounts()
                           }} style={{fontSize:10,padding:'1px 2px',border:'1px solid #d9d9d9',borderRadius:3,maxWidth:80}} autoFocus>
                             <option value={0}>未分类</option>
                             {categories.map((c:any) => <option key={c.id} value={c.id}>{c.name}</option>)}
