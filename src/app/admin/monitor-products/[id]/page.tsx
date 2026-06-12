@@ -43,6 +43,7 @@ export default function MonitorProductDetail() {
   const [savingCat, setSavingCat] = useState<string | null>(null)
   const [jumpPage, setJumpPage] = useState('')
   const [catFilter, setCatFilter] = useState<number | null>(null)
+  const [statusFilter, setStatusFilter] = useState<boolean | null>(null)
   const [totalProductCount, setTotalProductCount] = useState(0)
   const [unclassifiedCount, setUnclassifiedCount] = useState(0)
   const [filters, setFilters] = useState({title: '', pid: '', minPrice: '', maxPrice: '', minSales: '', maxSales: '', seller: '', shop: '', location: '' })
@@ -54,8 +55,19 @@ export default function MonitorProductDetail() {
   const [chartPid, setChartPid] = useState<string | null>(null)
   const [chartData, setChartData] = useState<any[]>([])
   const [chartLoading, setChartLoading] = useState(false)
-  const fetchChart = async (pid: string) => { setChartPid(pid); setChartLoading(true)
-    try { const r = await apiFetch(`/api/products/${pid}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) } }
+  const [chartStart, setChartStart] = useState('')
+  const [chartEnd, setChartEnd] = useState('')
+  const fetchChart = async (pid: string) => {
+    setChartPid(pid); setChartLoading(true)
+    const today = new Date(); const ago = new Date(today.getTime() - 30*86400000)
+    setChartStart(ago.toISOString().slice(0,10)); setChartEnd(today.toISOString().slice(0,10))
+    try { const r = await apiFetch(`/api/products/${pid}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) }
+  }
+  const fetchChartRange = async () => {
+    if (!chartPid) return; setChartLoading(true)
+    const params = new URLSearchParams(); if(chartStart) params.set('start_date',chartStart); if(chartEnd) params.set('end_date',chartEnd)
+    try { const r = await apiFetch(`/api/products/${chartPid}?${params}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) }
+  }
 
   const fetchMp = useCallback(async () => {
     try {
@@ -88,6 +100,7 @@ export default function MonitorProductDetail() {
     const cid = filterId !== undefined ? filterId : catFilter
     const params = new URLSearchParams({limit:'2000', _t: String(Date.now())})
     if (cid != null && cid !== undefined) params.set('sku_category_id', String(cid))
+    if (statusFilter !== null) params.set('is_on_sale', String(statusFilter))
     const r = await apiFetch(`/api/monitor-products/${id}/products?${params}`).catch(() => ({items:[]}))
     setProducts(r.items||[])
   }
@@ -307,6 +320,10 @@ export default function MonitorProductDetail() {
               <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); await refreshProducts(); fetchCounts() }}
                 style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #16a34a',background:'#16a34a',color:'#fff',cursor:'pointer' }}>⚡一键应用推荐</button>
             )}
+            <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>状态:</span>
+            <button onClick={() => setStatusFilter(null)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===null?'#16a34a':'#fff',color:statusFilter===null?'#fff':'#666',cursor:'pointer' }}>全部</button>
+            <button onClick={() => setStatusFilter(true)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===true?'#16a34a':'#fff',color:statusFilter===true?'#fff':'#666',cursor:'pointer' }}>上架</button>
+            <button onClick={() => setStatusFilter(false)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:statusFilter===false?'#dc2626':'#fff',color:statusFilter===false?'#fff':'#666',cursor:'pointer' }}>下架</button>
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap', marginLeft:8 }}>筛选:</span>
             <input placeholder="标题" value={filters.title} onChange={e => setFilter('title', e.target.value)}
               style={filterInput} />
@@ -361,6 +378,7 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_type')}>店铺类型{prodSortIndicator('shop_type')}</th>
                 <th style={{...thStyle,width:160,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺名称{prodSortIndicator('shop_name')}</th>
                 <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('unit_price')}>单克价{prodSortIndicator('unit_price')}</th>
+                <th style={{...thStyle,width:55,cursor:'pointer'}} onClick={()=>toggleProdSort('is_on_sale')}>状态{prodSortIndicator('is_on_sale')}</th>
                 {canWrite && <th style={{...thStyle,width:50}}>操作</th>}
               </tr></thead>
               <tbody>
@@ -394,6 +412,11 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
+                    <td style={tdStyle}>
+                      <span style={{padding:'1px 6px',borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? '#dcfce7' : '#fee2e2',color:(p as any).is_on_sale !== false ? '#16a34a' : '#dc2626'}}>
+                        {(p as any).is_on_sale !== false ? '上架' : '下架'}
+                      </span>
+                    </td>
                     <td style={tdStyle}>
                       <div style={{position:'relative'}}>
                         {hoverEditPid === p.product_id ? (
@@ -533,7 +556,13 @@ export default function MonitorProductDetail() {
           <div style={{...modalContent,width:'92vw',maxWidth:1140,maxHeight:'90vh',overflow:'auto'}}>
             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
               <h3 style={{fontSize:16,fontWeight:600}}>历史趋势 — {chartPid}</h3>
-              <button onClick={() => setChartPid(null)} style={btnSecondary}>关闭</button>
+              <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                <input type="date" value={chartStart} onChange={e => setChartStart(e.target.value)} style={{fontSize:12,padding:'2px 6px',border:'1px solid #d9d9d9',borderRadius:4}} />
+                <span style={{fontSize:12,color:'#999'}}>至</span>
+                <input type="date" value={chartEnd} onChange={e => setChartEnd(e.target.value)} style={{fontSize:12,padding:'2px 6px',border:'1px solid #d9d9d9',borderRadius:4}} />
+                <button onClick={fetchChartRange} style={{padding:'3px 10px',fontSize:12,background:'#1677ff',color:'#fff',border:'none',borderRadius:4,cursor:'pointer'}}>查询</button>
+                <button onClick={() => setChartPid(null)} style={btnSecondary}>关闭</button>
+              </div>
             </div>
             {chartLoading ? <p style={{color:'#999',textAlign:'center',padding:40}}>加载中...</p> :
             chartData.length === 0 ? <p style={{color:'#999',textAlign:'center',padding:40}}>暂无历史数据</p> :

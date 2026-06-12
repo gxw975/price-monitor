@@ -73,6 +73,8 @@ def _get_conn() -> Any:
 def get_product_detail(
     product_id: str,
     platform: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
     conn = _get_conn()
@@ -98,15 +100,16 @@ def get_product_detail(
             if not product:
                 raise HTTPException(status_code=404, detail="商品不存在")
 
-            thirty_days_ago = date.today() - timedelta(days=29)
+            date_start = start_date or (date.today() - timedelta(days=29)).isoformat()
+            date_end = end_date or date.today().isoformat()
             cur.execute(
                 "SELECT DATE(recorded_at) AS record_date, "
                 "MIN(price) AS min_price, MAX(price) AS max_price, AVG(price) AS avg_price, "
                 "COUNT(*) AS entries "
                 'FROM "ProductHistory" '
-                "WHERE product_id = %s AND recorded_at::date >= %s "
+                "WHERE product_id = %s AND recorded_at::date >= %s AND recorded_at::date <= %s "
                 "GROUP BY DATE(recorded_at) ORDER BY record_date",
-                (product_id, thirty_days_ago),
+                (product_id, date_start, date_end),
             )
             price_history = []
             for r in cur.fetchall():

@@ -807,8 +807,26 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
             logger.exception("SKU auto-classification failed")
 
         with conn.cursor() as cur:
-            cur.execute('UPDATE "ImportBatch" SET valid_count=%s WHERE id=%s', (inserted, batch_id))
+            cur.execute('UPDATE "ImportBatch" SET valid_count=%s, total_count=%s WHERE id=%s', (inserted, len(selected_ids), batch_id))
             conn.commit()
+
+        # ── 上下架判定：基于批次对比 ──
+        try:
+            cur2 = conn.cursor()
+            cur2.execute('SELECT id FROM "ImportBatch" WHERE monitor_product_id=%s ORDER BY import_time DESC LIMIT 2', (product_id,))
+            batches = [r[0] for r in cur2.fetchall()]
+            if len(batches) >= 2:
+                cur2.execute('SELECT DISTINCT product_id FROM "Product" WHERE import_batch_id=%s AND monitor_product_id=%s', (batches[1], product_id))
+                prev_ids = {r[0] for r in cur2.fetchall()}
+                offline = list(prev_ids - set(selected_ids))
+                if offline:
+                    cur2.execute('UPDATE "Product" SET is_on_sale=FALSE WHERE product_id = ANY(%s) AND monitor_product_id=%s', (offline, product_id))
+                    logger.info("上下架判定: batch=%d offline=%d", batch_id, len(offline))
+            cur2.close()
+            conn.commit()
+        except Exception:
+            logger.exception("上下架判定失败")
+
         return {"batch_id": batch_id, "inserted": inserted, "new_count": new_count}
     finally:
         conn.close()
