@@ -387,6 +387,7 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:60,cursor:'pointer'}} onClick={()=>toggleProdSort('platform')}>平台{prodSortIndicator('platform')}</th>
                 <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_type')}>店铺类型{prodSortIndicator('shop_type')}</th>
                 <th style={{...thStyle,width:160,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺名称{prodSortIndicator('shop_name')}</th>
+                {mp?.platform !== 'jd' && <th style={{...thStyle,width:80,cursor:'pointer'}} onClick={()=>toggleProdSort('location')}>发货地{prodSortIndicator('location')}</th>}
                 <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('unit_price')}>单克价{prodSortIndicator('unit_price')}</th>
                 <th style={{...thStyle,width:80}}>分类</th>
                 {canWrite && <th style={{...thStyle,width:50}}>操作</th>}
@@ -427,6 +428,7 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{(p.platform||'') === 'jd' ? '京东' : '淘天'}</td>
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
+                    {mp?.platform !== 'jd' && <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>}
                     <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
                     <td style={tdStyle}>
                       <div style={{position:'relative'}}>
