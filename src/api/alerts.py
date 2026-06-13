@@ -85,12 +85,16 @@ def list_alerts(
     monitor_product_id: int | None = Query(None),
     is_handled: bool | None = Query(None),
     platform: str | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
+    category_id: int | None = Query(None),
 ) -> dict[str, Any]:
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             conditions: list[str] = []
             params: list[Any] = []
+            extra_joins = ""
 
             if alert_type:
                 conditions.append("a.alert_type = %s")
@@ -110,6 +114,16 @@ def list_alerts(
             if platform:
                 conditions.append("a.platform = %s")
                 params.append(platform)
+            if date_from:
+                conditions.append("a.created_at::date >= %s")
+                params.append(date_from)
+            if date_to:
+                conditions.append("a.created_at::date <= %s")
+                params.append(date_to)
+            if category_id is not None:
+                extra_joins += ' LEFT JOIN "SkuCategory" sc ON p.sku_category_id = sc.id AND sc.monitor_product_id = p.monitor_product_id'
+                conditions.append("p.sku_category_id = %s")
+                params.append(category_id)
             if keyword:
                 conditions.append("(a.message ILIKE %s OR a.product_id ILIKE %s OR p.title ILIKE %s)")
                 params.extend([f"%{keyword}%", f"%{keyword}%", f"%{keyword}%"])
@@ -118,7 +132,7 @@ def list_alerts(
             if conditions:
                 where = "WHERE " + " AND ".join(conditions)
 
-            count_sql = f'SELECT COUNT(*) FROM "Alert" a {where}'
+            count_sql = f'SELECT COUNT(*) FROM "Alert" a LEFT JOIN "Product" p ON a.product_id = p.product_id{extra_joins} {where}'
             cur.execute(count_sql, params)
             total = cur.fetchone()["count"]
 
@@ -129,6 +143,7 @@ def list_alerts(
                 'p.product_url, p.location, p.main_image_url '
                 'FROM "Alert" a '
                 'LEFT JOIN "Product" p ON a.product_id = p.product_id '
+                f"{extra_joins} "
                 f"{where} "
                 "ORDER BY a.created_at DESC "
                 "LIMIT %s OFFSET %s"
@@ -155,7 +170,7 @@ def list_alerts(
 
 
 @router.post("/mark-read")
-def mark_read(ids: list[int]) -> dict[str, Any]:
+def mark_read(ids: list[int], current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     if not ids:
         raise HTTPException(status_code=400, detail="ids 不能为空")
 
@@ -181,7 +196,7 @@ def mark_read(ids: list[int]) -> dict[str, Any]:
 
 
 @router.post("/mark-processed")
-def mark_processed(ids: list[int]) -> dict[str, Any]:
+def mark_processed(ids: list[int], current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     if not ids:
         raise HTTPException(status_code=400, detail="ids 不能为空")
 
@@ -207,7 +222,7 @@ def mark_processed(ids: list[int]) -> dict[str, Any]:
 
 
 @router.post("/batch-delete")
-def batch_delete(ids: list[int]) -> dict[str, Any]:
+def batch_delete(ids: list[int], current_user: dict[str, Any] = Depends(get_current_user)) -> dict[str, Any]:
     if not ids:
         raise HTTPException(status_code=400, detail="ids 不能为空")
 
@@ -233,26 +248,30 @@ def batch_delete(ids: list[int]) -> dict[str, Any]:
 
 
 @router.get("/stats")
-def get_stats() -> dict[str, Any]:
+def get_stats(platform: str | None = Query(None)) -> dict[str, Any]:
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute('SELECT COUNT(*) as total FROM "Alert"')
+            p_where = "WHERE platform = %s" if platform else ""
+            p_params = (platform,) if platform else ()
+
+            cur.execute(f'SELECT COUNT(*) as total FROM "Alert" {p_where}', p_params)
             total = cur.fetchone()["total"]
 
-            cur.execute('SELECT COUNT(*) as unread FROM "Alert" WHERE is_read = FALSE')
+            cur.execute(f"SELECT COUNT(*) as unread FROM \"Alert\" WHERE is_read = FALSE {'AND platform = %s' if platform else ''}", p_params)
             unread = cur.fetchone()["unread"]
 
             cur.execute(
-                "SELECT alert_type, COUNT(*) as cnt FROM \"Alert\" GROUP BY alert_type "
-                "ORDER BY cnt DESC"
+                f"SELECT alert_type, COUNT(*) as cnt FROM \"Alert\" {p_where} GROUP BY alert_type ORDER BY cnt DESC",
+                p_params,
             )
             by_type = {r["alert_type"]: r["cnt"] for r in cur.fetchall()}
 
             cur.execute(
-                "SELECT alert_type, COUNT(*) as cnt FROM \"Alert\" "
-                "WHERE created_at >= NOW() - INTERVAL '7 days' "
-                "GROUP BY alert_type ORDER BY cnt DESC"
+                f"SELECT alert_type, COUNT(*) as cnt FROM \"Alert\" "
+                f"WHERE created_at >= NOW() - INTERVAL '7 days' {'AND platform = %s' if platform else ''} "
+                "GROUP BY alert_type ORDER BY cnt DESC",
+                p_params,
             )
             recent_by_type = {r["alert_type"]: r["cnt"] for r in cur.fetchall()}
 
@@ -274,32 +293,47 @@ def export_alerts(
     alert_type: str | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
+    category_id: int | None = None,
+    platform: str | None = None,
+    is_handled: bool | None = None,
 ) -> dict[str, Any]:
     conn = _get_conn()
     try:
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             conditions: list[str] = []
             params: list[Any] = []
+            extra_joins = ""
 
             if alert_type:
                 conditions.append("a.alert_type = %s")
                 params.append(alert_type)
             if date_from:
-                conditions.append("a.created_at >= %s")
+                conditions.append("a.created_at::date >= %s")
                 params.append(date_from)
             if date_to:
-                conditions.append("a.created_at <= %s")
+                conditions.append("a.created_at::date <= %s")
                 params.append(date_to)
+            if category_id is not None:
+                extra_joins += ' LEFT JOIN "SkuCategory" sc ON p.sku_category_id = sc.id AND sc.monitor_product_id = p.monitor_product_id'
+                conditions.append("p.sku_category_id = %s")
+                params.append(category_id)
+            if platform:
+                conditions.append("a.platform = %s")
+                params.append(platform)
+            if is_handled is not None:
+                conditions.append("a.is_handled = %s")
+                params.append(is_handled)
 
             where = ""
             if conditions:
                 where = "WHERE " + " AND ".join(conditions)
 
             cur.execute(
-                'SELECT a.*, COALESCE(p.title, a.product_id) AS product_title '
+                'SELECT a.*, COALESCE(p.title, a.product_id) AS product_title, '
+                'p.price, p.platform, p.seller_name, p.shop_name '
                 'FROM "Alert" a '
                 'LEFT JOIN "Product" p ON a.product_id = p.product_id '
-                f"{where} ORDER BY a.created_at DESC LIMIT 5000",
+                f"{extra_joins} {where} ORDER BY a.created_at DESC LIMIT 5000",
                 params,
             )
             rows = cur.fetchall()
@@ -308,7 +342,7 @@ def export_alerts(
         writer = csv.writer(output)
         writer.writerow(["ID", "商品ID", "商品名称", "预警类型", "消息", "已发送", "已读", "创建时间"])
 
-        type_labels = {"price": "价格预警", "sales": "销量预警"}
+        type_labels = {"price": "价格预警", "sales": "销量预警", "price_drop": "降价幅度预警"}
         for r in rows:
             writer.writerow([
                 r["id"],

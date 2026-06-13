@@ -1,7 +1,7 @@
 """首页仪表盘 API
 
-提供数据概览、趋势图表和最近预警数据。
-权限：全体可访问，数据按角色做适当限制。
+提供数据概览：核心指标卡片、最近预警、最近导入。
+支持按平台筛选，权限：全体可访问。
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from typing import Any
 import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from services.auth_service import get_current_user
 
@@ -29,7 +29,6 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 def _parse_db_url(url: str) -> tuple[str, str]:
     from urllib.parse import parse_qs, urlparse, urlunparse
-
     parsed = urlparse(url)
     qs = parse_qs(parsed.query)
     schema = qs.get("schema", [_SCHEMA])[0]
@@ -47,115 +46,75 @@ def _get_conn() -> Any:
 
 @router.get("/summary")
 def dashboard_summary(
+    platform: str | None = Query(None),
     current_user: dict[str, Any] = Depends(get_current_user),
 ) -> dict[str, Any]:
+    """首页数据概览。platform 为空时统计全平台。"""
     conn = _get_conn()
     try:
-        today_str = date.today().isoformat()
-        seven_days_ago = date.today() - timedelta(days=6)
-
-        metrics: dict[str, Any] = {}
-
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-            cur.execute('SELECT COUNT(*)::int AS cnt FROM "Alert"')
-            metrics["total_alerts"] = cur.fetchone()["cnt"]
 
+            # Platform filter helper
+            mp_where = "WHERE mp.platform = %s" if platform else ""
+            p_where = "AND p.platform = %s" if platform else ""
+            a_where = "AND a.platform = %s" if platform else ""
+            params_p = (platform,) if platform else ()
+            params_a = (platform,) if platform else ()
+
+            # ── Stat Cards ──
             cur.execute(
-                'SELECT COUNT(*)::int AS cnt FROM "Alert" WHERE "created_at"::date = %s',
-                (today_str,),
+                f"""SELECT
+                    (SELECT COUNT(*) FROM "MonitorProduct" mp {mp_where})::int AS monitor_product_count,
+                    (SELECT COUNT(*) FROM "Product" p WHERE TRUE {p_where})::int AS total_products,
+                    (SELECT COUNT(*) FROM "Product" p WHERE p.is_on_sale = TRUE {p_where})::int AS on_sale_count,
+                    (SELECT COUNT(*) FROM "Alert" a WHERE a.is_handled = FALSE {a_where})::int AS unhandled_alerts,
+                    (SELECT COUNT(*) FROM "Alert" a WHERE a.created_at::date = CURRENT_DATE {a_where})::int AS today_new_alerts""",
+                params_p + params_p + params_p + params_a + params_a if platform else (),
             )
-            metrics["today_alerts"] = cur.fetchone()["cnt"]
+            stat_cards = dict(cur.fetchone() or {})
 
+            # ── Latest 5 Alerts ──
             cur.execute(
-                'SELECT COUNT(*)::int AS cnt FROM "Product" WHERE is_whitelist = FALSE AND is_approved = TRUE'
+                f"""SELECT a.id, a.product_id, a.alert_type, a.message, a.is_read, a.is_handled,
+                          a.created_at, COALESCE(p.title, a.product_id) AS product_title
+                FROM "Alert" a
+                LEFT JOIN "Product" p ON a.product_id = p.product_id
+                WHERE TRUE {a_where}
+                ORDER BY a.created_at DESC LIMIT 5""",
+                params_a,
             )
-            metrics["monitored_products"] = cur.fetchone()["cnt"]
+            latest_alerts = []
+            for r in cur.fetchall():
+                r = dict(r)
+                if r.get("created_at"):
+                    r["created_at"] = r["created_at"].isoformat()
+                latest_alerts.append(r)
 
-            cur.execute('SELECT COUNT(*)::int AS cnt FROM "Product"')
-            metrics["total_products"] = cur.fetchone()["cnt"]
-
-            cur.execute('SELECT COUNT(*)::int AS cnt FROM "Keyword"')
-            metrics["keyword_count"] = cur.fetchone()["cnt"]
-
+            # ── Latest 3 Imports ──
             cur.execute(
-                'SELECT COUNT(DISTINCT product_id)::int AS cnt FROM "ProductHistory" '
-                "WHERE recorded_at::date = %s",
-                (today_str,),
+                f"""SELECT ib.id, ib.file_name, ib.import_time, ib.valid_count, ib.total_count,
+                          mp.name AS mp_name
+                FROM "ImportBatch" ib
+                JOIN "MonitorProduct" mp ON mp.id = ib.monitor_product_id
+                {mp_where}
+                ORDER BY ib.import_time DESC LIMIT 3""",
+                (platform,) if platform else (),
             )
-            metrics["today_crawled"] = cur.fetchone()["cnt"]
-
-            cur.execute(
-                'SELECT COUNT(*)::int AS cnt FROM "ProductHistory" '
-                "WHERE recorded_at::date = %s",
-                (today_str,),
-            )
-            today_entries = cur.fetchone()["cnt"]
-
-            cur.execute(
-                'SELECT COUNT(*)::int AS cnt FROM "ProductHistory" '
-                "WHERE recorded_at::date = %s",
-                ((date.today() - timedelta(days=1)).isoformat(),),
-            )
-            yesterday_entries = cur.fetchone()["cnt"]
-            yesterday_entries = yesterday_entries or 1
-
-            if today_entries > 0:
-                metrics["crawl_success_rate"] = 100
-            else:
-                metrics["crawl_success_rate"] = 0
-
-            alert_trend: list[dict[str, Any]] = []
-            for i in range(6, -1, -1):
-                d = (date.today() - timedelta(days=i)).isoformat()
-                cur.execute(
-                    'SELECT COUNT(*)::int AS cnt FROM "Alert" WHERE "created_at"::date = %s',
-                    (d,),
-                )
-                alert_trend.append({"date": d, "count": cur.fetchone()["cnt"]})
-
-            crawl_trend: list[dict[str, Any]] = []
-            for i in range(6, -1, -1):
-                d = (date.today() - timedelta(days=i)).isoformat()
-                cur.execute(
-                    'SELECT COUNT(DISTINCT product_id)::int AS cnt FROM "ProductHistory" '
-                    "WHERE recorded_at::date = %s",
-                    (d,),
-                )
-                crawl_trend.append({"date": d, "count": cur.fetchone()["cnt"]})
-
-            cur.execute(
-                'SELECT a.id, a.product_id, a.alert_type, a.message, a.is_read, a.created_at, '
-                'p.title AS product_title '
-                'FROM "Alert" a '
-                'LEFT JOIN "Product" p ON a.product_id = p.product_id '
-                'ORDER BY a.created_at DESC LIMIT 5'
-            )
-            recent_alerts = []
-            for row in cur.fetchall():
-                recent_alerts.append({
-                    "id": row["id"],
-                    "product_id": row["product_id"],
-                    "alert_type": row["alert_type"],
-                    "message": row["message"],
-                    "is_read": row["is_read"],
-                    "product_title": row.get("product_title", ""),
-                    "created_at": row["created_at"].isoformat() if row["created_at"] else None,
-                })
+            latest_imports = []
+            for r in cur.fetchall():
+                r = dict(r)
+                if r.get("import_time"):
+                    r["import_time"] = r["import_time"].isoformat()
+                latest_imports.append(r)
 
         return {
-            "metrics": metrics,
-            "alert_trend": alert_trend,
-            "crawl_trend": crawl_trend,
-            "recent_alerts": recent_alerts,
+            "stat_cards": stat_cards,
+            "latest_alerts": latest_alerts,
+            "latest_imports": latest_imports,
         }
+
     except Exception:
         logger.exception("获取仪表盘数据失败")
-        return {
-            "metrics": {},
-            "alert_trend": [],
-            "crawl_trend": [],
-            "recent_alerts": [],
-            "error": "数据获取失败",
-        }
+        return {"stat_cards": {}, "latest_alerts": [], "latest_imports": []}
     finally:
         conn.close()
