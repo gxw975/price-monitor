@@ -90,19 +90,21 @@ def _read_config(conn: Any) -> dict[str, Any]:
             "sales_growth_threshold": DEFAULT_SALES_GROWTH_THRESHOLD,
             "work_start_hour": DEFAULT_WORK_START,
             "work_end_hour": DEFAULT_WORK_END,
+            "price_drop_threshold": 20,
         }
     return {
         "alert_price": float(row.get("alert_price", DEFAULT_ALERT_PRICE)),
         "sales_growth_threshold": int(row.get("sales_growth_threshold", DEFAULT_SALES_GROWTH_THRESHOLD)),
         "work_start_hour": int(row.get("work_start_hour", DEFAULT_WORK_START)),
         "work_end_hour": int(row.get("work_end_hour", DEFAULT_WORK_END)),
+        "price_drop_threshold": int(row.get("price_drop_threshold", 20)),
     }
 
 
 def _get_approved_products(conn: Any) -> list[dict[str, Any]]:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute(
-            'SELECT p.product_id, p.title, p.monitor_product_id, p.seller_name, '
+            'SELECT p.product_id, p.title, p.monitor_product_id, p.seller_name, p.platform, '
             'mp.price_threshold_bag, mp.price_threshold_can, mp.price_threshold_mix, '
             'mp.sales_threshold, mp.whitelist_sellers '
             'FROM "Product" p '
@@ -157,12 +159,12 @@ def _is_duplicate(conn: Any, product_id: str, alert_type: str) -> bool:
         return count > 0
 
 
-def _insert_alert(conn: Any, product_id: str, alert_type: str, message: str, monitor_product_id: int = None, alert_value: float = None, threshold: float = None, is_sent: bool = False) -> int:
+def _insert_alert(conn: Any, product_id: str, alert_type: str, message: str, monitor_product_id: int = None, alert_value: float = None, threshold: float = None, is_sent: bool = False, platform: str = 'taobao') -> int:
     with conn.cursor() as cur:
         cur.execute(
-            'INSERT INTO "Alert" (product_id, alert_type, message, monitor_product_id, alert_value, threshold, is_sent, sent_at) '
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
-            (product_id, alert_type, message, monitor_product_id, alert_value, threshold, is_sent, datetime.now() if is_sent else None),
+            'INSERT INTO "Alert" (product_id, alert_type, message, monitor_product_id, alert_value, threshold, is_sent, sent_at, platform) '
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (product_id, alert_type, message, monitor_product_id, alert_value, threshold, is_sent, datetime.now() if is_sent else None, platform),
         )
         alert_id = cur.fetchone()[0]
         conn.commit()
@@ -209,7 +211,7 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
             logger.debug("跳过白名单店铺: %s (%s)", product_id, seller)
             continue
 
-        if not force and _is_duplicate(conn, product_id, "price") and _is_duplicate(conn, product_id, "sales"):
+        if not force and _is_duplicate(conn, product_id, "price") and _is_duplicate(conn, product_id, "sales") and _is_duplicate(conn, product_id, "price_drop"):
             logger.debug("跳过已预警商品: %s", product_id)
             continue
 
@@ -234,7 +236,7 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
                     f"商品 {title}({product_id}) 当前价格 ¥{current_price:.2f} "
                     f"低于预警阈值 ¥{mp_alert_price:.2f}"
                 )
-                alert_id = _insert_alert(conn, product_id, "price", message, product.get("monitor_product_id"), current_price, mp_alert_price)
+                alert_id = _insert_alert(conn, product_id, "price", message, product.get("monitor_product_id"), current_price, mp_alert_price, platform=product.get("platform", "taobao"))
                 result["price_alerts"] += 1
 
                 try:
@@ -245,14 +247,14 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
                          "recorded_at": str(h["recorded_at"])}
                         for h in recent
                     ]
-                    from services.push_service import send_price_alert
-
-                    sent = send_price_alert(
-                        product_id, title, current_price, history_list,
-                    )
-                    if sent and any(sent.values()):
-                        _mark_alert_sent(conn, alert_id)
-                        result["sent"] += 1
+                    if not test_mode:
+                        from services.push_service import send_price_alert
+                        sent = send_price_alert(
+                            product_id, title, current_price, history_list,
+                        )
+                        if sent and any(sent.values()):
+                            _mark_alert_sent(conn, alert_id)
+                            result["sent"] += 1
                 except Exception:
                     logger.exception("价格预警发送失败: %s", product_id)
 
@@ -270,24 +272,57 @@ def run_alerts(test_mode: bool = False, force: bool = False) -> dict[str, int]:
                             f"商品 {title}({product_id}) 今日销量 {today_sales} 单 "
                             f"较昨日 {yesterday_sales} 单增长 {growth_pct:.1f}%"
                         )
-                        alert_id = _insert_alert(conn, product_id, "sales", message, product.get("monitor_product_id"), growth_pct, mp_sales_threshold)
+                        alert_id = _insert_alert(conn, product_id, "sales", message, product.get("monitor_product_id"), growth_pct, mp_sales_threshold, platform=product.get("platform", "taobao"))
                         result["sales_alerts"] += 1
 
                         try:
-                            from services.push_service import send_sales_alert
-
-                            sent = send_sales_alert(
-                                product_id, title, today_sales, yesterday_sales,
-                                current_price,
-                            )
-                            if sent and any(sent.values()):
-                                _mark_alert_sent(conn, alert_id)
-                                result["sent"] += 1
+                            if not test_mode:
+                                from services.push_service import send_sales_alert
+                                sent = send_sales_alert(
+                                    product_id, title, today_sales, yesterday_sales,
+                                    current_price,
+                                )
+                                if sent and any(sent.values()):
+                                    _mark_alert_sent(conn, alert_id)
+                                    result["sent"] += 1
                         except Exception:
                             logger.exception("销量预警发送失败: %s", product_id)
 
                         logger.warning("销量预警: %s 增长 %.1f%% (%d→%d)",
                                        product_id, growth_pct, yesterday_sales, today_sales)
+
+        # ── 降价幅度预警: 当前价 vs 7日均价 ──
+        price_drop_threshold = config.get("price_drop_threshold", 20)
+        if current_price > 0 and (force or not _is_duplicate(conn, product_id, "price_drop")):
+            recent_histories = _get_recent_histories(conn, product_id, days=7)
+            recent_prices = [float(h.get("price", 0) or 0) for h in recent_histories if float(h.get("price", 0) or 0) > 0]
+            if len(recent_prices) >= 3:
+                avg_7d = sum(recent_prices) / len(recent_prices)
+                if current_price < avg_7d * (1 - price_drop_threshold / 100):
+                    drop_pct = round((1 - current_price / avg_7d) * 100, 1)
+                    message = (
+                        f"商品 {title}({product_id}) 当前价格 ¥{current_price:.2f} "
+                        f"相比7日均价 ¥{avg_7d:.2f} 下降 {drop_pct}%"
+                    )
+                    alert_id = _insert_alert(conn, product_id, "price_drop", message,
+                                  product.get("monitor_product_id"), drop_pct, price_drop_threshold, platform=product.get("platform", "taobao"))
+                    result["price_drop_alerts"] = result.get("price_drop_alerts", 0) + 1
+                    # Push notification
+                    try:
+                        if not test_mode:
+                            from services.push_service import send_price_alert
+                            history_list = [
+                                {"price": float(h["price"]),"sales_volume": int(h.get("sales_volume",0)or 0),"recorded_at": str(h["recorded_at"])}
+                                for h in recent_histories
+                            ]
+                            sent = send_price_alert(product_id, title, current_price, history_list)
+                            if sent and any(sent.values()):
+                                _mark_alert_sent(conn, alert_id)
+                                result["sent"] += 1
+                    except Exception:
+                        logger.exception("降价幅度预警发送失败: %s", product_id)
+                    logger.warning("降价幅度预警: %s ¥%.2f vs 7日均价¥%.2f (降%.1f%%)",
+                                   product_id, current_price, avg_7d, drop_pct)
 
     conn.close()
 
