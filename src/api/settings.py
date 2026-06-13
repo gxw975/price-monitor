@@ -43,6 +43,7 @@ class SystemSettings(BaseModel):
     feishu_webhook: str | None = None
     wechat_webhook: str | None = None
     push_enabled_channels: str = '["feishu"]'
+    price_drop_threshold: int = 20  # 降价幅度预警阈值 (%)
 
 
 def _parse_db_url(url: str) -> tuple[str, str]:
@@ -75,8 +76,8 @@ def _get_or_create_config(cur: Any) -> dict[str, Any]:
         cur.execute(
             'INSERT INTO "SystemConfig" (alert_price, work_start_hour, work_end_hour, '
             "sales_growth_threshold, alert_dedup_hours, crawl_schedule_type, "
-            "crawl_daily_limit, check_alert_interval, sku_crawl_limit, sku_crawl_interval, updated_at) "
-            "VALUES (100, 9, 18, 100, 24, 'interval', 100, 180, 10, 120, NOW()) RETURNING *"
+            "crawl_daily_limit, check_alert_interval, sku_crawl_limit, sku_crawl_interval, price_drop_threshold, updated_at) "
+            "VALUES (100, 9, 18, 100, 24, 'interval', 100, 180, 10, 120, 20, NOW()) RETURNING *"
         )
         row = cur.fetchone()
     return row
@@ -99,6 +100,7 @@ def _row_to_settings(row: dict[str, Any]) -> dict[str, Any]:
         "feishu_webhook": row.get("feishu_webhook", None),
         "wechat_webhook": row.get("wechat_webhook", None),
         "push_enabled_channels": row.get("push_enabled_channels", '["feishu"]'),
+        "price_drop_threshold": int(row.get("price_drop_threshold", 20)),
         "updated_at": row["updated_at"].isoformat() if row.get("updated_at") else None,
     }
 
@@ -140,6 +142,7 @@ def update_settings(
                 "crawl_daily_limit = %s, check_alert_interval = %s, "
                 "feishu_webhook = %s, wechat_webhook = %s, "
                 "push_enabled_channels = %s, "
+                "price_drop_threshold = %s, "
                 "updated_at = NOW() "
                 "WHERE id = (SELECT id FROM \"SystemConfig\" ORDER BY id LIMIT 1)",
                 (
@@ -157,6 +160,7 @@ def update_settings(
                     body.feishu_webhook,
                     body.wechat_webhook,
                     body.push_enabled_channels,
+                    body.price_drop_threshold,
                 ),
             )
             conn.commit()

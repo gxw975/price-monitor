@@ -19,6 +19,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from services.auth_service import get_current_user
+from api.logs import _write_log
 from threading import Lock
 import time
 
@@ -86,7 +87,6 @@ class MonitorProductUpdate(BaseModel):
     price_threshold_mix: float | None = None
     sales_threshold: float | None = None
     whitelist_sellers: str | None = None
-    whitelist_sellers: str | None = None
 
 class ConfirmImportRequest(BaseModel):
     file_name: str
@@ -98,6 +98,33 @@ class SkuCategoryCreate(BaseModel):
     name: str
     unit: str = ""
     conversion_factor: float = 1.0
+
+
+class BatchCategoryRequest(BaseModel):
+    product_ids: list[str]
+    sku_category_id: int | None = None  # None = 清除分类
+
+
+class BatchWhitelistRequest(BaseModel):
+    product_ids: list[str]
+
+
+class BatchDeleteRequest(BaseModel):
+    product_ids: list[str]
+
+
+class KeywordsUpdate(BaseModel):
+    keywords: str  # 逗号分隔的关键词，如 "袋,包,盒"
+
+
+class HistoryExportRequest(BaseModel):
+    product_ids: list[str]
+    start_date: str | None = None  # YYYY-MM-DD
+    end_date: str | None = None
+
+
+class TestMatchRequest(BaseModel):
+    titles: str  # 一个或多个标题，换行分隔
 
 
 # ═══════════════════════════════════════════════
@@ -204,6 +231,7 @@ def update_monitor_product(
                 raise HTTPException(status_code=404, detail="监控商品不存在")
             conn.commit()
         logger.info("更新监控商品: id=%d by %s", product_id, current_user["username"])
+        _write_log(current_user["user_id"], current_user["username"], "修改监控商品", f"ID:{product_id}", details=f"更新字段: {list(body.dict(exclude_none=True).keys())}")
         return {"success": True, "data": dict(item)}
     except HTTPException:
         raise
@@ -363,6 +391,79 @@ def update_product_category(
     finally: conn.close()
 
 
+@router.put("/{product_id}/sku-categories/{cat_id}/keywords", dependencies=[Depends(require_write_permission)])
+def update_category_keywords(
+    product_id: int,
+    cat_id: int,
+    data: KeywordsUpdate,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """更新 SKU 分类的关键词（逗号分隔，自动去重 trim）"""
+    # Deduplicate + trim + sort
+    kw_list = sorted(set(kw.strip().lower() for kw in data.keywords.split(',') if kw.strip()))
+    cleaned = ','.join(kw_list)
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'UPDATE "SkuCategory" SET keywords=%s WHERE id=%s AND monitor_product_id=%s',
+                (cleaned, cat_id, product_id),
+            )
+            if cur.rowcount == 0:
+                raise HTTPException(status_code=404, detail="SKU分类不存在")
+            conn.commit()
+        logger.info("更新分类关键词: cat_id=%d keywords=%s by %s", cat_id, cleaned, current_user["username"])
+        _write_log(current_user["user_id"], current_user["username"], "更新分类关键词", f"cat_id:{cat_id}", details=f"keywords: {cleaned}")
+        return {"success": True, "keywords": cleaned}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("更新关键词失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="更新失败")
+    finally:
+        conn.close()
+
+
+@router.post("/{product_id}/test-category-match")
+def test_category_match(
+    product_id: int,
+    data: TestMatchRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """测试分类匹配规则：输入商品标题，返回匹配结果和命中的关键词"""
+    from services.sku_normalizer import SkuNormalizer
+
+    title_list = [t.strip() for t in data.titles.replace('\r', '').split('\n') if t.strip()]
+    if not title_list:
+        raise HTTPException(status_code=400, detail="请输入至少一个标题")
+
+    normalizer = SkuNormalizer(product_id)
+    results = []
+    for title in title_list:
+        detail = normalizer.match_sku_category_with_detail(title)
+        if detail:
+            results.append({
+                "title": title,
+                "is_matched": True,
+                "category_id": detail["category_id"],
+                "category_name": detail["category_name"],
+                "matched_keyword": detail["matched_keyword"],
+                "match_type": detail["match_type"],
+            })
+        else:
+            results.append({
+                "title": title,
+                "is_matched": False,
+                "category_id": None,
+                "category_name": None,
+                "matched_keyword": None,
+                "match_type": None,
+            })
+
+    return {"results": results, "total": len(results), "matched": sum(1 for r in results if r["is_matched"])}
+
+
 @router.post("/{product_id}/apply-recommendations", dependencies=[Depends(require_write_permission)])
 def apply_recommendations(
     product_id: int,
@@ -390,6 +491,7 @@ def apply_recommendations(
                 applied += 1
             conn.commit()
         logger.info("一键推荐: mp_id=%d applied=%d total=%d by %s", product_id, applied, len(products), current_user["username"])
+        _write_log(current_user["user_id"], current_user["username"], "一键重分类", f"mp_id:{product_id}", details=f"已分类 {applied}/{len(products)} 条")
         return {"code": 200, "msg": f"已应用 {applied} 条推荐（共 {len(products)} 条未分类）", "applied": applied, "total": len(products)}
     except Exception:
         conn.rollback()
@@ -649,6 +751,244 @@ def export_products(
                             headers={"Content-Disposition": f"attachment; filename=products_{product_id}_{ts}.xlsx"})
 
 
+# ═══════════════════════════════════════════════
+# 批量操作
+# ═══════════════════════════════════════════════
+
+@router.post("/{product_id}/products/batch-category", dependencies=[Depends(require_write_permission)])
+def batch_update_category(
+    product_id: int,
+    data: BatchCategoryRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """批量修改商品分类，并重算单克价"""
+    import re as _re
+    if not data.product_ids:
+        raise HTTPException(status_code=400, detail="未选择任何商品")
+    cid = data.sku_category_id  # None means clear category
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'UPDATE "Product" SET sku_category_id=%s WHERE product_id = ANY(%s) AND monitor_product_id=%s',
+                (cid, data.product_ids, product_id),
+            )
+            affected = cur.rowcount
+            # Recalculate unit_price for affected products if a category was assigned
+            if cid is not None and cid > 0:
+                cur.execute(
+                    'SELECT conversion_factor FROM "SkuCategory" WHERE id=%s AND monitor_product_id=%s',
+                    (cid, product_id),
+                )
+                row = cur.fetchone()
+                factor = float(row[0] or 1.0) if row else 1.0
+                for pid in data.product_ids:
+                    cur.execute(
+                        'SELECT title, price FROM "Product" WHERE product_id=%s AND monitor_product_id=%s',
+                        (pid, product_id),
+                    )
+                    prod = cur.fetchone()
+                    if not prod:
+                        continue
+                    title, price = prod
+                    if not title or not price:
+                        continue
+                    qty_match = _re.search(r'(\d+)\s*(袋|罐|条|盒|瓶)', title or '')
+                    qty = int(qty_match.group(1)) if qty_match else 1
+                    tw = qty * factor * 25
+                    up = round(float(price or 0) / tw, 4) if tw > 0 else 0
+                    cur.execute(
+                        'UPDATE "Product" SET unit_price=%s WHERE product_id=%s',
+                        (up, pid),
+                    )
+            conn.commit()
+        logger.info("批量修改分类: mp_id=%d affected=%d cat=%s by %s",
+                    product_id, affected, cid, current_user["username"])
+        _write_log(current_user["user_id"], current_user["username"], "批量修改分类", f"mp_id:{product_id}", details=f"affected={affected} cat_id={cid}")
+        return {"success": True, "affected": affected}
+    except Exception:
+        logger.exception("批量修改分类失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="操作失败")
+    finally:
+        conn.close()
+
+
+@router.post("/{product_id}/products/batch-whitelist", dependencies=[Depends(require_write_permission)])
+def batch_add_whitelist(
+    product_id: int,
+    data: BatchWhitelistRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """批量将商品的掌柜名加入白名单（后端提取后去重合并）"""
+    if not data.product_ids:
+        raise HTTPException(status_code=400, detail="未选择任何商品")
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            # Extract distinct seller_names from selected products
+            cur.execute(
+                'SELECT DISTINCT seller_name FROM "Product" WHERE product_id = ANY(%s) AND monitor_product_id=%s AND seller_name IS NOT NULL AND seller_name != %s',
+                (data.product_ids, product_id, ''),
+            )
+            new_sellers = [r[0].strip() for r in cur.fetchall() if r[0] and r[0].strip()]
+            if not new_sellers:
+                raise HTTPException(status_code=400, detail="所选商品无有效掌柜名")
+            # Read current whitelist
+            cur.execute(
+                'SELECT whitelist_sellers FROM "MonitorProduct" WHERE id=%s', (product_id,),
+            )
+            row = cur.fetchone()
+            current_wl = (row[0] or '') if row else ''
+            existing = set(s.strip() for s in current_wl.split(',') if s.strip())
+            # Merge + deduplicate
+            merged = list(existing) + [s for s in new_sellers if s not in existing]
+            new_wl = ','.join(merged)
+            cur.execute(
+                'UPDATE "MonitorProduct" SET whitelist_sellers=%s, updated_at=NOW() WHERE id=%s',
+                (new_wl, product_id),
+            )
+            conn.commit()
+        logger.info("批量加入白名单: mp_id=%d added=%s by %s",
+                    product_id, new_sellers, current_user["username"])
+        _write_log(current_user["user_id"], current_user["username"], "批量加入白名单", f"mp_id:{product_id}", details=f"新增 {len(new_sellers)} 个掌柜: {','.join(new_sellers)}")
+        return {"success": True, "added_sellers": new_sellers, "total_sellers": len(merged)}
+    except HTTPException:
+        raise
+    except Exception:
+        logger.exception("批量加入白名单失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="操作失败")
+    finally:
+        conn.close()
+
+
+@router.post("/{product_id}/products/batch-delete", dependencies=[Depends(require_write_permission)])
+def batch_delete_products(
+    product_id: int,
+    data: BatchDeleteRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """批量删除商品（级联删除子表数据）"""
+    if not data.product_ids:
+        raise HTTPException(status_code=400, detail="未选择任何商品")
+    conn = _get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'DELETE FROM "ProductHistory" WHERE product_id = ANY(%s)',
+                (data.product_ids,),
+            )
+            cur.execute(
+                'DELETE FROM "ProductSku" WHERE product_id = ANY(%s)',
+                (data.product_ids,),
+            )
+            cur.execute(
+                'DELETE FROM "ProductKeyword" WHERE product_id = ANY(%s)',
+                (data.product_ids,),
+            )
+            cur.execute(
+                'DELETE FROM "Alert" WHERE product_id = ANY(%s)',
+                (data.product_ids,),
+            )
+            cur.execute(
+                'DELETE FROM "Product" WHERE product_id = ANY(%s) AND monitor_product_id=%s',
+                (data.product_ids, product_id),
+            )
+            affected = cur.rowcount
+            conn.commit()
+        logger.info("批量删除商品: mp_id=%d affected=%d by %s",
+                    product_id, affected, current_user["username"])
+        _write_log(current_user["user_id"], current_user["username"], "批量删除商品", f"mp_id:{product_id}", details=f"删除 {affected} 条商品")
+        return {"success": True, "affected": affected}
+    except Exception:
+        logger.exception("批量删除商品失败")
+        conn.rollback()
+        raise HTTPException(status_code=500, detail="操作失败")
+    finally:
+        conn.close()
+
+
+@router.post("/{product_id}/products/history/export")
+def export_product_history(
+    product_id: int,
+    data: HistoryExportRequest,
+    current_user: dict[str, Any] = Depends(get_current_user),
+):
+    """批量导出所选商品的价格历史数据为 Excel。默认最近 30 天。"""
+    from datetime import date as _date, timedelta as _td
+    from io import BytesIO
+    from openpyxl import Workbook
+    from fastapi.responses import StreamingResponse
+
+    if not data.product_ids:
+        raise HTTPException(status_code=400, detail="未选择任何商品")
+
+    end_date = data.end_date or _date.today().isoformat()
+    start_date = data.start_date or (_date.today() - _td(days=29)).isoformat()
+
+    conn = _get_conn()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(
+                """SELECT ph.product_id, p.title, p.product_url,
+                          p.platform, p.seller_name, p.shop_name, p.location,
+                          COALESCE(sc.name, '未分类') AS category_name,
+                          ph.recorded_at::date AS date,
+                          ph.price, ph.sales_volume, p.unit_price
+                FROM "ProductHistory" ph
+                JOIN "Product" p ON ph.product_id = p.product_id
+                LEFT JOIN "SkuCategory" sc ON sc.id = p.sku_category_id
+                    AND sc.monitor_product_id = p.monitor_product_id
+                WHERE ph.product_id = ANY(%s)
+                  AND ph.recorded_at::date BETWEEN %s AND %s
+                  AND p.monitor_product_id = %s
+                ORDER BY ph.product_id, ph.recorded_at ASC""",
+                (data.product_ids, start_date, end_date, product_id),
+            )
+            rows = cur.fetchall()
+    except Exception:
+        logger.exception("查询价格历史失败")
+        raise HTTPException(status_code=500, detail="查询失败")
+    finally:
+        conn.close()
+
+    if not rows:
+        raise HTTPException(status_code=404, detail="所选商品在指定日期范围内无历史数据")
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "价格历史"
+    ws.append(["商品ID", "商品标题", "商品链接", "平台", "掌柜名", "店铺名称", "地址", "分类", "日期", "价格", "销量", "单克价"])
+    for r in rows:
+        ws.append([
+            r.get("product_id"),
+            r.get("title"),
+            r.get("product_url") or "",
+            "京东" if r.get("platform") == "jd" else "淘天",
+            r.get("seller_name") or "",
+            r.get("shop_name") or "",
+            r.get("location") or "",
+            r.get("category_name") or "",
+            r["date"].isoformat() if isinstance(r.get("date"), _date) else str(r.get("date", "")),
+            float(r.get("price", 0) or 0),
+            int(r.get("sales_volume", 0) or 0),
+            float(r.get("unit_price", 0) or 0) if r.get("unit_price") else "",
+        ])
+
+    output = BytesIO()
+    wb.save(output); output.seek(0)
+    ts = datetime.now().strftime("%Y%m%d_%H%M")
+    filename = f"price_history_{ts}.xlsx"
+    logger.info("批量导出价格历史: mp_id=%d products=%d rows=%d by %s",
+                product_id, len(data.product_ids), len(rows), current_user["username"])
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.get("/{product_id}/alerts")
 def list_alerts_for_product(
     product_id: int,
@@ -712,6 +1052,21 @@ async def import_excel_preview(
             raise HTTPException(status_code=400, detail="Excel解析失败")
         valid, total_count, ad_count, dup_count = parser.clean_ad_data(parsed)
 
+        # ── Pre-compute category matches ──
+        try:
+            from services.sku_normalizer import SkuNormalizer
+            normalizer = SkuNormalizer(product_id)
+            for item in valid:
+                title = item.get('title') or ''
+                detail = normalizer.match_sku_category_with_detail(title) if title else None
+                item['recommended_category_id'] = detail['category_id'] if detail else None
+                item['recommended_category_name'] = detail['category_name'] if detail else None
+                item['recommended_keyword'] = detail['matched_keyword'] if detail else None
+                item['is_matched'] = bool(detail)
+                item['override_category_id'] = None
+        except Exception:
+            logger.exception("预览分类匹配失败")
+
         return {"code": 200, "msg": "解析成功", "data": {
             "file_name": file.filename, "total_count": total_count,
             "ad_count": ad_count, "dup_count": dup_count, "valid_count": len(valid), "preview_data": valid,
@@ -750,6 +1105,8 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
 
     _update_task("processing", 0, len(selected_ids))
     conn = _get_conn()
+    products_map = {p.get('product_id', ''): p for p in products_data}
+    inserted = 0; new_count = 0; batch_id = 0
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -758,15 +1115,10 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
                 (product_id, file_name, len(selected_ids), 0, len(selected_ids), user_id),
             )
             batch_id = cur.fetchone()[0]
-            conn.commit()
 
-        products_map = {p.get('product_id', ''): p for p in products_data}
-        inserted = 0; new_count = 0
-        from services.product_service import _get_conn as svc_conn_fn
-        svc = svc_conn_fn()
-        try:
+            # ── Insert/Update products ──
             for idx, pid in enumerate(selected_ids):
-                if idx % 5 == 0:  # 每5条更新进度
+                if idx % 5 == 0:
                     _update_task("processing", idx + 1, len(selected_ids))
                 try:
                     pdata = products_map.get(pid, {})
@@ -777,41 +1129,37 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
                     price = float(pdata.get('price', 0) or 0)
                     sales = int(pdata.get('sales', 0) or 0)
                     url = (pdata.get('url') or '')[:500]
-                    platform_raw = (pdata.get('platform') or 'taobao')[:50]
-                    # Use monitor product's platform (ignoring Excel's platform column)
                     platform = mp_platform
                     shop_type = (pdata.get('shop_type') or '')[:50]
                     location = (pdata.get('location') or '')[:100]
-                    with svc.cursor() as cur:
-                        cur.execute('SELECT product_id, is_on_sale FROM "Product" WHERE product_id=%s', (pid,))
-                        existing = cur.fetchone()
-                        if existing:
-                            was_offline = not existing[1] if len(existing) > 1 else False
-                            cur.execute(
-                                'UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, title=%s, main_image_url=%s, image_url=%s, shop_name=%s, seller_name=%s, product_url=%s, platform=%s, shop_type=%s, location=%s, price=%s, sales_volume=%s, is_on_sale=TRUE, is_new_link=%s, last_updated_at=NOW() WHERE product_id=%s',
-                                (product_id, batch_id, title, image_url, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, was_offline, pid))
-                            if was_offline:
-                                new_count += 1
-                        else:
-                            cur.execute(
-                                'INSERT INTO "Product" (product_id, title, main_image_url, image_url, shop_name, seller_name, product_url, platform, shop_type, location, price, sales_volume, monitor_product_id, import_batch_id, is_approved, is_whitelist, is_new_link, created_at, last_updated_at) '
-                                'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE,TRUE,NOW(),NOW())',
-                                (pid, title, image_url, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, product_id, batch_id))
-                            new_count += 1
-                        if price > 0:
-                            cur.execute(
-                                'INSERT INTO "ProductHistory" (product_id, price, sales_volume, recorded_at) VALUES (%s,%s,%s,NOW())',
-                                (pid, price, sales))
-                        inserted += 1
-                    svc.commit()
+                    cur.execute('SELECT product_id, is_on_sale FROM "Product" WHERE product_id=%s', (pid,))
+                    existing = cur.fetchone()
+                    if existing:
+                        was_offline = not existing[1] if len(existing) > 1 else False
+                        cur.execute(
+                            'UPDATE "Product" SET monitor_product_id=%s, import_batch_id=%s, title=%s, main_image_url=%s, image_url=%s, shop_name=%s, seller_name=%s, product_url=%s, platform=%s, shop_type=%s, location=%s, price=%s, sales_volume=%s, is_on_sale=TRUE, is_new_link=%s, last_updated_at=NOW() WHERE product_id=%s',
+                            (product_id, batch_id, title, image_url, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, was_offline, pid))
+                        if was_offline: new_count += 1
+                    else:
+                        cur.execute(
+                            'INSERT INTO "Product" (product_id, title, main_image_url, image_url, shop_name, seller_name, product_url, platform, shop_type, location, price, sales_volume, monitor_product_id, import_batch_id, is_approved, is_whitelist, is_new_link, created_at, last_updated_at) '
+                            'VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE,TRUE,NOW(),NOW())',
+                            (pid, title, image_url, image_url, shop_name, seller_name, url, platform, shop_type, location, price, sales, product_id, batch_id))
+                        new_count += 1
+                    if price > 0:
+                        cur.execute(
+                            'INSERT INTO "ProductHistory" (product_id, price, sales_volume, recorded_at) VALUES (%s,%s,%s,NOW())',
+                            (pid, price, sales))
+                    inserted += 1
                 except Exception:
-                    svc.rollback()
                     logger.exception("插入失败: %s", pid)
-        finally:
-            svc.close()
+
+            # ── ImportBatch final count ──
+            cur.execute('UPDATE "ImportBatch" SET valid_count=%s, total_count=%s WHERE id=%s', (inserted, len(selected_ids), batch_id))
 
         # ── SKU auto-classification ──
         try:
+            import re as _re
             from services.sku_normalizer import SkuNormalizer
             normalizer = SkuNormalizer(product_id)
             for pid in selected_ids:
@@ -819,41 +1167,57 @@ def _do_import(product_id: int, file_name: str, selected_ids: list[str],
                 title = (pdata.get('title') or '')
                 price = float(pdata.get('price', 0) or 0)
                 if not title or price <= 0: continue
+                override_id = pdata.get('override_category_id')
+                if override_id:
+                    cat = next((c for c in normalizer._categories if c['id'] == override_id), None)
+                    if cat:
+                        qty = normalizer.extract_quantity(title)
+                        total_weight = qty * cat.get('conversion_factor', 1.0) * 25
+                        up = round(price / total_weight, 4) if total_weight > 0 else 0
+                        with conn.cursor() as cur:
+                            cur.execute('UPDATE "Product" SET sku_category_id=%s, unit_price=%s WHERE product_id=%s', (cat['id'], up, pid))
+                        # Self-learning
+                        with conn.cursor() as cur:
+                            m = _re.search(r'(\d+)?\s*([袋罐条盒瓶桶听包])', title)
+                            if m:
+                                new_kw = m.group(2)
+                                cur.execute('SELECT keywords FROM "SkuCategory" WHERE id=%s', (cat['id'],))
+                                kr = cur.fetchone()
+                                existing = (kr[0] or '') if kr else ''
+                                if new_kw not in existing:
+                                    cur.execute('UPDATE "SkuCategory" SET keywords=%s WHERE id=%s', ((existing+','+new_kw).strip(','), cat['id']))
+                        continue
                 cat = normalizer.match_sku_category(title)
                 if cat:
                     qty = normalizer.extract_quantity(title)
                     total_weight = qty * cat.get('conversion_factor', 1.0) * 25
                     up = round(price / total_weight, 4) if total_weight > 0 else 0
                     with conn.cursor() as cur:
-                        cur.execute(
-                            'UPDATE "Product" SET sku_category_id=%s, unit_price=%s WHERE product_id=%s',
-                            (cat['id'], up, pid))
-                    conn.commit()
+                        cur.execute('UPDATE "Product" SET sku_category_id=%s, unit_price=%s WHERE product_id=%s', (cat['id'], up, pid))
         except Exception:
             logger.exception("SKU auto-classification failed")
 
-        with conn.cursor() as cur:
-            cur.execute('UPDATE "ImportBatch" SET valid_count=%s, total_count=%s WHERE id=%s', (inserted, len(selected_ids), batch_id))
-            conn.commit()
-
-        # ── 上下架判定：基于批次对比 ──
+        # ── 上下架判定 ──
         try:
-            cur2 = conn.cursor()
-            cur2.execute('SELECT id FROM "ImportBatch" WHERE monitor_product_id=%s ORDER BY import_time DESC LIMIT 2', (product_id,))
-            batches = [r[0] for r in cur2.fetchall()]
-            if len(batches) >= 2:
-                cur2.execute('SELECT DISTINCT product_id FROM "Product" WHERE import_batch_id=%s AND monitor_product_id=%s', (batches[1], product_id))
-                prev_ids = {r[0] for r in cur2.fetchall()}
-                offline = list(prev_ids - set(selected_ids))
-                if offline:
-                    cur2.execute('UPDATE "Product" SET is_on_sale=FALSE WHERE product_id = ANY(%s) AND monitor_product_id=%s', (offline, product_id))
-                    logger.info("上下架判定: batch=%d offline=%d", batch_id, len(offline))
-            cur2.close()
-            conn.commit()
+            with conn.cursor() as cur:
+                cur.execute('SELECT id FROM "ImportBatch" WHERE monitor_product_id=%s ORDER BY import_time DESC LIMIT 2', (product_id,))
+                batches = [r[0] for r in cur.fetchall()]
+                if len(batches) >= 2:
+                    cur.execute('SELECT DISTINCT product_id FROM "Product" WHERE import_batch_id=%s AND monitor_product_id=%s', (batches[1], product_id))
+                    prev_ids = {r[0] for r in cur.fetchall()}
+                    offline = list(prev_ids - set(selected_ids))
+                    if offline:
+                        cur.execute('UPDATE "Product" SET is_on_sale=FALSE WHERE product_id = ANY(%s) AND monitor_product_id=%s', (offline, product_id))
+                        logger.info("上下架判定: batch=%d offline=%d", batch_id, len(offline))
         except Exception:
             logger.exception("上下架判定失败")
 
+        conn.commit()
         return {"batch_id": batch_id, "inserted": inserted, "new_count": new_count}
+    except Exception:
+        conn.rollback()
+        logger.exception("_do_import 失败，已回滚")
+        raise
     finally:
         conn.close()
 
@@ -893,19 +1257,11 @@ def confirm_import(
         with _import_tasks_lock:
             _import_tasks[task_id] = {"status": "completed", "processed": result["inserted"], "total": len(data.selected_product_ids),
                                       "result": result, "updated_at": time.time()}
+        _write_log(current_user["user_id"], current_user["username"], "导入Excel",
+                   f"mp_id:{product_id} batch:{result['batch_id']}",
+                   details=f"文件:{data.file_name} 导入{result['inserted']}条 新增{result['new_count']}条")
         return {"code": 200, "msg": "导入成功", "data": {
             "task_id": task_id, "batch_id": result["batch_id"],
-            "import_result": {"success_count": result["inserted"], "new_count": result["new_count"],
-                              "fail_count": len(data.selected_product_ids) - result["inserted"],
-                              "total": len(data.selected_product_ids)},
-            "alert_result": {"checked": ar.get("checked", 0), "sent": ar.get("sent", 0)},
-        }}
-        result = _do_import(product_id, data.file_name, data.selected_product_ids,
-                           data.products_data, current_user.get("user_id", 0))
-        from scripts.check_alerts import run_alerts
-        ar = run_alerts(test_mode=False, force=False)
-        return {"code": 200, "msg": "导入成功", "data": {
-            "batch_id": result["batch_id"],
             "import_result": {"success_count": result["inserted"], "new_count": result["new_count"],
                               "fail_count": len(data.selected_product_ids) - result["inserted"],
                               "total": len(data.selected_product_ids)},
