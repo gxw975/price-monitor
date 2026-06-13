@@ -25,6 +25,8 @@ export default function ImportPage() {
   const [hoverImg, setHoverImg] = useState<string | null>(null)
   const [sortKey, setSortKey] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const [skuCategories, setSkuCategories] = useState<any[]>([])
+  const [editCatPid, setEditCatPid] = useState<string | null>(null)
 
   const handleUpload = async (file: File) => {
     setUploading(true); setResult(null); setUploadProgress(0)
@@ -41,7 +43,9 @@ export default function ImportPage() {
           if (xhr.status >= 400) throw new Error(json.detail || '解析失败')
           const d = json.data as PreviewData
           setPreview(d); setSelectedIds(new Set(d.preview_data.map((p: any) => p.product_id)))
-          setStep('preview'); setPage(1); resolve()
+          setStep('preview'); setPage(1)
+          apiFetch(`/api/monitor-products/${mpId}/sku-categories`).then(r => setSkuCategories(r.items||[])).catch(()=>{})
+          resolve()
         } catch (e: any) { reject(e) }
       }
       xhr.onerror = () => reject(new Error('网络错误'))
@@ -176,6 +180,7 @@ export default function ImportPage() {
                   <th style={{ ...thStyle, width: 120 }}>商品ID</th>
                   <th style={{ ...thStyle, minWidth: 200 }}>标题</th>
                   <th style={{ ...thStyle, width: 80, cursor: 'pointer' }} onClick={() => handleSort('price')}>现价{sortIndicator('price')}</th>
+                  <th style={{ ...thStyle, width: 100 }}>推荐分类</th>
                   <th style={{ ...thStyle, width: 70, cursor: 'pointer' }} onClick={() => handleSort('sales')}>销量{sortIndicator('sales')}</th>
                   <th style={{ ...thStyle, width: 60, cursor: 'pointer' }} onClick={() => handleSort('platform')}>平台{sortIndicator('platform')}</th>
                   <th style={{ ...thStyle, width: 90, cursor: 'pointer' }} onClick={() => handleSort('shop_type')}>店铺类型{sortIndicator('shop_type')}</th>
@@ -215,6 +220,47 @@ export default function ImportPage() {
                       {p.url ? <a href={p.url.startsWith('http') ? p.url : 'https:' + p.url} target="_blank" rel="noreferrer" style={{ color: '#1677ff' }}>{p.title}</a> : p.title}
                     </td>
                     <td style={{ ...tdStyle, color: '#dc2626', fontWeight: 600 }}>¥{(p.price || 0).toFixed(2)}</td>
+                    <td style={tdStyle}>
+                      {editCatPid === p.product_id ? (
+                        <select value={p.override_category_id ?? p.recommended_category_id ?? ''}
+                          onChange={e => {
+                            const cid = e.target.value ? parseInt(e.target.value) : null
+                            p.override_category_id = cid
+                            // Recalculate unit_price preview
+                            if (cid) {
+                              const cat = skuCategories.find((c:any) => c.id === cid)
+                              if (cat) {
+                                const qtyMatch = (p.title || '').match(/(\d+)\s*(袋|罐|条|盒|瓶)/)
+                                const qty = qtyMatch ? parseInt(qtyMatch[1]) : 1
+                                const tw = qty * (cat.conversion_factor || 1) * 25
+                                p._preview_unit_price = tw > 0 ? ((p.price || 0) / tw) : 0
+                              }
+                            } else { p._preview_unit_price = null }
+                            setPreview({...preview, preview_data: [...preview.preview_data]})
+                            setEditCatPid(null)
+                          }}
+                          style={{fontSize:11,padding:'1px 2px',border:'1px solid #d9d9d9',borderRadius:3,maxWidth:90}} autoFocus>
+                          <option value="">未分类</option>
+                          {skuCategories.map((c:any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      ) : (
+                        <span onClick={() => setEditCatPid(p.product_id)} style={{cursor:'pointer',fontSize:11,display:'inline-flex',alignItems:'center',gap:3}}>
+                          {p.override_category_id ? (
+                            <span style={{padding:'1px 6px',background:'#dcfce7',color:'#16a34a',borderRadius:8,border:'1px solid #bbf7d0'}}>
+                              ✏️ {skuCategories.find((c:any)=>c.id===p.override_category_id)?.name || '已修正'}
+                            </span>
+                          ) : p.is_matched ? (
+                            <span style={{padding:'1px 6px',background:'#dcfce7',color:'#16a34a',borderRadius:8,border:'1px solid #bbf7d0'}}>
+                              {p.recommended_category_name}
+                            </span>
+                          ) : (
+                            <span style={{padding:'1px 6px',background:'#fef2f2',color:'#dc2626',borderRadius:8,border:'1px solid #fecaca'}}>
+                              ⚠ 未匹配
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </td>
                     <td style={tdStyle}>{p.sales?.toLocaleString() || '-'}</td>
                     <td style={tdStyle}>{p.platform || '-'}</td>
                     <td style={tdStyle}>{p.shop_type || '-'}</td>

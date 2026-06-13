@@ -26,6 +26,9 @@ export default function AnalysisPage() {
   const [chartLoading, setChartLoading] = useState(false)
   const [latestBatchId, setLatestBatchId] = useState<number | null>(null)
   const [skuCategories, setSkuCategories] = useState<SkuCategory[]>([])
+  const [dashboardData, setDashboardData] = useState<any>(null)
+  const [dashLoading, setDashLoading] = useState(false)
+  const [matchData, setMatchData] = useState<any>(null)
 
   const fetchChart = async (pid: string) => { setChartPid(pid); setChartLoading(true)
     try { const r = await apiFetch(`/api/products/${pid}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) } }
@@ -36,7 +39,7 @@ export default function AnalysisPage() {
   useEffect(() => { fetchMPs() }, [fetchMPs])
 
   const fetchProducts = async (mpId: number) => {
-    setLoading(true); setProducts([])
+    setLoading(true); setProducts([]); setDashLoading(true); setDashboardData(null)
     try {
       const r = await apiFetch(`/api/monitor-products/${mpId}/products?limit=2000`)
       setProducts(r.items||[])
@@ -45,7 +48,11 @@ export default function AnalysisPage() {
       // Load latest batch for NEW badge
       apiFetch(`/api/monitor-products/${mpId}/imports`).then(r => { const imps = r.items||[]; if(imps.length>0) setLatestBatchId(imps[0].id) }).catch(()=>{})
       apiFetch(`/api/monitor-products/${mpId}/sku-categories`).then(r => { setSkuCategories(r.items||[]) }).catch(()=>{})
-    } catch { /**/ } finally { setLoading(false) }
+      // Load dashboard statistics
+      const p = localStorage.getItem('platform') || 'taobao'
+      apiFetch(`/api/statistics/${mpId}/overview?platform=${p}`).then(d => setDashboardData(d)).catch(() => setDashboardData(null)).finally(() => setDashLoading(false))
+      apiFetch(`/api/statistics/${mpId}/match-analysis?platform=${p}`).then(d => setMatchData(d)).catch(() => setMatchData(null))
+    } catch { setDashLoading(false) } finally { setLoading(false) }
   }
 
   const filtered = products
@@ -70,9 +77,9 @@ export default function AnalysisPage() {
   fprices.forEach(p=>{const idx=Math.min(Math.floor((p-minPrice)/range*bins),bins-1);histogram[idx].cnt++})
 
   return (
-    <div style={{ padding: 24 }}>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 20 }}>数据分析</h1>
-      <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
+    <div style={{ padding: '8px 20px 10px' }}>
+      <h1 style={{ fontSize: 20, fontWeight: 700, marginBottom: 6 }}>数据分析</h1>
+      <div style={{ display: 'flex', gap: 10, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <select value={selectedMp||''} onChange={e=>{const v=parseInt(e.target.value); setSelectedMp(v||null); if(v)fetchProducts(v); else setProducts([])}}
           style={selectStyle}>
           <option value="">选择监控商品</option>
@@ -87,6 +94,156 @@ export default function AnalysisPage() {
         )}
       </div>
 
+      {/* ── Dashboard Section ── */}
+      {selectedMp && !dashLoading && dashboardData && (
+        <div className="space-y-2 mb-3">
+          {/* A. Stat Cards */}
+          {dashboardData.stat_cards && dashboardData.stat_cards.total > 0 && (
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <DashboardCard label="总商品数" value={dashboardData.stat_cards.total || 0} unit="个" color="#1677ff" sub={mpName} />
+              <DashboardCard label="在售" value={dashboardData.stat_cards.on_sale || 0} unit="个" color="#16a34a" sub={`${dashboardData.stat_cards.total ? Math.round((dashboardData.stat_cards.on_sale||0)/(dashboardData.stat_cards.total||1)*100) : 0}%`} />
+              <DashboardCard label="下架" value={dashboardData.stat_cards.off_sale || 0} unit="个" color="#dc2626" sub={`${dashboardData.stat_cards.total ? Math.round((dashboardData.stat_cards.off_sale||0)/(dashboardData.stat_cards.total||1)*100) : 0}%`} />
+              <DashboardCard label="未分类" value={dashboardData.stat_cards.unclassified || 0} unit="个" color="#d97706" sub="需关注" />
+            </div>
+          )}
+          {(!dashboardData.stat_cards || dashboardData.stat_cards.total === 0) && (
+            <div className="text-center py-6 text-gray-400 text-sm border border-dashed border-gray-200 rounded-lg">该监控商品暂无商品数据</div>
+          )}
+
+          {/* B. Dual column: Platform Distribution + Category Table */}
+          {(dashboardData.platform_dist?.length > 0 || dashboardData.category_stats?.length > 0) && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {/* Platform Distribution */}
+              {dashboardData.platform_dist?.length > 0 && (() => {
+                const maxC = Math.max(...dashboardData.platform_dist.map((d:any)=>d.count), 1)
+                const bars = dashboardData.platform_dist.map((d:any) => {
+                  const pct = Math.round(d.count / maxC * 100)
+                  const label = d.platform === 'jd' ? '京东' : d.platform === 'taobao' ? '淘天' : d.platform
+                  const clr = d.platform === 'jd' ? '#ef4444' : '#f97316'
+                  return (<div key={d.platform} className="flex items-center gap-2 mb-2 last:mb-0">
+                    <span className="text-xs text-gray-600 w-10">{label}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-4 overflow-hidden">
+                      <div className="h-full rounded-full transition-all duration-300" style={{width:`${pct}%`,backgroundColor:clr}} />
+                    </div>
+                    <span className="text-xs text-gray-500 w-10 text-right">{d.count}</span>
+                  </div>)
+                })
+                return (<div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <h3 className="text-xs font-semibold text-gray-700 mb-2">平台分布</h3>
+                  {bars}
+                </div>)
+              })()}
+              {/* Category Breakdown Table */}
+              {dashboardData.category_stats?.length > 0 && (
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <h3 className="text-xs font-semibold text-gray-700 mb-2">分类统计</h3>
+                  <div className="overflow-auto max-h-40">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-gray-50 text-gray-500">
+                          <th className="text-left px-2 py-1.5 font-medium">分类</th>
+                          <th className="text-right px-2 py-1.5 font-medium">数量</th>
+                          <th className="text-right px-2 py-1.5 font-medium">均价</th>
+                          <th className="text-right px-2 py-1.5 font-medium">最低</th>
+                          <th className="text-right px-2 py-1.5 font-medium">最高</th>
+                          <th className="text-right px-2 py-1.5 font-medium">单克均价</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {dashboardData.category_stats.map((c:any) => {
+                          const isUnclassified = c.category_name === '未分类' || !c.category_id
+                          const minLink = c.min_price_product_id ? ((currentPlatform === 'jd') ? `https://item.jd.com/${c.min_price_product_id}.html` : `https://item.taobao.com/item.htm?id=${c.min_price_product_id}`) : null
+                          return (<tr key={c.category_name} className={`border-b border-gray-100 ${isUnclassified ? 'bg-amber-50' : ''}`}>
+                            <td className="px-2 py-1.5 text-gray-700">{c.category_name}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-600">{c.count}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-600">¥{Number(c.avg_price||0).toFixed(0)}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-600">
+                              {minLink ? <a href={minLink} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline">¥{Number(c.min_price||0).toFixed(0)}</a> : `¥${Number(c.min_price||0).toFixed(0)}`}
+                            </td>
+                            <td className="px-2 py-1.5 text-right text-gray-600">¥{Number(c.max_price||0).toFixed(0)}</td>
+                            <td className="px-2 py-1.5 text-right text-gray-600">{(c.avg_unit_price||0)>0?`¥${Number(c.avg_unit_price).toFixed(4)}`:'-'}</td>
+                          </tr>)
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* C. Dual column: Alerts + Trends */}
+          {(dashboardData.alert_counts || dashboardData.trends) && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {/* Alert Summary */}
+              {dashboardData.alert_counts && (
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <h3 className="text-xs font-semibold text-gray-700 mb-2">预警统计</h3>
+                  {dashboardData.alert_counts.total_unhandled > 0 ? (
+                    <div className="flex justify-around items-center">
+                      <DonutIndicator label="价格预警" count={dashboardData.alert_counts.price_count || 0} color="#ef4444" />
+                      <DonutIndicator label="销量预警" count={dashboardData.alert_counts.sales_count || 0} color="#f97316" />
+                      <DonutIndicator label="未处理" count={dashboardData.alert_counts.total_unhandled || 0} color="#8b5cf6" />
+                    </div>
+                  ) : (
+                    <p className="text-center text-gray-400 text-sm py-6">无未处理预警 ✅</p>
+                  )}
+                </div>
+              )}
+              {/* 7-Day Trends */}
+              {dashboardData.trends && (
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <h3 className="text-xs font-semibold text-gray-700 mb-2">7天趋势</h3>
+                  {dashboardData.trends.new_products?.length > 0 && (() => {
+                    const maxN = Math.max(...dashboardData.trends.new_products.map((d:any)=>d.count), 1)
+                    const bars = dashboardData.trends.new_products.map((d:any,i:number) => {
+                      const h = Math.max(2, d.count/maxN*56)
+                      return (<div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+                        <span className="text-[9px] text-gray-400 mb-0.5">{d.count||''}</span>
+                        <div className="w-full rounded-t" style={{height:`${h}px`,backgroundColor:'#3b82f6'}} />
+                        <span className="text-[8px] text-gray-400 mt-1">{String(d.date).slice(5)}</span>
+                      </div>)
+                    })
+                    return (
+                    <div className="mb-2">
+                      <span className="text-[10px] text-gray-400 mb-1 block">新增商品</span>
+                      <div className="flex items-end gap-1 h-16">{bars}</div>
+                    </div>)
+                  })()}
+                  {dashboardData.trends.alerts?.length > 0 && (() => {
+                    const maxA = Math.max(...dashboardData.trends.alerts.map((d:any)=>d.count), 1)
+                    const bars = dashboardData.trends.alerts.map((d:any,i:number) => {
+                      const h = Math.max(2, d.count/maxA*56)
+                      return (<div key={i} className="flex-1 flex flex-col items-center justify-end h-full">
+                        <span className="text-[9px] text-gray-400 mb-0.5">{d.count||''}</span>
+                        <div className="w-full rounded-t" style={{height:`${h}px`,backgroundColor:'#ef4444'}} />
+                        <span className="text-[8px] text-gray-400 mt-1">{String(d.date).slice(5)}</span>
+                      </div>)
+                    })
+                    return (
+                    <div>
+                      <span className="text-[10px] text-gray-400 mb-1 block">触发预警</span>
+                      <div className="flex items-end gap-1 h-16">{bars}</div>
+                    </div>)
+                  })()}
+                  {(!dashboardData.trends.new_products?.length && !dashboardData.trends.alerts?.length) && (
+                    <p className="text-center text-gray-400 text-sm py-6">暂无趋势数据</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {/* Dashboard loading skeleton */}
+      {selectedMp && dashLoading && (
+        <div className="mb-2">
+          <div className="animate-pulse bg-gray-100 rounded-lg h-48 flex items-center justify-center">
+            <span className="text-gray-400 text-sm">加载统计数据...</span>
+          </div>
+        </div>
+      )}
+
       {!selectedMp ? (
         <div style={{textAlign:'center',padding:80,color:'#999',border:'1px dashed #d9d9d9',borderRadius:8}}>
           <p style={{fontSize:48,marginBottom:16}}>📊</p>
@@ -97,7 +254,7 @@ export default function AnalysisPage() {
         products.length===0 ? <p style={{color:'#999',textAlign:'center',padding:40}}>暂无数据</p> : (
         <>
           {/* Summary cards */}
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12,marginBottom:20}}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12,marginBottom:12}}>
             <StatCard label="商品总数" value={filtered.length} unit="个" color="#1677ff" />
             <StatCard label="均价" value={`¥${avgPrice.toFixed(0)}`} unit="" color="#16a34a" />
             <StatCard label="最低价" value={`¥${minPrice.toFixed(0)}`} unit="" color="#dc2626" />
@@ -108,8 +265,51 @@ export default function AnalysisPage() {
             <StatCard label="掌柜数" value={sellers} unit="人" color="#4f46e5" />
           </div>
 
+          {/* Match Analysis */}
+          {matchData && (matchData.category_match?.length > 0 || matchData.top_keywords?.length > 0) && (
+            <div className="mb-5 grid grid-cols-1 lg:grid-cols-2 gap-3">
+              {matchData.category_match?.length > 0 && (
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <h3 className="text-xs font-semibold text-gray-700 mb-2">分类匹配效果</h3>
+                  <div className="overflow-auto max-h-52">
+                    <table className="w-full text-xs">
+                      <thead><tr className="bg-gray-50 text-gray-500">
+                        <th className="text-left px-2 py-1.5">分类</th>
+                        <th className="text-right px-2 py-1.5">商品数</th>
+                        <th className="text-right px-2 py-1.5">已匹配</th>
+                        <th className="text-right px-2 py-1.5">匹配率</th>
+                      </tr></thead>
+                      <tbody>{matchData.category_match.filter((c:any)=>c.category_name!=='未分类').map((c:any) => (
+                        <tr key={c.category_name} className="border-b border-gray-100">
+                          <td className="px-2 py-1.5 text-gray-700">{c.category_name}</td>
+                          <td className="px-2 py-1.5 text-right text-gray-600">{c.total}</td>
+                          <td className="px-2 py-1.5 text-right text-gray-600">{c.matched}</td>
+                          <td className="px-2 py-1.5 text-right"><span style={{color:c.rate>=80?'#16a34a':c.rate>=50?'#d97706':'#dc2626',fontWeight:500}}>{c.rate}%</span></td>
+                        </tr>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+              {matchData.unclassified_count > 0 && matchData.top_keywords?.length > 0 && (
+                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                  <h3 className="text-xs font-semibold text-gray-700 mb-2">未分类商品高频词 TOP10</h3>
+                  <p className="text-xs text-gray-400 mb-3">{matchData.unclassified_count} 个商品未分类，以下是标题高频词</p>
+                  <div className="flex flex-wrap gap-2">
+                    {matchData.top_keywords.map((kw:any) => (
+                      <span key={kw.keyword} className="inline-flex items-center gap-1 px-2 py-1 bg-amber-50 border border-amber-200 rounded text-xs">
+                        {kw.keyword}
+                        <span className="text-gray-400">({kw.count})</span>
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Price histogram */}
-          <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,padding:16,marginBottom:20}}>
+          <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,padding:16,marginBottom:12}}>
             <h3 style={{fontSize:15,fontWeight:600,marginBottom:12}}>价格分布</h3>
             <div style={{display:'flex',alignItems:'flex-end',gap:4,height:120,paddingBottom:20,borderBottom:'1px solid #e5e7eb'}}>
               {histogram.map((b,i)=><div key={i} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end'}}>
@@ -121,8 +321,11 @@ export default function AnalysisPage() {
           </div>
 
           {/* Top cheapest */}
-          <div style={{marginBottom:20}}>
-            <h3 style={{fontSize:15,fontWeight:600,marginBottom:8}}>🏪 最低价店铺 TOP 10</h3>
+          <div style={{marginBottom:12}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+              <h3 style={{fontSize:14,fontWeight:600,margin:0}}>🏪 最低价店铺 TOP 10</h3>
+              <a href={`/admin/monitor-products/${selectedMp}`} style={{color:'#1677ff',fontSize:11}}>📋 全部 {filtered.length} 个商品 →</a>
+            </div>
             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:8}}>
               {[...filtered].sort((a,b)=>(a.price||0)-(b.price||0)).slice(0,10).map(p=>(
                 <div key={p.product_id} style={{display:'flex',alignItems:'center',gap:8,padding:8,background:'#fff',border:'1px solid #e5e7eb',borderRadius:6}}>
@@ -137,38 +340,6 @@ export default function AnalysisPage() {
             </div>
           </div>
 
-          {/* Full table */}
-          <h3 style={{fontSize:15,fontWeight:600,marginBottom:8}}>📋 全部商品 ({filtered.length}条)</h3>
-          <div style={{overflow:'auto',border:'1px solid #e5e7eb',borderRadius:8}}>
-            <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
-              <thead><tr style={{background:'#fafafa'}}>
-                <th style={thStyle}>图片</th><th style={thStyle}>标题</th><th style={{...thStyle,width:55}}>新链接</th><th style={{...thStyle,width:55}}>状态</th>
-                <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('price');setSortDir(d=>d==='asc'?'desc':'asc')}}>现价{sortKey==='price'?(sortDir==='asc'?'▲':'▼'):''}</th>
-                <th style={{...thStyle,width:80}}>单克价</th>
-                <th style={{...thStyle,width:70}}>分类</th>
-                <th style={{...thStyle,cursor:'pointer'}} onClick={()=>{setSortKey('sales');setSortDir(d=>d==='asc'?'desc':'asc')}}>销量{sortKey==='sales'?(sortDir==='asc'?'▲':'▼'):''}</th>
-                <th style={thStyle}>店铺</th>{currentPlatform !== 'jd' && <th style={thStyle}>掌柜名</th>}{currentPlatform !== 'jd' && <th style={thStyle}>地址</th>}<th style={{...thStyle,width:80}}>店铺类型</th><th style={{...thStyle,width:60}}>平台</th><th style={thStyle}>操作</th>
-              </tr></thead>
-              <tbody>{filtered.slice(0,200).map(p=>(
-                <tr key={p.product_id} style={{borderBottom:'1px solid #f0f0f0'}}>
-                  <td style={tdStyle}>{(p.image_url||p.main_image_url)?<img src={p.image_url||p.main_image_url} alt="" style={{width:36,height:36,objectFit:'cover',borderRadius:4,cursor:'pointer'}} onMouseEnter={(e) => {const r = e.currentTarget.getBoundingClientRect(); setHoverImg(p.image_url||p.main_image_url); setHoverPos({x: r.right + 8, y: r.top})}} onMouseLeave={() => setHoverImg(null)}/>:<div style={{width:36,height:36,background:'#f5f5f5',borderRadius:4}}/>}</td>
-                  <td style={tdStyle}>{p.url||p.product_url?<a href={(p.url||p.product_url||'').startsWith('https')?p.url||p.product_url:'https:'+(p.url||p.product_url)} target="_blank" rel="noreferrer" style={{color:'#1677ff'}}>{p.title}</a>:p.title}</td>
-                  <td style={tdStyle}>{latestBatchId && p.import_batch_id === latestBatchId ? <span style={{padding:"1px 4px",borderRadius:8,fontSize:10,background:"#dbeafe",color:"#1d4ed8"}}>新</span> : null}</td>
-                  <td style={tdStyle}><span style={{padding:"1px 6px",borderRadius:10,fontSize:11,background:(p as any).is_on_sale !== false ? "#dcfce7" : "#fee2e2",color:(p as any).is_on_sale !== false ? "#16a34a" : "#dc2626"}}>{(p as any).is_on_sale !== false ? "上架" : "下架"}</span></td>
-                  <td style={{...tdStyle,color:'#dc2626',fontWeight:600}}>¥{Number(p.price||0).toFixed(0)}</td>
-                  <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
-                  <td style={tdStyle}>{skuCategories.find((c:any) => c.id === (p as any).sku_category_id)?.name || '-'}</td>
-                  <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
-                  <td style={tdStyle}>{p.shop_name||'-'}</td>
-                  {currentPlatform !== 'jd' && <td style={tdStyle}>{p.seller_name||'-'}</td>}
-                  {currentPlatform !== 'jd' && <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>}
-                  <td style={tdStyle}>{p.shop_type||'-'}</td>
-                  <td style={tdStyle}>{(p.platform||'') === 'jd' ? '京东' : '淘天'}</td>
-                  <td style={tdStyle}><button onClick={() => fetchChart(p.product_id)} style={{padding:'2px 6px',fontSize:11,color:'#1677ff',border:'1px solid #bfdbfe',borderRadius:4,background:'#fff',cursor:'pointer'}}>历史</button></td>
-                </tr>
-              ))}</tbody>
-            </table>
-          </div>
         </>
       )}
       {/* Image hover preview */}
@@ -234,6 +405,28 @@ function StatCard({label,value,unit,color}:{label:string;value:string|number;uni
   return <div style={{background:'#fff',border:'1px solid #e5e7eb',borderRadius:8,padding:'14px 16px',textAlign:'center'}}>
     <div style={{fontSize:12,color:'#6b7280',marginBottom:4}}>{label}</div>
     <div style={{fontSize:20,fontWeight:700,color}}>{value}<span style={{fontSize:12,fontWeight:400,color:'#999'}}>{unit}</span></div>
+  </div>
+}
+
+function DashboardCard({label,value,unit,color,sub}:{label:string;value:number;unit:string;color:string;sub:string}) {
+  return <div className="bg-white rounded-lg border border-gray-200 p-3">
+    <div className="text-xs text-gray-500 mb-1">{label}</div>
+    <div className="text-2xl font-bold" style={{color}}>{value.toLocaleString()}<span className="text-xs font-normal text-gray-400 ml-0.5">{unit}</span></div>
+    {sub && <div className="text-[10px] text-gray-400 mt-0.5">{sub}</div>}
+  </div>
+}
+
+function DonutIndicator({label,count,color}:{label:string;count:number;color:string}) {
+  const maxVis = Math.max(count, 10)
+  const deg = Math.min(count / maxVis * 360, 360)
+  return <div className="flex flex-col items-center gap-1">
+    <div className="relative w-12 h-12">
+      <div className="absolute inset-0 rounded-full" style={{background:`conic-gradient(${color} 0deg ${deg}deg, #f3f4f6 ${deg}deg 360deg)`}} />
+      <div className="absolute inset-[5px] bg-white rounded-full flex items-center justify-center">
+        <span className="text-sm font-bold" style={{color}}>{count}</span>
+      </div>
+    </div>
+    <span className="text-[10px] text-gray-500">{label}</span>
   </div>
 }
 

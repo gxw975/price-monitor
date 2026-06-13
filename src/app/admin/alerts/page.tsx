@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { apiFetch, cn, formatDateTime } from '@/lib/utils'
 
 interface AlertItem {
@@ -47,10 +47,14 @@ interface Stats {
 
 export default function AlertsPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const fileRef = useRef<HTMLInputElement>(null)
   const [alerts, setAlerts] = useState<AlertItem[]>([])
   const [total, setTotal] = useState(0)
+  const [platform, setPlatform] = useState(() => typeof window !== 'undefined' ? (localStorage.getItem('platform') || 'taobao') : 'taobao')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [jumpPage, setJumpPage] = useState('')
   const [unreadCount, setUnreadCount] = useState(0)
   const [stats, setStats] = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
@@ -62,7 +66,9 @@ export default function AlertsPage() {
     try { const r = await apiFetch(`/api/products/${pid}`); setChartData(r.price_history || []) } catch { setChartData([]) } finally { setChartLoading(false) } }
   const [filter, setFilter] = useState<{
     type: string; keyword: string; read: string; status: string; mp_id: string; handled: string
-  }>({ type: '', keyword: '', read: '', status: '', mp_id: '', handled: '' })
+    date_from: string; date_to: string; category_id: string
+  }>({ type: '', keyword: '', read: '', status: '', mp_id: '', handled: '', date_from: '', date_to: '', category_id: '' })
+  const [categories, setCategories] = useState<{id:number;name:string}[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const fetchAlerts = useCallback(async () => {
@@ -70,8 +76,8 @@ export default function AlertsPage() {
     try {
       const params = new URLSearchParams()
       params.set('page', String(page))
-      params.set('page_size', '20')
-      if (typeof window !== 'undefined') { const p = localStorage.getItem('platform') || 'taobao'; params.set('platform', p) }
+      params.set('page_size', String(pageSize))
+      params.set('platform', platform)
       if (filter.type) params.set('alert_type', filter.type)
       if (filter.read === 'unread') params.set('is_read', 'false')
       if (filter.read === 'read') params.set('is_read', 'true')
@@ -80,6 +86,9 @@ export default function AlertsPage() {
       if (filter.mp_id) params.set('monitor_product_id', filter.mp_id)
       if (filter.handled === 'unhandled') params.set('is_handled', 'false')
       if (filter.handled === 'handled') params.set('is_handled', 'true')
+      if (filter.date_from) params.set('date_from', filter.date_from)
+      if (filter.date_to) params.set('date_to', filter.date_to)
+      if (filter.category_id) params.set('category_id', filter.category_id)
 
       const data: AlertsResponse = await apiFetch(`/api/alerts/list?${params}`)
       setAlerts(data.items)
@@ -90,11 +99,11 @@ export default function AlertsPage() {
     } finally {
       setLoading(false)
     }
-  }, [page, filter])
+  }, [page, pageSize, filter, platform])
 
   const fetchStats = useCallback(async () => {
     try {
-      const data: Stats = await apiFetch('/api/alerts/stats')
+      const data: Stats = await apiFetch(`/api/alerts/stats?platform=` + platform)
       setStats(data)
     } catch (err) {
       console.error('获取统计数据失败:', err)
@@ -104,6 +113,16 @@ export default function AlertsPage() {
   useEffect(() => { fetchAlerts() }, [fetchAlerts])
   useEffect(() => { fetchStats() }, [fetchStats])
   useEffect(() => { apiFetch('/api/monitor-products/').then(r => setMonitorProducts(r.items||[])).catch(()=>{}) }, [])
+  // Auto-select monitor product from URL param
+  useEffect(() => {
+    const mpId = searchParams.get('monitor_product_id')
+    if (mpId) { setFilter(f => ({ ...f, mp_id: mpId })) }
+  }, [searchParams])
+  useEffect(() => {
+    if (filter.mp_id) {
+      apiFetch(`/api/monitor-products/${filter.mp_id}/sku-categories`).then(r => setCategories(r.items||[])).catch(() => setCategories([]))
+    } else { setCategories([]) }
+  }, [filter.mp_id])
 
   const batchAction = async (action: string, ids: number[]) => {
     if (!ids.length) return
@@ -121,6 +140,13 @@ export default function AlertsPage() {
     try {
       const params = new URLSearchParams()
       if (filter.type) params.set('alert_type', filter.type)
+      if (filter.date_from) params.set('date_from', filter.date_from)
+      if (filter.date_to) params.set('date_to', filter.date_to)
+      if (filter.category_id) params.set('category_id', filter.category_id)
+      if (filter.handled === 'unhandled') params.set('is_handled', 'false')
+      if (filter.handled === 'handled') params.set('is_handled', 'true')
+      const platform = typeof window !== 'undefined' ? (localStorage.getItem('platform') || 'taobao') : 'taobao'
+      params.set('platform', platform)
       const data = await apiFetch(`/api/alerts/export?${params}`, { method: 'POST' })
       const blob = new Blob(['\uFEFF' + data.csv], { type: 'text/csv;charset=utf-8' })
       const url = URL.createObjectURL(blob)
@@ -146,17 +172,16 @@ export default function AlertsPage() {
     setSelectedIds(next)
   }
 
-  const totalPages = Math.ceil(total / 20)
+  const totalPages = Math.ceil(total / pageSize)
 
   return (
-    <div className="min-h-screen bg-gray-50 p-6">
-      <div className="mx-auto max-w-7xl">
-        <div className="mb-6 flex items-center justify-between">
+    <div className="min-h-screen bg-gray-50 px-6 py-4">
+        <div className="mb-4 flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">预警管理</h1>
           <span className="text-sm text-gray-500">电商低价监控系统</span>
         </div>
 
-        <div className="mb-6 grid grid-cols-4 gap-4">
+        <div className="mb-4 grid grid-cols-4 gap-3">
           <Card title="总预警" value={stats?.total ?? 0} color="text-gray-700" bg="bg-gray-50" />
           <Card title="未读" value={unreadCount} color="text-red-600" bg="bg-red-50" />
           <Card title="价格预警(7天)" value={stats?.recent_7d?.price ?? 0} color="text-red-500" bg="bg-red-50" />
@@ -170,6 +195,7 @@ export default function AlertsPage() {
             <option value="">全部类型</option>
             <option value="price">价格预警</option>
             <option value="sales">销量预警</option>
+            <option value="price_drop">降价幅度预警</option>
           </select>
           <select className="rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
             value={filter.read}
@@ -198,6 +224,27 @@ export default function AlertsPage() {
             <option value="unhandled">未处理</option>
             <option value="handled">已处理</option>
           </select>
+          <select className="rounded-md border border-gray-300 px-3 py-2 text-sm bg-white"
+            value={filter.category_id}
+            onChange={(e) => { setFilter((f) => ({ ...f, category_id: e.target.value })); setPage(1) }}>
+            <option value="">全部分类</option>
+            {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+          <input type="date" title="开始日期"
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-xs w-32"
+            value={filter.date_from}
+            onChange={(e) => { setFilter((f) => ({ ...f, date_from: e.target.value })); setPage(1) }} />
+          <span className="text-xs text-gray-400">至</span>
+          <input type="date" title="结束日期"
+            className="rounded-md border border-gray-300 px-2 py-1.5 text-xs w-32"
+            value={filter.date_to}
+            onChange={(e) => { setFilter((f) => ({ ...f, date_to: e.target.value })); setPage(1) }} />
+          <button onClick={() => { const today=new Date(); const ago=new Date(today.getTime()-7*86400000); setFilter(f=>({...f, date_from: ago.toISOString().slice(0,10), date_to: today.toISOString().slice(0,10)})); setPage(1) }}
+            className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100">近7天</button>
+          <button onClick={() => { const today=new Date(); const ago=new Date(today.getTime()-30*86400000); setFilter(f=>({...f, date_from: ago.toISOString().slice(0,10), date_to: today.toISOString().slice(0,10)})); setPage(1) }}
+            className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100">近30天</button>
+          <button onClick={() => { setFilter(f=>({...f, date_from: '', date_to: ''})); setPage(1) }}
+            className="rounded border border-gray-300 px-2 py-1 text-xs text-gray-600 hover:bg-gray-100">全部</button>
           <input type="text" placeholder="搜索商品/消息..."
             className="rounded-md border border-gray-300 px-3 py-2 text-sm flex-1 min-w-[200px]"
             value={filter.keyword}
@@ -232,7 +279,7 @@ export default function AlertsPage() {
         </div>
 
         <div className="rounded-lg border border-gray-200 bg-white overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="overflow-auto" style={{maxHeight:'calc(100vh - 340px)'}}>
             <table className="w-full text-sm">
               <thead className="bg-gray-50 text-left text-gray-600">
                 <tr>
@@ -242,6 +289,7 @@ export default function AlertsPage() {
                   </th>
                   <th className="px-3 py-2 font-medium text-xs">类型</th>
                   <th className="px-3 py-2 font-medium text-xs">平台</th>
+                  <th className="px-3 py-2 font-medium text-xs">商品ID</th>
                   <th className="px-3 py-2 font-medium text-xs">商品</th>
                   <th className="px-3 py-2 font-medium text-xs">现价</th>
                   <th className="px-3 py-2 font-medium text-xs">销量</th>
@@ -256,9 +304,9 @@ export default function AlertsPage() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {loading ? (
-                  <tr><td colSpan={11} className="px-4 py-12 text-center text-gray-400">加载中...</td></tr>
+                  <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-400">加载中...</td></tr>
                 ) : alerts.length === 0 ? (
-                  <tr><td colSpan={11} className="px-4 py-12 text-center text-gray-400">暂无预警记录</td></tr>
+                  <tr><td colSpan={12} className="px-4 py-12 text-center text-gray-400">暂无预警记录</td></tr>
                 ) : (
                   alerts.map((alert) => (
                     <tr key={alert.id}
@@ -269,8 +317,9 @@ export default function AlertsPage() {
                       </td>
                       <td className="px-3 py-2">
                         <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold',
-                          alert.alert_type === 'price' ? 'bg-red-100 text-red-700' : 'bg-orange-100 text-orange-700')}>
-                          {alert.alert_type === 'price' ? '💰' : '📈'}
+                          alert.alert_type === 'price' ? 'bg-red-100 text-red-700' : alert.alert_type === 'price_drop' ? 'bg-purple-100 text-purple-700' : 'bg-orange-100 text-orange-700')}>
+                          {alert.alert_type === 'price' ? '💰' : alert.alert_type === 'price_drop' ? '📉' : '📈'}
+                          {alert.alert_type === 'price' ? '价格' : alert.alert_type === 'price_drop' ? '降价' : '销量'}
                         </span>
                       </td>
                       <td className="px-3 py-2">
@@ -278,6 +327,9 @@ export default function AlertsPage() {
                           background: (alert.platform || 'taobao') === 'jd' ? '#fee2e2' : '#fff7ed',
                           color: (alert.platform || 'taobao') === 'jd' ? '#dc2626' : '#ea580c',
                         }}>{(alert.platform || 'taobao') === 'jd' ? '京东' : '淘天'}</span>
+                      </td>
+                      <td className="px-3 py-2 text-xs font-mono" style={{maxWidth:120}} title={alert.product_id}>
+                        {alert.product_id}
                       </td>
                       <td className="px-3 py-2 max-w-[180px] truncate" title={alert.product_title}>
                         {alert.product_url ? (
@@ -295,7 +347,7 @@ export default function AlertsPage() {
                       <td className="px-3 py-2 text-xs">{alert.seller_name || '-'}</td>
                       <td className="px-3 py-2 text-xs">{alert.shop_name || '-'}</td>
                       <td className="px-3 py-2 text-xs text-gray-400">{alert.location || '-'}</td>
-                      <td className="px-3 py-2 max-w-[250px] truncate text-xs" title={alert.message}>{alert.message}</td>
+                      <td className="px-3 py-2 max-w-[220px] truncate text-xs" title={alert.message}>{alert.message.replace(/^商品 .+?\(\d+\)\s*/, '')}</td>
                       <td className="px-3 py-2">
                         <div style={{display:'flex',flexDirection:'column',gap:2}}>
                           {alert.is_handled ? (
@@ -324,19 +376,35 @@ export default function AlertsPage() {
               </tbody>
             </table>
           </div>
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between border-t border-gray-200 px-4 py-3">
-              <span className="text-sm text-gray-500">共 {total} 条，第 {page}/{totalPages} 页</span>
-              <div className="flex gap-1">
-                <button disabled={page <= 1} onClick={() => setPage((p) => p - 1)}
-                  className="rounded border px-3 py-1 text-sm disabled:opacity-40 hover:bg-gray-100">上一页</button>
-                <button disabled={page >= totalPages} onClick={() => setPage((p) => p + 1)}
-                  className="rounded border px-3 py-1 text-sm disabled:opacity-40 hover:bg-gray-100">下一页</button>
+          <div className="flex items-center justify-between border-t border-gray-200 px-4 py-2">
+            <div className="flex items-center gap-4">
+              <span className="text-xs text-gray-500">共 {total} 条</span>
+              <div className="flex items-center gap-1">
+                <span className="text-xs text-gray-500">每页</span>
+                <select value={pageSize} onChange={e => { setPageSize(parseInt(e.target.value)); setPage(1) }}
+                  className="rounded border border-gray-300 px-1.5 py-0.5 text-xs">
+                  {[20,50,100].map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+                <span className="text-xs text-gray-500">条</span>
               </div>
             </div>
-          )}
+            <div className="flex items-center gap-1">
+              <button onClick={() => setPage(1)} disabled={page <= 1}
+                className="rounded border px-2 py-0.5 text-xs disabled:opacity-30 hover:bg-gray-100">«</button>
+              <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1}
+                className="rounded border px-2 py-0.5 text-xs disabled:opacity-30 hover:bg-gray-100">‹</button>
+              <span className="text-xs text-gray-500 mx-0.5">第</span>
+              <input value={jumpPage} onChange={e => setJumpPage(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') { const n = parseInt(jumpPage); if (n >= 1 && n <= totalPages) { setPage(n); setJumpPage('') } } }}
+                placeholder={String(page)} className="w-8 rounded border border-gray-300 px-1 py-0.5 text-xs text-center" />
+              <span className="text-xs text-gray-500">/ {totalPages || 1} 页</span>
+              <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page >= totalPages}
+                className="rounded border px-2 py-0.5 text-xs disabled:opacity-30 hover:bg-gray-100">›</button>
+              <button onClick={() => setPage(totalPages)} disabled={page >= totalPages}
+                className="rounded border px-2 py-0.5 text-xs disabled:opacity-30 hover:bg-gray-100">»</button>
+            </div>
+          </div>
         </div>
-      </div>
       {chartPid && (
         <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.45)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:2000}}>
           <div style={{background:'#fff',borderRadius:8,padding:24,width:960,maxHeight:'90vh',overflow:'auto'}}>

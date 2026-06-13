@@ -13,7 +13,7 @@ interface MonitorProduct {
   platform: string
 }
 
-interface SkuCategory { id: number; monitor_product_id: number; name: string; unit: string; conversion_factor: number }
+interface SkuCategory { id: number; monitor_product_id: number; name: string; unit: string; conversion_factor: number; keywords?: string }
 
 export default function MonitorProductsPage() {
   const { user } = useAuth(); const router = useRouter()
@@ -169,9 +169,9 @@ export default function MonitorProductsPage() {
   })
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <h1 style={{ fontSize: 24, fontWeight: 700 }}>商品监控</h1>
+    <div style={{ padding: '10px 20px 14px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <h1 style={{ fontSize: 20, fontWeight: 700 }}>商品监控</h1>
         <div style={{ display: 'flex', gap: 8 }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="搜索名称/品牌..."
             style={{ padding: '6px 10px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, width: 180 }} />
@@ -234,11 +234,23 @@ export default function MonitorProductsPage() {
                       <p style={{ fontSize: 11, color: '#6b7280', marginBottom: 10 }}>定义规格（袋装/罐装等），导入时系统自动归类并计算单单位价格</p>
                       {catLoading ? <span style={{ color: '#999', fontSize: 12 }}>加载中...</span> :
                        categories.length === 0 ? <span style={{ color: '#999', fontSize: 12 }}>暂无分类</span> :
-                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-                         {categories.map(c => <span key={c.id} style={{ padding: '3px 10px', background: '#e0e7ff', color: '#3730a3', borderRadius: 14, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-                           {c.name}({c.unit||'—'},×{c.conversion_factor})
-                           {canWrite && <button onClick={() => delCat(c.id)} style={{ marginLeft: 2, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14 }}>×</button>}
-                         </span>)}
+                       <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 10 }}>
+                         {categories.map(c => { const kws = (c.keywords || '').split(',').map(k => k.trim()).filter(Boolean)
+                           return (
+                             <div key={c.id}>
+                               <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                                 <span style={{ padding: '3px 10px', background: '#e0e7ff', color: '#3730a3', borderRadius: 14, fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
+                                   {c.name}({c.unit||'—'},×{c.conversion_factor})
+                                   {canWrite && <button onClick={() => delCat(c.id)} style={{ marginLeft: 2, color: '#ef4444', background: 'none', border: 'none', cursor: 'pointer', fontSize: 14 }}>×</button>}
+                                 </span>
+                                 {canWrite && <a href={`/admin/monitor-products/${expandedId}?tab=skus`} style={{ fontSize: 10, color: '#1677ff', textDecoration: 'none', whiteSpace: 'nowrap' }}>管理规则 →</a>}
+                               </div>
+                               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'center', paddingLeft: 4 }}>
+                                 <span style={{ fontSize: 10, color: '#aaa' }}>关键词:</span>
+                                 {kws.length > 0 ? kws.map(kw => <span key={kw} style={{ padding: '0px 5px', background: '#dbeafe', color: '#1d4ed8', borderRadius: 8, fontSize: 10, border: '1px solid #bfdbfe' }}>{kw}</span>) : <span style={{ fontSize: 10, color: '#d1d5db' }}>暂无</span>}
+                               </div>
+                             </div>)
+                         })}
                        </div>}
                       {canWrite && <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <input value={catName} onChange={e => setCatName(e.target.value)} placeholder="分类名" style={{ padding: '6px 10px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, width: 100 }} />
@@ -405,8 +417,8 @@ export default function MonitorProductsPage() {
 const btnPrimary: React.CSSProperties = { padding: '8px 16px', background: '#1677ff', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 14 }
 const btnSecondary: React.CSSProperties = { padding: '6px 12px', background: '#fff', border: '1px solid #d9d9d9', borderRadius: 6, cursor: 'pointer', fontSize: 13 }
 const btnSmall: React.CSSProperties = { padding: '2px 8px', background: '#f0f0f0', border: '1px solid #d9d9d9', borderRadius: 4, cursor: 'pointer', fontSize: 12 }
-const thStyle: React.CSSProperties = { textAlign: 'left', padding: '8px 10px', fontWeight: 600, color: '#333', whiteSpace: 'nowrap' }
-const tdStyle: React.CSSProperties = { padding: '8px 10px', color: '#555' }
+const thStyle: React.CSSProperties = { textAlign: 'left', padding: '4px 8px', fontWeight: 600, color: '#333', whiteSpace: 'nowrap', fontSize: 12 }
+const tdStyle: React.CSSProperties = { padding: '3px 8px', color: '#555', fontSize: 12 }
 const inputFull: React.CSSProperties = { padding: '6px 10px', border: '1px solid #d9d9d9', borderRadius: 6, fontSize: 14, width: '100%' }
 const modalOverlay: React.CSSProperties = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }
 const modalContent: React.CSSProperties = { background: '#fff', borderRadius: 8, padding: 24, width: 500, maxHeight: '85vh', overflow: 'auto' }

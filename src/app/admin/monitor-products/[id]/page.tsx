@@ -2,7 +2,7 @@
 
 import { apiFetch } from '@/lib/utils'
 import { useAuth } from '@/lib/auth-context'
-import { useParams, useRouter } from 'next/navigation'
+import { useParams, useRouter, useSearchParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
 
 interface MonitorProduct { id: number; name: string; brand: string | null; description: string | null
@@ -13,12 +13,13 @@ interface MonitorProduct { id: number; name: string; brand: string | null; descr
 }
 interface ImportBatch { id: number; file_name: string; import_time: string; total_count: number; ad_count: number; valid_count: number; imported_by_name: string }
 interface Product { product_id: string; title: string; shop_name: string; main_image_url: string; image_url: string; price: number; sales: number; seller_name: string; shop_id?: string; platform: string; shop_type: string; location?: string; url?: string; product_url?: string; is_approved: boolean; import_batch_id?: number }
-interface SkuCategory { id: number; name: string; unit: string; conversion_factor: number }
+interface SkuCategory { id: number; name: string; unit: string; conversion_factor: number; keywords?: string }
 interface Alert { id: number; product_id: string; product_title: string; alert_type: string; message: string; is_handled: boolean; created_at: string }
 type Tab = 'info' | 'imports' | 'products' | 'skus' | 'alerts'
 
 export default function MonitorProductDetail() {
   const params = useParams(); const router = useRouter()
+  const searchParams = useSearchParams()
   const id = parseInt(params.id as string)
   const { user } = useAuth(); const canWrite = user?.role === 'admin' || user?.role === 'manager'
   const [tab, setTab] = useState<Tab>('info')
@@ -53,6 +54,16 @@ export default function MonitorProductDetail() {
   const [delBatch, setDelBatch] = useState<ImportBatch | null>(null)
   const [delProduct, setDelProduct] = useState<Product | null>(null)
   const [delLoading, setDelLoading] = useState(false)
+  // Batch selection state
+  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set())
+  const [batchCategoryModal, setBatchCategoryModal] = useState(false)
+  const [batchCategoryId, setBatchCategoryId] = useState<number | null>(null)
+  const [batchWhitelistModal, setBatchWhitelistModal] = useState(false)
+  const [batchDeleteModal, setBatchDeleteModal] = useState(false)
+  const [batchLoading, setBatchLoading] = useState(false)
+  const [testInput, setTestInput] = useState('')
+  const [testResults, setTestResults] = useState<any[] | null>(null)
+  const [testLoading, setTestLoading] = useState(false)
   const [chartPid, setChartPid] = useState<string | null>(null)
   const [chartData, setChartData] = useState<any[]>([])
   const [chartLoading, setChartLoading] = useState(false)
@@ -95,6 +106,13 @@ export default function MonitorProductDetail() {
     setTotalProductCount(r.total || 0); setUnclassifiedCount(r.unclassified || 0)
   }
   useEffect(() => { fetchCounts() }, [id])
+  // Auto-switch tab from URL param
+  useEffect(() => {
+    const tabParam = searchParams.get('tab')
+    if (tabParam && ['info','imports','products','skus','alerts'].includes(tabParam)) {
+      setTab(tabParam as Tab)
+    }
+  }, [searchParams])
 
   // Reload products when category filter changes
   const refreshProducts = async (filterId?: number | null) => {
@@ -133,6 +151,10 @@ export default function MonitorProductDetail() {
     }
     f[tab]?.().catch(()=>{})
   }, [id, tab])
+
+  // Clear batch selection when tab or filters change
+  useEffect(() => { setSelectedProductIds(new Set()) }, [tab])
+  useEffect(() => { setSelectedProductIds(new Set()) }, [catFilter, statusFilter, onlyNew, onlyLatest, excludeWhitelist])
 
   const saveEdit = async () => {
     try {
@@ -195,6 +217,60 @@ export default function MonitorProductDetail() {
     else { setProdSort(k); setProdSortDir('asc') }
   }
 
+  // Batch selection handlers
+  const handleSelectAllProducts = () => {
+    if (pagedProds.length > 0 && selectedProductIds.size === pagedProds.length) {
+      setSelectedProductIds(new Set())
+    } else {
+      setSelectedProductIds(new Set(pagedProds.map(p => p.product_id)))
+    }
+  }
+  const handleToggleProductSelect = (pid: string) => {
+    const next = new Set(selectedProductIds)
+    if (next.has(pid)) { next.delete(pid) } else { next.add(pid) }
+    setSelectedProductIds(next)
+  }
+
+  // Batch action functions
+  const batchAssignCategory = async () => {
+    if (selectedProductIds.size === 0 || batchCategoryId === null) return
+    try {
+      await apiFetch(`/api/monitor-products/${id}/products/batch-category`, {
+        method: 'POST',
+        body: JSON.stringify({ product_ids: Array.from(selectedProductIds), sku_category_id: batchCategoryId === 0 ? null : batchCategoryId }),
+      })
+      setBatchCategoryModal(false)
+      setSelectedProductIds(new Set())
+      await Promise.all([refreshProducts(), fetchCounts()])
+    } catch (err) { console.error('批量修改分类失败:', err) }
+  }
+  const batchAddToWhitelist = async () => {
+    if (selectedProductIds.size === 0) return
+    try {
+      await apiFetch(`/api/monitor-products/${id}/products/batch-whitelist`, {
+        method: 'POST',
+        body: JSON.stringify({ product_ids: Array.from(selectedProductIds) }),
+      })
+      setBatchWhitelistModal(false)
+      setSelectedProductIds(new Set())
+      fetchMp()
+    } catch (err) { console.error('批量加入白名单失败:', err) }
+  }
+  const batchDeleteProducts = async () => {
+    if (selectedProductIds.size === 0) return
+    setBatchLoading(true)
+    try {
+      await apiFetch(`/api/monitor-products/${id}/products/batch-delete`, {
+        method: 'POST',
+        body: JSON.stringify({ product_ids: Array.from(selectedProductIds) }),
+      })
+      setBatchDeleteModal(false)
+      setSelectedProductIds(new Set())
+      await Promise.all([refreshProducts(), fetchCounts()])
+    } catch (err) { console.error('批量删除失败:', err) }
+    finally { setBatchLoading(false) }
+  }
+
   if (loading || !mp) return <div style={{ padding: 24, color: '#999' }}>加载中...</div>
 
   const tabs: { key: Tab; label: string }[] = [
@@ -204,12 +280,14 @@ export default function MonitorProductDetail() {
   ]
 
   return (
-    <div style={{ padding: 24 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <div>
-          <a href="/admin/monitor-products" style={{ color: '#1677ff', fontSize: 13 }}>← 返回列表</a>
-          <h1 style={{ fontSize: 22, fontWeight: 700, marginTop: 4 }}>{mp.name}</h1>
-          {mp.brand && <span style={{ color: '#6b7280', fontSize: 14 }}>{mp.brand}</span>}
+    <div style={{ padding: '12px 24px 24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, minWidth: 0 }}>
+          <a href="/admin/monitor-products" style={{ color: '#1677ff', fontSize: 13, whiteSpace: 'nowrap' }}>← 返回</a>
+          <h1 style={{ fontSize: 18, fontWeight: 700, margin: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {mp.brand && <span style={{ color: '#16a34a', fontSize: 18, fontWeight: 700, marginRight: 4 }}>{mp.brand} · </span>}
+            {mp.name}
+          </h1>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           {canWrite && <button onClick={() => router.push(`/admin/monitor-products/${id}/import`)} style={btnPrimary}>导入数据</button>}
@@ -217,9 +295,9 @@ export default function MonitorProductDetail() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 20 }}>
+      <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid #e5e7eb', marginBottom: 4 }}>
         {tabs.map(t => (
-          <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer', borderBottom: tab===t.key ? '2px solid #1677ff' : '2px solid transparent', color: tab===t.key ? '#1677ff' : '#6b7280', fontWeight: tab===t.key ? 600 : 400, fontSize: 14 }}>{t.label}</button>
+          <button key={t.key} onClick={() => setTab(t.key)} style={{ padding: '6px 14px', border: 'none', background: 'none', cursor: 'pointer', borderBottom: tab===t.key ? '2px solid #1677ff' : '2px solid transparent', color: tab===t.key ? '#1677ff' : '#6b7280', fontWeight: tab===t.key ? 600 : 400, fontSize: 13 }}>{t.label}</button>
         ))}
       </div>
 
@@ -321,7 +399,7 @@ export default function MonitorProductDetail() {
             ))}
             <button onClick={() => setCatFilter(0)} style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #d9d9d9',background:catFilter===0?'#ef4444':'#fff',color:catFilter===0?'#fff':'#666',cursor:'pointer' }}>未分类({unclassifiedCount})</button>
             {catFilter === 0 && canWrite && (
-              <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); await refreshProducts(); fetchCounts() }}
+              <button onClick={async () => { if(!confirm('一键应用系统推荐分类？')) return; const r = await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); await Promise.all([refreshProducts(), fetchCounts()]) }}
                 style={{ padding:'2px 8px',fontSize:11,borderRadius:4,border:'1px solid #16a34a',background:'#16a34a',color:'#fff',cursor:'pointer' }}>⚡一键应用推荐</button>
             )}
             <span style={{ fontSize: 12, color: '#999', whiteSpace: 'nowrap' }}>状态:</span>
@@ -374,10 +452,37 @@ export default function MonitorProductDetail() {
             )}
             <button onClick={() => { setFilters({ title:'',pid:'',minPrice:'',maxPrice:'',minSales:'',maxSales:'',seller:'',shop:'',location:'' }); setOnlyNew(false); setOnlyLatest(false); setExcludeWhitelist(false); setProdPage(1) }}
               style={{ ...btnSecondary, fontSize: 12, padding: '3px 10px' }}>清除筛选</button>
+            {/* Inline batch actions */}
+            {selectedProductIds.size > 0 && canWrite && (
+              <>
+                <span style={{ fontSize:12,color:'#1d4ed8',fontWeight:500,marginLeft:8 }}>已选{selectedProductIds.size}个</span>
+                <button onClick={() => { setBatchCategoryModal(true); setBatchCategoryId(null) }}
+                  style={{ padding:'3px 8px',fontSize:11,background:'#fff',border:'1px solid #1677ff',color:'#1677ff',borderRadius:4,cursor:'pointer' }}>修改分类</button>
+                <button onClick={() => setBatchWhitelistModal(true)}
+                  style={{ padding:'3px 8px',fontSize:11,background:'#fff',border:'1px solid #16a34a',color:'#16a34a',borderRadius:4,cursor:'pointer' }}>加入白名单</button>
+                <button onClick={() => setBatchDeleteModal(true)}
+                  style={{ padding:'3px 8px',fontSize:11,background:'#fff',border:'1px solid #dc2626',color:'#dc2626',borderRadius:4,cursor:'pointer' }}>批量删除</button>
+                <button onClick={async () => {
+                  const token = localStorage.getItem('auth_token')
+                  const body = JSON.stringify({ product_ids: Array.from(selectedProductIds) })
+                  const res = await fetch(`/api/monitor-products/${id}/products/history/export`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body })
+                  if (!res.ok) { const err = await res.text(); alert('导出失败: '+err); return }
+                  const blob = await res.blob(); const url = URL.createObjectURL(blob)
+                  const a = document.createElement('a'); a.href = url
+                  a.download = `price_history_${new Date().toISOString().slice(0,16).replace('T','_').replace(/:/g,'')}.xlsx`
+                  a.click(); URL.revokeObjectURL(url)
+                }}
+                  style={{ padding:'3px 8px',fontSize:11,background:'#fff',border:'1px solid #8b5cf6',color:'#8b5cf6',borderRadius:4,cursor:'pointer' }}>导出历史</button>
+                <button onClick={() => setSelectedProductIds(new Set())}
+                  style={{ padding:'3px 8px',fontSize:11,background:'#f3f4f6',border:'1px solid #d1d5db',color:'#6b7280',borderRadius:4,cursor:'pointer' }}>取消</button>
+              </>
+            )}
           </div>
-          <div style={{ maxHeight: 'calc(100vh - 370px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
+          <div style={{ maxHeight: 'calc(100vh - 230px)', overflow: 'auto', border: '1px solid #e5e7eb', borderRadius: 8 }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
               <thead><tr style={{ background: '#fafafa', position: 'sticky', top: 0, zIndex: 1 }}>
+                {canWrite && <th style={{...thStyle,width:36}}><input type="checkbox" checked={pagedProds.length > 0 && selectedProductIds.size === pagedProds.length} onChange={handleSelectAllProducts} style={{cursor:'pointer'}} /></th>}
                 <th style={{...thStyle,width:40}}>#</th>
                 <th style={{...thStyle,width:90}}>图片</th>
                 <th style={{...thStyle,width:120}}>商品ID</th>
@@ -388,6 +493,7 @@ export default function MonitorProductDetail() {
                 <th style={{...thStyle,width:70,cursor:'pointer'}} onClick={()=>toggleProdSort('sales')}>销量{prodSortIndicator('sales')}</th>
                 <th style={{...thStyle,width:60,cursor:'pointer'}} onClick={()=>toggleProdSort('platform')}>平台{prodSortIndicator('platform')}</th>
                 <th style={{...thStyle,width:90,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_type')}>店铺类型{prodSortIndicator('shop_type')}</th>
+                {mp?.platform !== 'jd' && <th style={{...thStyle,width:80,cursor:'pointer'}} onClick={()=>toggleProdSort('seller_name')}>掌柜名{prodSortIndicator('seller_name')}</th>}
                 <th style={{...thStyle,width:160,cursor:'pointer'}} onClick={()=>toggleProdSort('shop_name')}>店铺名称{prodSortIndicator('shop_name')}</th>
                 {mp?.platform !== 'jd' && <th style={{...thStyle,width:80,cursor:'pointer'}} onClick={()=>toggleProdSort('location')}>发货地{prodSortIndicator('location')}</th>}
                 <th style={{...thStyle,width:85,cursor:'pointer'}} onClick={()=>toggleProdSort('unit_price')}>单克价{prodSortIndicator('unit_price')}</th>
@@ -397,6 +503,7 @@ export default function MonitorProductDetail() {
               <tbody>
                 {pagedProds.map((p, i) => (
                   <tr key={p.product_id} style={{ borderBottom: '1px solid #f0f0f0' }}>
+                    {canWrite && <td style={{...tdStyle,width:36}}><input type="checkbox" checked={selectedProductIds.has(p.product_id)} onChange={() => handleToggleProductSelect(p.product_id)} style={{cursor:'pointer'}} /></td>}
                     <td style={{...tdStyle,color:'#999',fontSize:12}}>{(prodPage-1)*prodPageSize+i+1}</td>
                     <td style={tdStyle}>
                       {(p.image_url || p.main_image_url) ? (
@@ -429,6 +536,7 @@ export default function MonitorProductDetail() {
                     <td style={tdStyle}>{p.sales?.toLocaleString()||'-'}</td>
                     <td style={tdStyle}>{(p.platform||'') === 'jd' ? '京东' : '淘天'}</td>
                     <td style={tdStyle}>{p.shop_type||'-'}</td>
+                    {mp?.platform !== 'jd' && <td style={{...tdStyle,fontSize:12}}>{p.seller_name||'-'}</td>}
                     <td style={{...tdStyle,fontSize:12}}>{p.shop_name||'-'}</td>
                     {mp?.platform !== 'jd' && <td style={{...tdStyle,fontSize:11,color:'#999'}}>{p.location||'-'}</td>}
                     <td style={{...tdStyle,fontWeight:600,color:Number((p as any).unit_price) > 0 && Number((p as any).unit_price) < 0.5 ? '#dc2626' : '#16a34a'}}>{(p as any).unit_price ? `¥${Number((p as any).unit_price).toFixed(4)}` : '-'}</td>
@@ -459,7 +567,12 @@ export default function MonitorProductDetail() {
           </div>
           {/* Pagination + count + page size — all at bottom */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-            <span style={{ fontSize: 12, color: '#999' }}>共 {filteredProds.length}/{products.length} 条</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ fontSize: 12, color: '#666' }}>每页</span>
+              <select value={prodPageSize} onChange={e => { setProdPageSize(parseInt(e.target.value)); setProdPage(1) }} style={{ padding: '2px 6px', border: '1px solid #d9d9d9', borderRadius: 4, fontSize: 12 }}>
+                {[20,50,100,99999].map(s => <option key={s} value={s}>{s>=99999?'全部':s}</option>)}
+              </select><span style={{ fontSize: 12, color: '#666' }}>条</span>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
               <button onClick={()=>setProdPage(1)} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>«</button>
               <button onClick={()=>setProdPage(p=>Math.max(1,p-1))} disabled={prodPage<=1} style={pageBtn(prodPage<=1)}>‹</button>
@@ -471,12 +584,7 @@ export default function MonitorProductDetail() {
               <button onClick={()=>setProdPage(p=>Math.min(prodTotalPages,p+1))} disabled={prodPage>=prodTotalPages} style={pageBtn(prodPage>=prodTotalPages)}>›</button>
               <button onClick={()=>setProdPage(prodTotalPages)} disabled={prodPage>=prodTotalPages} style={pageBtn(prodPage>=prodTotalPages)}>»</button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ fontSize: 12, color: '#666' }}>每页</span>
-              <select value={prodPageSize} onChange={e => { setProdPageSize(parseInt(e.target.value)); setProdPage(1) }} style={{ padding: '2px 6px', border: '1px solid #d9d9d9', borderRadius: 4, fontSize: 12 }}>
-                {[20,50,100,99999].map(s => <option key={s} value={s}>{s>=99999?'全部':s}</option>)}
-              </select><span style={{ fontSize: 12, color: '#666' }}>条</span>
-            </div>
+            <span style={{ fontSize: 12, color: '#999' }}>共 {filteredProds.length}/{products.length} 条</span>
           </div>
         </div>
       )}
@@ -494,17 +602,64 @@ export default function MonitorProductDetail() {
               <p style={{fontSize:12}}>在下方或监控商品列表页添加</p>
             </div>
           ) : (
-            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:16}}>
-              {categories.map(c => (
-                <span key={c.id} style={{padding:'6px 14px',background:'#e0e7ff',color:'#3730a3',borderRadius:16,fontSize:13,border:'1px solid #c7d2fe',display:'flex',alignItems:'center',gap:6}}>
-                  {c.name}（{c.unit||'单位未设'}，×{c.conversion_factor}）
-                  {canWrite && (
-                    <button onClick={async () => { if(!confirm('删除分类？')) return; await apiFetch(`/api/monitor-products/${id}/sku-categories/${c.id}`,{method:'DELETE'}); const r=await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r.items||[]) }}
-                      style={{marginLeft:2,background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:14,lineHeight:1}}>×</button>
-                  )}
-                </span>
-              ))}
+            <>
+              {canWrite && <div style={{marginBottom:12}}>
+                <button onClick={async () => { if(!confirm('使用最新关键词重新匹配所有未分类商品？已手动分类的不会被覆盖。')) return; const r=await apiFetch(`/api/monitor-products/${id}/apply-recommendations`,{method:'POST'}); alert(r.msg); fetchCounts() }}
+                  style={{padding:'6px 14px',background:'#16a34a',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:13}}>🔄 一键重分类未分类商品</button>
+              </div>}
+              <div style={{display:'flex',flexDirection:'column',gap:12,marginBottom:16,maxWidth:550}}>
+              {categories.map(c => { const kws = (c.keywords || '').split(',').map(k => k.trim()).filter(Boolean)
+                const saveKw = async (newKws: string[]) => {
+                  const cleaned = [...new Set(newKws.map(kw => kw.trim().toLowerCase()).filter(Boolean))]
+                  await apiFetch(`/api/monitor-products/${id}/sku-categories/${c.id}/keywords`, {method:'PUT', body:JSON.stringify({keywords: cleaned.join(',')})})
+                  const r = await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r.items||[])
+                }
+                return (
+                  <div key={c.id} style={{border:'1px solid #e5e7eb',borderRadius:8,padding:12,background:'#fff'}}>
+                    <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:6}}>
+                      <span style={{padding:'4px 12px',background:'#e0e7ff',color:'#3730a3',borderRadius:16,fontSize:13,border:'1px solid #c7d2fe'}}>{c.name}（{c.unit||'单位未设'}，×{c.conversion_factor}）</span>
+                      {canWrite && <button onClick={async () => { if(!confirm('删除分类？')) return; await apiFetch(`/api/monitor-products/${id}/sku-categories/${c.id}`,{method:'DELETE'}); const r=await apiFetch(`/api/monitor-products/${id}/sku-categories`); setCategories(r.items||[]) }} style={{background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:14,lineHeight:1}}>×</button>}
+                    </div>
+                    <div style={{display:'flex',flexWrap:'wrap',gap:4,alignItems:'center'}}>
+                      <span style={{fontSize:11,color:'#999'}}>关键词:</span>
+                      {kws.map(kw => <span key={kw} style={{padding:'1px 6px',background:'#dbeafe',color:'#1d4ed8',borderRadius:10,fontSize:11,border:'1px solid #bfdbfe',display:'flex',alignItems:'center',gap:2}}>{kw}{canWrite && <button onClick={async () => { await saveKw(kws.filter(k => k !== kw)) }} style={{background:'none',border:'none',color:'#94a3b8',cursor:'pointer',fontSize:11,lineHeight:1,padding:0}}>×</button>}</span>)}
+                      {canWrite && <input placeholder="+添加" style={{width:44,padding:'0px 4px',border:'1px dashed #d9d9d9',borderRadius:4,fontSize:10,outline:'none'}} onKeyDown={e => { if(e.key==='Enter'){ const inp=e.target as HTMLInputElement; const v=inp.value.trim(); if(v){ saveKw([...kws,v]); inp.value='' } }}} />}
+                      {kws.length===0 && !canWrite && <span style={{fontSize:11,color:'#d1d5db'}}>暂无</span>}
+                    </div>
+                  </div>)
+              })}
             </div>
+            {/* Rule test area */}
+            {canWrite && (
+                <div style={{marginTop:8,border:'1px solid #e5e7eb',borderRadius:8,padding:14,background:'#fafafa',maxWidth:550}}>
+                  <h4 style={{fontSize:14,fontWeight:600,marginBottom:8}}>🔬 规则测试</h4>
+                  <p style={{fontSize:11,color:'#999',marginBottom:8}}>输入商品标题，测试当前分类规则的匹配效果（每行一个标题）</p>
+                  <textarea value={testInput} onChange={e => setTestInput(e.target.value)}
+                    placeholder={"蒙牛一米八八儿童奶粉 300g*2袋\n完达山学乐奶粉 800g罐装"}
+                    rows={3} style={{width:'100%',padding:'6px 10px',border:'1px solid #d9d9d9',borderRadius:6,fontSize:13,resize:'vertical',outline:'none',marginBottom:8}} />
+                  <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                    <button onClick={async () => {
+                      if(!testInput.trim()) return; setTestLoading(true); setTestResults(null)
+                      try { const r=await apiFetch(`/api/monitor-products/${id}/test-category-match`,{method:'POST',body:JSON.stringify({titles:testInput})}); setTestResults(r.results||[]) }
+                      catch { setTestResults([]) } finally { setTestLoading(false) }
+                    }} disabled={testLoading} style={{padding:'5px 14px',background:'#1677ff',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:12}}>
+                      {testLoading ? '测试中...' : '测试匹配'}
+                    </button>
+                  </div>
+                  {testResults && (
+                    <div style={{marginTop:10,fontSize:12}}>
+                      <div style={{color:'#999',marginBottom:4}}>匹配结果 ({testResults.filter((r:any)=>r.is_matched).length}/{testResults.length})：</div>
+                      {testResults.map((r:any,i:number) => (
+                        <div key={i} style={{padding:'4px 8px',marginBottom:2,borderRadius:4,background:r.is_matched?'#f0fdf4':'#fef2f2',border:`1px solid ${r.is_matched?'#bbf7d0':'#fecaca'}`}}>
+                          {r.is_matched ? '✅' : '⚠️'} {r.title} → {r.is_matched ? <><b>{r.category_name}</b><span style={{color:'#999',marginLeft:4}}>(匹配: {r.matched_keyword})</span></> : <span style={{color:'#dc2626'}}>未匹配</span>}
+                        </div>
+                      ))}
+                      {testResults.length===0 && <span style={{color:'#999'}}>无结果</span>}
+                    </div>
+                  )}
+                </div>
+            )}
+            </>
           )}
           <p style={{color:'#6b7280',fontSize:12,padding:12,textAlign:'center'}}>
             分类管理请前往 <a href="/admin/monitor-products" style={{color:'#1677ff'}}>商品监控列表页</a> — 展开商品对应的「分类」面板增删
@@ -554,7 +709,7 @@ export default function MonitorProductDetail() {
                   <td style={tdStyle}>{a.created_at?new Date(a.created_at).toLocaleString('zh-CN'):'-'}</td>
                   <td style={{...tdStyle,fontFamily:'monospace',fontSize:12}}>{a.product_id}</td>
                   <td style={tdStyle}>{a.product_title||'-'}</td>
-                  <td style={tdStyle}>{a.alert_type==='price'?'💰价格':'📈销量'}</td>
+                  <td style={tdStyle}>{a.alert_type==='price'?'💰价格':a.alert_type==='price_drop'?'📉降价':'📈销量'}</td>
                   <td style={tdStyle}>{(a as any).alert_value||'-'}</td>
                   <td style={tdStyle}>{(a as any).threshold||'-'}</td>
                   <td style={{...tdStyle,fontSize:12}}>{a.message}</td>
@@ -563,6 +718,9 @@ export default function MonitorProductDetail() {
               </table>
             </div>
           )}
+          <div style={{marginTop:12,textAlign:'center'}}>
+            <a href={`/admin/alerts?monitor_product_id=${id}`} style={{color:'#1677ff',fontSize:12}}>前往预警中心 → 查看全部预警、批量处理、导出</a>
+          </div>
         </div>
       )}
       {/* History chart modal */}
@@ -639,6 +797,68 @@ export default function MonitorProductDetail() {
           </div>
         </div>
       )}
+
+      {/* Batch category modal */}
+      {batchCategoryModal && (
+        <div style={modalOverlay}>
+          <div style={{...modalContent,width:420}}>
+            <h3 style={{fontSize:16,fontWeight:600,marginBottom:8}}>批量修改分类</h3>
+            <p style={{fontSize:13,color:'#6b7280',marginBottom:12}}>将选中的 {selectedProductIds.size} 个商品统一修改为指定分类</p>
+            <select value={batchCategoryId ?? ''} onChange={e => setBatchCategoryId(e.target.value ? parseInt(e.target.value) : null)}
+              style={{width:'100%',padding:'6px 10px',border:'1px solid #d9d9d9',borderRadius:6,fontSize:14,marginBottom:16}}>
+              <option value="">请选择分类...</option>
+              <option value={0}>未分类（清除分类）</option>
+              {categories.map((c:any) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={() => setBatchCategoryModal(false)} style={btnSecondary}>取消</button>
+              <button onClick={batchAssignCategory} disabled={batchCategoryId === null}
+                style={{...btnPrimary,opacity:batchCategoryId===null?0.5:1}}>确认修改</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch whitelist modal */}
+      {batchWhitelistModal && (
+        <div style={modalOverlay}>
+          <div style={{...modalContent,width:440}}>
+            <h3 style={{fontSize:16,fontWeight:600,marginBottom:8}}>批量加入白名单</h3>
+            <p style={{fontSize:14,color:'#6b7280',marginBottom:12}}>将从选中的 {selectedProductIds.size} 个商品中提取掌柜名称，合并到当前监控商品的白名单中。</p>
+            <p style={{fontSize:13,color:'#6b7280',marginBottom:12,background:'#f9fafb',padding:8,borderRadius:6}}>系统会自动去重，已存在的掌柜名称不会被重复添加。</p>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={() => setBatchWhitelistModal(false)} style={btnSecondary}>取消</button>
+              <button onClick={batchAddToWhitelist} style={{...btnPrimary,background:'#16a34a'}}>确认加入</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Batch delete modal */}
+      {batchDeleteModal && (
+        <div style={modalOverlay}>
+          <div style={{...modalContent,width:440}}>
+            <h3 style={{fontSize:16,fontWeight:600,marginBottom:8}}>批量删除商品</h3>
+            <p style={{fontSize:14,color:'#6b7280',marginBottom:12}}>确定要删除选中的 {selectedProductIds.size} 个商品及其所有关联数据？</p>
+            <div style={{fontSize:13,marginBottom:12,background:'#fef2f2',padding:8,borderRadius:6,color:'#dc2626'}}>
+              <p style={{fontWeight:500,marginBottom:4}}>⚠ 将同时删除以下关联数据：</p>
+              <ul style={{margin:0,paddingLeft:20,fontSize:12}}>
+                <li>价格历史记录 (ProductHistory)</li>
+                <li>SKU 数据 (ProductSku)</li>
+                <li>商品关键词 (ProductKeyword)</li>
+                <li>关联预警记录 (Alert)</li>
+              </ul>
+              <p style={{marginTop:8,fontSize:12,color:'#991b1b'}}>此操作不可撤销！</p>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={() => setBatchDeleteModal(false)} style={btnSecondary} disabled={batchLoading}>取消</button>
+              <button onClick={batchDeleteProducts} style={{...btnPrimary,background:'#dc2626'}} disabled={batchLoading}>
+                {batchLoading ? '删除中...' : `确认删除 (${selectedProductIds.size})`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -647,8 +867,8 @@ const InfoRow = ({label,value}:{label:string;value:string|null})=><div style={{d
 const pageBtn=(d:boolean):React.CSSProperties=>({padding:'3px 10px',border:'1px solid #d9d9d9',borderRadius:4,background:'#fff',cursor:d?'not-allowed':'pointer',fontSize:13,opacity:d?0.5:1})
 const btnPrimary:React.CSSProperties={padding:'8px 16px',background:'#1677ff',color:'#fff',border:'none',borderRadius:6,cursor:'pointer',fontSize:14}
 const btnSecondary:React.CSSProperties={padding:'6px 12px',background:'#fff',border:'1px solid #d9d9d9',borderRadius:6,cursor:'pointer',fontSize:13}
-const thStyle:React.CSSProperties={textAlign:'left',padding:'8px 10px',fontWeight:600,fontSize:12,color:'#666',whiteSpace:'nowrap'}
-const tdStyle:React.CSSProperties={padding:'8px 10px',color:'#555',fontSize:13}
+const thStyle:React.CSSProperties={textAlign:'left',padding:'4px 8px',fontWeight:600,fontSize:11,color:'#666',whiteSpace:'nowrap'}
+const tdStyle:React.CSSProperties={padding:'3px 8px',color:'#555',fontSize:12}
 const inputStyle:React.CSSProperties={padding:'6px 10px',border:'1px solid #d9d9d9',borderRadius:6,fontSize:14,width:'100%'}
 const labelStyle:React.CSSProperties={display:'block',fontSize:13,fontWeight:500,marginBottom:2,color:'#374151'}
 const modalOverlay:React.CSSProperties={position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.45)',display:'flex',justifyContent:'center',alignItems:'center',zIndex:1000}
