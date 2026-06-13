@@ -67,12 +67,23 @@ class SkuNormalizer:
                 # 有自定义分类：构建关键词规则
                 for cat in self._categories:
                     name = cat["name"]
+                    # 从默认规则中匹配关键词
+                    matched_default = False
                     for rule_name, keywords in DEFAULT_CATEGORY_RULES.items():
                         if rule_name in name or name in rule_name:
-                            self._rules[name] = keywords
+                            self._rules[name] = list(keywords)
+                            matched_default = True
                             break
-                    else:
+                    if not matched_default:
                         self._rules[name] = [name]
+                    # 加载自学习关键词（从SkuCategory.keywords字段，逗号分隔）
+                    self_learned = (cat.get("keywords") or "").strip()
+                    if self_learned:
+                        learned_list = [kw.strip().lower() for kw in self_learned.split(",") if kw.strip()]
+                        for kw in learned_list:
+                            if kw not in self._rules[name]:
+                                self._rules[name].append(kw)
+                        logger.debug("加载自学习关键词: cat=%s keywords=%s", name, learned_list)
             else:
                 # 无自定义分类：使用所有默认规则
                 for name, keywords in DEFAULT_CATEGORY_RULES.items():
@@ -109,6 +120,39 @@ class SkuNormalizer:
                 for cat in self._categories:
                     if cat['name'].startswith(base):
                         return cat
+        return None
+
+    def match_sku_category_with_detail(self, sku_name: str) -> dict | None:
+        """匹配分类并返回命中关键词详情（供测试端点使用）"""
+        if not sku_name or not self._rules:
+            return None
+        # 1. Keyword matching
+        for cat in self._categories:
+            name = cat["name"]
+            keywords = self._rules.get(name, [name])
+            for kw in keywords:
+                if kw in sku_name:
+                    return {
+                        "category_id": cat["id"],
+                        "category_name": name,
+                        "matched_keyword": kw,
+                        "match_type": "keyword",
+                    }
+        # 2. Weight fallback
+        weight_cat_map = {'25':'条装','300':'袋装','400':'袋装','500':'袋装','800':'罐装','900':'罐装','1000':'罐装','1100':'罐装','1200':'罐装'}
+        import re as _re
+        m = _re.search(r'(\d+)\s*g', sku_name.lower())
+        if m:
+            base = weight_cat_map.get(m.group(1))
+            if base:
+                for cat in self._categories:
+                    if cat['name'].startswith(base):
+                        return {
+                            "category_id": cat["id"],
+                            "category_name": cat["name"],
+                            "matched_keyword": f"重量推断({m.group(1)}g)",
+                            "match_type": "weight",
+                        }
         return None
 
     def extract_quantity(self, sku_name: str) -> int:
