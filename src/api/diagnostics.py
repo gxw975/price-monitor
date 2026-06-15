@@ -141,7 +141,7 @@ def _check_cron() -> dict[str, Any]:
         marker = "电商低价监控系统"
         if marker in result.stdout:
             lines = result.stdout.count("\n")
-            crawl_patterns = [p for p in ["run_sku_crawl.py", "check_alerts.py", "pg_dump"] if p in result.stdout]
+            crawl_patterns = [p for p in ["check_alerts.py", "pg_dump"] if p in result.stdout]
             return {
                 "name": "定时任务",
                 "status": "ok",
